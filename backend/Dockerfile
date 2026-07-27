@@ -18,6 +18,6 @@ FROM alpine:3.20
 RUN apk add --no-cache ca-certificates tzdata
 WORKDIR /app
 COPY --from=backend-builder /app/pichub .
-COPY backend/config.json .
+COPY backend/config/config.json .
 EXPOSE 5721
 CMD ["./pichub"]
