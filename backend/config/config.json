@@ -1,0 +1,20 @@
+{
+  "settings": {
+    "proxy_mode": false,
+    "cache_max_mb": 200,
+    "cache_ttl": 60,
+    "min_resolution": "640x480",
+    "rate_limit": 60,
+    "timeout": 3000
+  },
+  "sources": [
+    {
+      "name": "Picsum Photos",
+      "url": "https://picsum.photos/200",
+      "resp_type": "redirect",
+      "json_path": "",
+      "weight": 10,
+      "categories": ["avatar", "landscape"]
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+name = "pichub-community"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+[[kv_namespaces]]
+binding = "RULES_KV"
+id = ""
+preview_id = ""
+
+[[kv_namespaces]]
+binding = "VOTES_KV"
+id = ""
+preview_id = ""
+
+[[kv_namespaces]]
+binding = "COMMENTS_KV"
+id = ""
+preview_id = ""
+
+[[kv_namespaces]]
+binding = "RATELIMIT_KV"
+id = ""
+preview_id = ""

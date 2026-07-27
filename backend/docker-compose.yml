@@ -1,0 +1,15 @@
+services:
+  pichub:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    ports:
+      - "5721:5721"
+    volumes:
+      - ./data:/app/data
+      - ./cache:/app/cache
+    environment:
+      - PORT=5721
+      - DB_PATH=/app/data/pichub.db
+      - CACHE_PATH=/app/cache
+    restart: unless-stopped

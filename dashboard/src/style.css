@@ -1,0 +1,68 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    background-color: #F4F6F8;
+    color: #22303C;
+    font-family: 'Noto Sans SC', 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  }
+
+  /* Custom scrollbar for Morandi theme */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #F4F6F8;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #CBD6E2;
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #98A8B7;
+  }
+}
+
+@layer utilities {
+  .morandi-glass {
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(210, 219, 228, 0.8);
+  }
+
+  .morandi-card {
+    background: #FFFFFF;
+    border: 1px solid #E1E7EE;
+    border-radius: 1rem;
+    box-shadow: 0 4px 20px -2px rgba(74, 107, 130, 0.08);
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .morandi-card:hover {
+    box-shadow: 0 10px 28px -4px rgba(74, 107, 130, 0.15);
+    transform: translateY(-1px);
+  }
+
+  .morandi-input {
+    background-color: #F8FAFC;
+    border: 1px solid #D2DBE4;
+    color: #22303C;
+    border-radius: 0.625rem;
+    transition: all 0.2s ease;
+  }
+
+  .morandi-input:focus {
+    background-color: #FFFFFF;
+    border-color: #4A6B82;
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(74, 107, 130, 0.2);
+  }
+}
+
+
+
+

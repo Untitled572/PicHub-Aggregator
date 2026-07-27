@@ -1,0 +1,13 @@
+backend/pichub
+backend/data/
+backend/cache/
+backend/embed/dist/
+dashboard/node_modules/
+dashboard/dist/
+community/frontend/node_modules/
+community/frontend/dist/
+*.db
+prd.md
+.~prd.md
+DEVELOPMENT_PLAN.md
+DEVELOPMENT_PROMPT.md
