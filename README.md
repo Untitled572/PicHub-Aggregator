@@ -80,19 +80,40 @@
 
 ### 方式一：Docker Compose 一键部署 (推荐)
 
-项目根目录已准备好 Compose 配置文件：
+项目已提供 Docker Compose 配置文件，默认使用 **host 网络模式**（容器直接占用宿主机端口，性能更高，无 NAT 转换）：
 
 ```bash
-# 启动容器服务
-docker compose -f backend/docker-compose.yml up -d --build
+# 1. 拉取镜像（首次使用）
+docker pull ghcr.io/untitled572/pichub-aggregator:latest
+
+# 2. 启动服务
+docker compose -f docs/docker-compose.yml up -d
+
+# 3. 查看日志
+docker logs -f pichub
 ```
 
 启动完成后，在浏览器中访问管理控制台：
 👉 **http://localhost:5721**
 
+> `docs/docker-compose.yml` 使用 `network_mode: host`，容器监听在宿主机 5721 端口。
+> 如需自定义端口，可设置环境变量 `PORT` 并修改监听地址。
+> 数据持久化在 `./pichub_data/`（SQLite 数据库）和 `./pichub_cache/`（图片缓存）。
+
 ---
 
-### 方式二：手动编译构建
+### 方式二：使用预构建 Docker 镜像
+
+```bash
+docker run -d --name pichub --network host \
+  -v ./pichub_data:/app/data \
+  -v ./pichub_cache:/app/cache \
+  ghcr.io/untitled572/pichub-aggregator:latest
+```
+
+---
+
+### 方式三：手动编译构建
 
 #### 1. 编译 Dashboard 前端
 

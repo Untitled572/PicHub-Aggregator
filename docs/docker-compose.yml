@@ -1,0 +1,12 @@
+services:
+  pichub:
+    image: ghcr.io/untitled572/pichub-aggregator:latest
+    network_mode: host
+    volumes:
+      - ./pichub_data:/app/data
+      - ./pichub_cache:/app/cache
+    environment:
+      - PORT=5721
+      - DB_PATH=/app/data/pichub.db
+      - CACHE_PATH=/app/cache
+    restart: unless-stopped

@@ -5,10 +5,34 @@ A unified image API aggregator with embedded Dashboard, distribution engine, and
 ## Quick Start (Docker)
 
 ```bash
-docker compose -f backend/docker-compose.yml up --build
+# Pull image
+docker pull ghcr.io/untitled572/pichub-aggregator:latest
+
+# Start with docker-compose (host network mode)
+docker compose -f docs/docker-compose.yml up -d
+
+# Or run directly
+docker run -d --name pichub --network host \
+  -v ./pichub_data:/app/data \
+  -v ./pichub_cache:/app/cache \
+  ghcr.io/untitled572/pichub-aggregator:latest
 ```
 
 Open http://localhost:5721
+
+> Default port: 5721 (host network mode).
+> Data persists in `./pichub_data/` (SQLite) and `./pichub_cache/` (image cache).
+
+## Pull from GHCR
+
+The image is hosted at GitHub Container Registry:
+
+```bash
+docker pull ghcr.io/untitled572/pichub-aggregator:latest
+```
+
+> ⚠️ Make sure the package visibility is set to **Public** in the repository settings:
+> `https://github.com/Untitled572/PicHub-Aggregator/settings/packages`
 
 ## Environment Variables
 
