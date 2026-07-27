@@ -56,7 +56,7 @@ func (pc *ProxyCache) GetOrFetch(imageURL string) ([]byte, string, error) {
 		return data, http.DetectContentType(data), nil
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := &http.Client{Timeout: time.Duration(settings.Timeout) * time.Millisecond}
 	resp, err := client.Get(imageURL)
 	if err != nil {
 		return nil, "", fmt.Errorf("fetch image: %w", err)

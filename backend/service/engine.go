@@ -15,19 +15,14 @@ import (
 )
 
 type Engine struct {
-	store   *store.Store
-	client  *http.Client
+	store      *store.Store
+	proxyCache *ProxyCache
 }
 
-func NewEngine(st *store.Store) *Engine {
+func NewEngine(st *store.Store, pc *ProxyCache) *Engine {
 	return &Engine{
-		store: st,
-		client: &http.Client{
-			Timeout:   10 * time.Second,
-			CheckRedirect: func(req *http.Request, via []*http.Request) error {
-				return http.ErrUseLastResponse
-			},
-		},
+		store:      st,
+		proxyCache: pc,
 	}
 }
 
@@ -80,24 +75,42 @@ func (e *Engine) RandomImage(category string, format string) (*Result, int, erro
 			checkAndSuspend(selected.ID, e.store)
 			continue
 		}
-		defer resp.Body.Close()
+
+		hasFailed := false
 
 		if resp.StatusCode >= 500 {
 			e.store.IncrementFailCount(selected.ID)
 			candidates = removeSource(candidates, selected.ID)
 			checkAndSuspend(selected.ID, e.store)
+			resp.Body.Close()
 			continue
 		}
 
 		e.store.ResetFailCount(selected.ID)
 
 		imageURL, err := extractImageURL(resp, selected)
+		resp.Body.Close()
 		if err != nil {
 			candidates = removeSource(candidates, selected.ID)
 			continue
 		}
 
 		e.store.UpdateSourceStatus(selected.ID, "normal")
+
+		if e.proxyCache != nil {
+			settings, _ := e.store.GetSettings()
+			if settings != nil && settings.ProxyMode {
+				_, _, proxyErr := e.proxyCache.GetOrFetch(imageURL)
+				if proxyErr != nil {
+					hasFailed = true
+				}
+			}
+		}
+
+		if hasFailed {
+			candidates = removeSource(candidates, selected.ID)
+			continue
+		}
 
 		if format == "json" {
 			return &Result{
@@ -194,7 +207,7 @@ func extractImageURL(resp *http.Response, src model.Source) (string, error) {
 		return src.URL, nil
 	}
 
-	if strings.Contains(ct, "json") || src.RespType == "json" {
+	if strings.HasPrefix(ct, "application/json") || src.RespType == "json" {
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return "", fmt.Errorf("read body: %w", err)

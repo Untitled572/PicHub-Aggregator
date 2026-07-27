@@ -39,10 +39,10 @@ func (h *Handler) CreateSource(c *gin.Context) {
 		return
 	}
 	if src.Weight <= 0 {
-		src.Weight = 3
+		src.Weight = 10
 	}
-	if src.Weight > 5 {
-		src.Weight = 5
+	if src.Weight > 100 {
+		src.Weight = 100
 	}
 	if src.Name == "" {
 		src.Name = parseDefaultName(src.URL)
@@ -63,9 +63,9 @@ func (h *Handler) CreateSource(c *gin.Context) {
 func parseDefaultName(rawURL string) string {
 	u, err := url.Parse(rawURL)
 	if err != nil || u.Host == "" {
-		return "自定义图源"
+		return "Custom Source"
 	}
-	return u.Host + " 图源"
+	return u.Host + " Source"
 }
 
 
@@ -82,10 +82,10 @@ func (h *Handler) UpdateSource(c *gin.Context) {
 	}
 	src.ID = id
 	if src.Weight <= 0 {
-		src.Weight = 3
+		src.Weight = 10
 	}
-	if src.Weight > 5 {
-		src.Weight = 5
+	if src.Weight > 100 {
+		src.Weight = 100
 	}
 	if src.Name == "" {
 		src.Name = parseDefaultName(src.URL)

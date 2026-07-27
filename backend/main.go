@@ -26,8 +26,12 @@ func main() {
 	if dbPath == "" {
 		dbPath = "./data/pichub.db"
 	}
-	os.MkdirAll("./data", 0755)
-	os.MkdirAll("./cache", 0755)
+	if err := os.MkdirAll("./data", 0755); err != nil {
+		log.Printf("warning: failed to create data dir: %v", err)
+	}
+	if err := os.MkdirAll("./cache", 0755); err != nil {
+		log.Printf("warning: failed to create cache dir: %v", err)
+	}
 
 	cfgPath := "config.json"
 	if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
@@ -51,7 +55,9 @@ func main() {
 	checker.Start()
 	defer checker.Stop()
 
-	h := handler.NewHandlerWithHealth(st, checker)
+	proxyCache := service.NewProxyCache(st, "./cache")
+	engine := service.NewEngine(st, proxyCache)
+	h := handler.NewHandlerWithEngine(st, engine, checker)
 	r := gin.Default()
 
 	r.Use(middleware.CORS())

@@ -2,10 +2,13 @@ package handler
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/pichub/backend/model"
 )
+
+var sensitiveHeaders = []string{"api-key", "authorization", "token", "secret", "cookie"}
 
 func (h *Handler) ExportRules(c *gin.Context) {
 	sources, err := h.store.ListSources()
@@ -67,10 +70,10 @@ func (h *Handler) ImportRules(c *gin.Context) {
 			Enabled:    s.Enabled,
 		}
 		if src.Weight <= 0 {
-			src.Weight = 3
+			src.Weight = 10
 		}
-		if src.Weight > 5 {
-			src.Weight = 5
+		if src.Weight > 100 {
+			src.Weight = 100
 		}
 		if src.Name == "" {
 			src.Name = parseDefaultName(src.URL)
@@ -90,9 +93,8 @@ func (h *Handler) ImportRules(c *gin.Context) {
 }
 
 func isSensitive(key string) bool {
-	sensitive := []string{"api-key", "authorization", "token", "secret", "cookie"}
-	lower := key
-	for _, s := range sensitive {
+	lower := strings.ToLower(key)
+	for _, s := range sensitiveHeaders {
 		if lower == s {
 			return true
 		}

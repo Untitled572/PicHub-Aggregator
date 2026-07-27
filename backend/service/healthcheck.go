@@ -141,22 +141,9 @@ func (hc *HealthChecker) checkSource(src model.Source) HealthResult {
 }
 
 func calculateSuccessRate(src model.Source, success bool) float64 {
+	var val float64
 	if success {
-		return min(100.0, src.SuccessRate+5.0)
+		val = 100.0
 	}
-	return max(0.0, src.SuccessRate-10.0)
-}
-
-func min(a, b float64) float64 {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func max(a, b float64) float64 {
-	if a > b {
-		return a
-	}
-	return b
+	return src.SuccessRate*0.9 + val*0.1
 }

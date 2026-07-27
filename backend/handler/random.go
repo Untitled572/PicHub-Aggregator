@@ -11,8 +11,7 @@ func (h *Handler) RandomImage(c *gin.Context) {
 	category := c.Query("category")
 	format := c.Query("format")
 
-	engine := service.NewEngine(h.store)
-	result, statusCode, err := engine.RandomImage(category, format)
+	result, statusCode, err := h.engine.RandomImage(category, format)
 	if err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		return

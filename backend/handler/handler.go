@@ -7,13 +7,14 @@ import (
 
 type Handler struct {
 	store         *store.Store
+	engine        *service.Engine
 	healthChecker *service.HealthChecker
 }
 
-func NewHandler(st *store.Store) *Handler {
-	return &Handler{store: st}
+func NewHandler(st *store.Store, eng *service.Engine) *Handler {
+	return &Handler{store: st, engine: eng}
 }
 
-func NewHandlerWithHealth(st *store.Store, hc *service.HealthChecker) *Handler {
-	return &Handler{store: st, healthChecker: hc}
+func NewHandlerWithEngine(st *store.Store, eng *service.Engine, hc *service.HealthChecker) *Handler {
+	return &Handler{store: st, engine: eng, healthChecker: hc}
 }

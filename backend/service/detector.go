@@ -67,32 +67,49 @@ func DetectURL(targetURL string) (*DetectResult, error) {
 		return result, nil
 	}
 
-	if strings.Contains(ct, "json") || strings.HasPrefix(ct, "application/json") {
+	if strings.HasPrefix(ct, "application/json") {
 		result.RespType = "json"
-		body, _ := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			result.Error = fmt.Sprintf("read body: %v", err)
+			return result, nil
+		}
 		var bodyTree interface{}
 		if json.Valid(body) {
-			json.Unmarshal(body, &bodyTree)
+			if err := json.Unmarshal(body, &bodyTree); err != nil {
+				result.Error = fmt.Sprintf("json parse: %v", err)
+				return result, nil
+			}
 			result.BodyTree = bodyTree
-			result.URLHints = findURLFields("", body)
+			result.URLHints = findURLFields("", body, 0)
 		}
 		return result, nil
 	}
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		result.Error = fmt.Sprintf("read body: %v", err)
+		return result, nil
+	}
 	if len(body) > 0 && json.Valid(body) {
 		result.RespType = "json"
 		var bodyTree interface{}
-		json.Unmarshal(body, &bodyTree)
+		if err := json.Unmarshal(body, &bodyTree); err != nil {
+			result.Error = fmt.Sprintf("json parse: %v", err)
+			return result, nil
+		}
 		result.BodyTree = bodyTree
-		result.URLHints = findURLFields("", body)
+		result.URLHints = findURLFields("", body, 0)
 		return result, nil
 	}
 
 	return result, nil
 }
 
-func findURLFields(prefix string, data []byte) []string {
+func findURLFields(prefix string, data []byte, depth int) []string {
+	if depth > 10 {
+		return nil
+	}
 	var hints []string
 	result := gjson.GetBytes(data, "@this")
 	result.ForEach(func(key, value gjson.Result) bool {
@@ -103,11 +120,11 @@ func findURLFields(prefix string, data []byte) []string {
 			fullPath = prefix + "." + key.String()
 		}
 		if value.IsObject() || value.IsArray() {
-			subHints := findURLFields(fullPath, []byte(value.Raw))
+			subHints := findURLFields(fullPath, []byte(value.Raw), depth+1)
 			hints = append(hints, subHints...)
 		} else if value.Type == gjson.String {
 			str := value.String()
-			if isImageURL(str) {
+			if isURLString(str) {
 				hints = append(hints, fullPath)
 			}
 		}
@@ -116,7 +133,7 @@ func findURLFields(prefix string, data []byte) []string {
 	return hints
 }
 
-func isImageURL(s string) bool {
+func isURLString(s string) bool {
 	s = strings.ToLower(s)
 	return strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://")
 }

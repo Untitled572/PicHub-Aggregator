@@ -42,7 +42,7 @@ func (s *Store) migrate() error {
 			url TEXT NOT NULL,
 			resp_type TEXT DEFAULT 'json',
 			json_path TEXT DEFAULT '',
-			weight INTEGER DEFAULT 3,
+			weight INTEGER DEFAULT 10,
 			categories TEXT DEFAULT '[]',
 			headers TEXT DEFAULT '{}',
 			enabled INTEGER DEFAULT 1,
@@ -197,15 +197,23 @@ func (s *Store) GetSettings() (*model.Settings, error) {
 		case "proxy_mode":
 			settings.ProxyMode = v == "true"
 		case "cache_max_mb":
-			fmt.Sscanf(v, "%d", &settings.CacheMaxMB)
+			if n, err := fmt.Sscanf(v, "%d", &settings.CacheMaxMB); err != nil || n != 1 {
+				settings.CacheMaxMB = 200
+			}
 		case "cache_ttl":
-			fmt.Sscanf(v, "%d", &settings.CacheTTL)
+			if n, err := fmt.Sscanf(v, "%d", &settings.CacheTTL); err != nil || n != 1 {
+				settings.CacheTTL = 60
+			}
 		case "min_resolution":
 			settings.MinResolution = v
 		case "rate_limit":
-			fmt.Sscanf(v, "%d", &settings.RateLimit)
+			if n, err := fmt.Sscanf(v, "%d", &settings.RateLimit); err != nil || n != 1 {
+				settings.RateLimit = 60
+			}
 		case "timeout":
-			fmt.Sscanf(v, "%d", &settings.Timeout)
+			if n, err := fmt.Sscanf(v, "%d", &settings.Timeout); err != nil || n != 1 {
+				settings.Timeout = 3000
+			}
 		case "custom_domain":
 			settings.CustomDomain = v
 		}

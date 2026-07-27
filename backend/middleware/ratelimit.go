@@ -20,6 +20,29 @@ func RateLimit(st *store.Store) gin.HandlerFunc {
 		store:  st,
 		visits: make(map[string][]time.Time),
 	}
+
+	go func() {
+		ticker := time.NewTicker(10 * time.Minute)
+		for range ticker.C {
+			rl.mu.Lock()
+			cutoff := time.Now().Add(-5 * time.Minute)
+			for ip, times := range rl.visits {
+				var active []time.Time
+				for _, t := range times {
+					if t.After(cutoff) {
+						active = append(active, t)
+					}
+				}
+				if len(active) == 0 {
+					delete(rl.visits, ip)
+				} else {
+					rl.visits[ip] = active
+				}
+			}
+			rl.mu.Unlock()
+		}
+	}()
+
 	return func(c *gin.Context) {
 		ip := c.ClientIP()
 		rl.mu.Lock()
@@ -33,6 +56,11 @@ func RateLimit(st *store.Store) gin.HandlerFunc {
 		}
 		rl.visits[ip] = append(recent, now)
 		limit := 60
+		if st := rl.store; st != nil {
+			if s, err := st.GetSettings(); err == nil && s.RateLimit > 0 {
+				limit = s.RateLimit
+			}
+		}
 		rl.mu.Unlock()
 		if len(recent) >= limit {
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "rate limit exceeded"})
