@@ -4,7 +4,7 @@ import { useCommunityApi } from '../composables/useCommunityApi'
 import type { Rule } from '../types'
 import RuleCard from '../components/RuleCard.vue'
 import RuleFilter from '../components/RuleFilter.vue'
-import { Sparkles, Globe, Inbox } from 'lucide-vue-next'
+import { Sparkles, Globe, Inbox, Wrench, AlertTriangle } from 'lucide-vue-next'
 
 const { getRules } = useCommunityApi()
 const rules = ref<Rule[]>([])
@@ -45,17 +45,36 @@ function onSortChange(s: string) {
   <div class="space-y-6">
     <!-- Hero Banner -->
     <div class="morandi-card p-6 md:p-8 bg-gradient-to-r from-morandi-ocean-light/50 via-morandi-bg to-morandi-sand-light/40 border border-morandi-borderSoft relative overflow-hidden">
-      <div class="max-w-2xl space-y-2 relative z-10">
-        <div class="inline-flex items-center gap-1.5 px-3 py-1 bg-white/80 rounded-full text-xs font-semibold text-morandi-ocean-dark border border-morandi-ocean/20">
-          <Globe class="w-3.5 h-3.5" />
-          <span>Serverless 云节点全网共享</span>
+      <div class="max-w-2xl space-y-3 relative z-10">
+        <div class="flex items-center gap-2 flex-wrap">
+          <div class="inline-flex items-center gap-1.5 px-3 py-1 bg-white/80 rounded-full text-xs font-semibold text-morandi-ocean-dark border border-morandi-ocean/20">
+            <Globe class="w-3.5 h-3.5" />
+            <span>无服务器图源规则中心</span>
+          </div>
+          <span class="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-100 text-amber-800 text-xs font-bold rounded-full border border-amber-200">
+            <Wrench class="w-3 h-3" />
+            功能待开发 / 公测预览中
+          </span>
         </div>
-        <h1 class="text-xl md:text-2xl font-bold text-morandi-text tracking-tight">探索全网优质图片 API 提取规则</h1>
-        <p class="text-xs text-morandi-muted leading-relaxed">
-          浏览由全球开发者贡献的公开 API 解析配置，支持一键复制规则 JSON 或直接订阅拉取到您的本地 Docker 节点。
-        </p>
-      </div>
 
+        <h1 class="text-xl md:text-2xl font-bold text-morandi-text tracking-tight">
+          PicHub 社区规则广场
+        </h1>
+        <p class="text-xs md:text-sm text-morandi-muted leading-relaxed">
+          探索、共享与一键导入全网优质第三方图片 API 提取规则。
+        </p>
+
+        <!-- Development Warning Banner -->
+        <div class="mt-3 p-3 bg-amber-50/90 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-start gap-2 max-w-xl">
+          <AlertTriangle class="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+          <div class="space-y-0.5">
+            <p class="font-bold">⚠️ 提示：社区规则广场目前处于公测与待开发阶段</p>
+            <p class="text-[11px] text-amber-800 leading-relaxed">
+              云端规则一键自动同步、在线解析沙盒及用户贡献积分系统正在研发上线中。当前展示为静态演示预览数据。
+            </p>
+          </div>
+        </div>
+      </div>
       <div class="absolute -right-8 -bottom-8 w-48 h-48 rounded-full bg-morandi-ocean/10 blur-2xl pointer-events-none"></div>
     </div>
 

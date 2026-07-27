@@ -17,6 +17,8 @@ import {
 } from 'lucide-vue-next'
 
 const { listSources, deleteSource, toggleSource } = useApi()
+import { useTags } from '../composables/useTags'
+
 const sources = ref<Source[]>([])
 const search = ref('')
 const categoryFilter = ref('')
@@ -24,16 +26,10 @@ const showForm = ref(false)
 const editingSource = ref<Source | undefined>()
 const showExportImport = ref(false)
 
-const categoryMap: Record<string, string> = {
-  avatar: '头像',
-  anime: '二次元',
-  landscape: '风景',
-  portrait: '人像',
-  adaptive: '自适应',
-  'ai-generated': 'AI生成'
-}
+const { tags, getCategoryMap } = useTags()
+const categoryMap = computed(() => getCategoryMap())
+const categories = computed(() => tags.value.map(t => t.id))
 
-const categories = Object.keys(categoryMap)
 
 onMounted(loadSources)
 

@@ -52,7 +52,27 @@ func (h *Handler) DetectURL(c *gin.Context) {
 }
 
 func (h *Handler) BatchHealthCheck(c *gin.Context) {
+	if h.healthChecker != nil {
+		results := h.healthChecker.CheckAll()
+		c.JSON(http.StatusOK, results)
+		return
+	}
 	checker := service.NewHealthChecker(h.store)
 	results := checker.CheckAll()
 	c.JSON(http.StatusOK, results)
+}
+
+func (h *Handler) GetHealthStatus(c *gin.Context) {
+	if h.healthChecker == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "health checker not available"})
+		return
+	}
+	results := h.healthChecker.GetLastResult()
+	if results == nil {
+		results = h.healthChecker.CheckAll()
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"results":   results,
+		"last_run":  h.healthChecker.LastRunAt(),
+	})
 }

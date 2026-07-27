@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"net/url"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -37,8 +38,14 @@ func (h *Handler) CreateSource(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if src.Weight == 0 {
-		src.Weight = 10
+	if src.Weight <= 0 {
+		src.Weight = 3
+	}
+	if src.Weight > 5 {
+		src.Weight = 5
+	}
+	if src.Name == "" {
+		src.Name = parseDefaultName(src.URL)
 	}
 	if src.Status == "" {
 		src.Status = "normal"
@@ -53,6 +60,15 @@ func (h *Handler) CreateSource(c *gin.Context) {
 	c.JSON(http.StatusCreated, src)
 }
 
+func parseDefaultName(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Host == "" {
+		return "自定义图源"
+	}
+	return u.Host + " 图源"
+}
+
+
 func (h *Handler) UpdateSource(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
@@ -65,12 +81,22 @@ func (h *Handler) UpdateSource(c *gin.Context) {
 		return
 	}
 	src.ID = id
+	if src.Weight <= 0 {
+		src.Weight = 3
+	}
+	if src.Weight > 5 {
+		src.Weight = 5
+	}
+	if src.Name == "" {
+		src.Name = parseDefaultName(src.URL)
+	}
 	if err := h.store.UpdateSource(&src); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, src)
 }
+
 
 func (h *Handler) DeleteSource(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)

@@ -1,19 +1,17 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { Source } from '../types'
 import HealthStatusBadge from './HealthStatusBadge.vue'
 import { Edit3, Trash2, Globe, Activity, Scale, Code } from 'lucide-vue-next'
+import { useTags } from '../composables/useTags'
+
 
 defineProps<{ source: Source }>()
 defineEmits<{ edit: [], delete: [], toggle: [] }>()
 
-const categoryMap: Record<string, string> = {
-  avatar: '头像',
-  anime: '二次元',
-  landscape: '风景',
-  portrait: '人像',
-  adaptive: '自适应',
-  'ai-generated': 'AI生成'
-}
+const { getCategoryMap } = useTags()
+const categoryMap = computed(() => getCategoryMap())
+
 
 const respTypeMap: Record<string, { label: string; class: string }> = {
   json: { label: 'JSON 提取', class: 'bg-morandi-ocean-light text-morandi-ocean-dark border-morandi-ocean/20' },

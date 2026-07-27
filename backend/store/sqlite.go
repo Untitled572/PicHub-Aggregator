@@ -42,7 +42,7 @@ func (s *Store) migrate() error {
 			url TEXT NOT NULL,
 			resp_type TEXT DEFAULT 'json',
 			json_path TEXT DEFAULT '',
-			weight INTEGER DEFAULT 10,
+			weight INTEGER DEFAULT 3,
 			categories TEXT DEFAULT '[]',
 			headers TEXT DEFAULT '{}',
 			enabled INTEGER DEFAULT 1,
@@ -206,6 +206,8 @@ func (s *Store) GetSettings() (*model.Settings, error) {
 			fmt.Sscanf(v, "%d", &settings.RateLimit)
 		case "timeout":
 			fmt.Sscanf(v, "%d", &settings.Timeout)
+		case "custom_domain":
+			settings.CustomDomain = v
 		}
 	}
 	return settings, nil
@@ -219,7 +221,9 @@ func (s *Store) UpdateSettings(settings *model.Settings) error {
 		"min_resolution": settings.MinResolution,
 		"rate_limit":     fmt.Sprintf("%d", settings.RateLimit),
 		"timeout":        fmt.Sprintf("%d", settings.Timeout),
+		"custom_domain":  settings.CustomDomain,
 	}
+
 	for k, v := range pairs {
 		_, err := s.db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", k, v)
 		if err != nil {

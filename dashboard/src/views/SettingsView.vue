@@ -1,10 +1,14 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useApi } from '../composables/useApi'
+import { useDomain } from '../composables/useDomain'
 import type { Settings } from '../types'
-import { Sliders, Save, CheckCircle2, Shield, HardDrive, Clock, Gauge, Image } from 'lucide-vue-next'
+import { Sliders, Save, CheckCircle2, Shield, HardDrive, Clock, Gauge, Image, Globe, Wrench, AlertCircle } from 'lucide-vue-next'
+
 
 const { getSettings, updateSettings } = useApi()
+const { customDomain, setCustomDomain } = useDomain()
+
 const settings = ref<Settings>({
   proxy_mode: false,
   cache_max_mb: 200,
@@ -12,20 +16,31 @@ const settings = ref<Settings>({
   min_resolution: '640x480',
   rate_limit: 60,
   timeout: 3000,
+  custom_domain: '',
 })
 const saving = ref(false)
 const saved = ref(false)
 
 onMounted(async () => {
   try {
-    settings.value = await getSettings()
-  } catch {}
+    const s = await getSettings()
+    settings.value = s
+    if (s.custom_domain) {
+      setCustomDomain(s.custom_domain)
+    } else if (customDomain.value) {
+      settings.value.custom_domain = customDomain.value
+    }
+  } catch {
+    settings.value.custom_domain = customDomain.value
+  }
 })
 
 async function handleSave() {
   saving.value = true
   saved.value = false
   try {
+    const domainToSave = settings.value.custom_domain || ''
+    setCustomDomain(domainToSave)
     await updateSettings(settings.value)
     saved.value = true
     setTimeout(() => saved.value = false, 3000)
@@ -51,16 +66,56 @@ async function handleSave() {
 
     <!-- Form Panel -->
     <div class="morandi-card p-6 space-y-6">
-      <!-- Section 1: Proxy Mode & Cache -->
+      <!-- Section 0: Custom Domain -->
       <div class="space-y-4">
         <h3 class="text-xs font-bold text-morandi-sage-dark uppercase tracking-wider flex items-center gap-1.5 pb-2 border-b border-morandi-border/60">
-          <HardDrive class="w-4 h-4" /> 代理中转与缓存策略
+          <Globe class="w-4 h-4" /> 绑定自定义域名 (Custom Domain Prefix)
         </h3>
+
+        <div>
+          <label class="font-medium text-morandi-text block mb-1.5 flex items-center gap-1 text-xs">
+            <Globe class="w-3.5 h-3.5 text-morandi-sage" /> 对外 API 自定义域名
+          </label>
+          <input
+            v-model="settings.custom_domain"
+            placeholder="例如: https://pic.example.com"
+            class="morandi-input w-full px-3 py-2 font-mono text-xs"
+          />
+          <p class="text-[10px] text-morandi-muted mt-1">
+            配置后，控制台内所有生成与一键复制的 API 分发链接（包括总分发接口、Tag 独立接口、节点快捷链接等）将自动使用该域名作为前缀。
+          </p>
+        </div>
+      </div>
+
+      <!-- Section 1: Proxy Mode & Cache -->
+      <div class="space-y-4">
+        <div class="flex items-center justify-between pb-2 border-b border-morandi-border/60">
+          <h3 class="text-xs font-bold text-morandi-sage-dark uppercase tracking-wider flex items-center gap-1.5">
+            <HardDrive class="w-4 h-4" /> 代理中转与缓存策略
+          </h3>
+          <span class="text-[10px] px-2 py-0.5 bg-amber-100 text-amber-800 font-bold rounded-md flex items-center gap-1">
+            <Wrench class="w-3 h-3" /> 功能待开发完善 (研发中)
+          </span>
+        </div>
+
+        <!-- Development Notice Alert -->
+        <div class="p-3.5 bg-amber-50/90 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-start gap-2.5">
+          <AlertCircle class="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+          <div class="space-y-0.5">
+            <p class="font-bold">⚠️ 提示：本地磁盘代理缓存模式目前处于待开发/内部测试阶段</p>
+            <p class="text-[11px] text-amber-800 leading-relaxed">
+              当前 PicHub 引擎默认使用 302 重定向/直链中转分发。开启代理缓存模式后可能由于目标 API 限制导致无法下载缓存，高可用本地缓存模块正在加速开发中。
+            </p>
+          </div>
+        </div>
 
         <!-- Proxy Mode Toggle -->
         <div class="flex items-center justify-between p-3.5 bg-morandi-bg/60 rounded-xl border border-morandi-borderSoft">
           <div class="space-y-0.5">
-            <div class="text-xs font-semibold text-morandi-text">代理中转 / 缓存模式 (Proxy Mode)</div>
+            <div class="text-xs font-semibold text-morandi-text flex items-center gap-1.5">
+              <span>代理中转 / 缓存模式 (Proxy Mode)</span>
+              <span class="text-[10px] px-1.5 py-0.2 bg-amber-100 text-amber-800 font-medium rounded">待开发</span>
+            </div>
             <div class="text-[11px] text-morandi-muted leading-relaxed">
               开启后主机下载第三方图片并做本地磁盘缓存，隐藏客户端 IP，完美解决第三方 API 跨域与防盗链限制。
             </div>
@@ -70,6 +125,7 @@ async function handleSave() {
             <div class="w-10 h-5 bg-morandi-sidebar peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-morandi-borderSoft after:border after:rounded-full after:h-4 after:w-4 after:transition-all duration-200 peer-checked:bg-morandi-sage"></div>
           </label>
         </div>
+
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
           <div>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { RouterView, RouterLink, useRoute } from 'vue-router'
 import {
   Layers,
@@ -10,14 +10,20 @@ import {
   ShieldCheck,
   Server,
   Copy,
-  Check
+  Check,
+  Link2
 } from 'lucide-vue-next'
+import { useDomain } from './composables/useDomain'
 
 const route = useRoute()
 const copiedUrl = ref(false)
+const backendConnected = ref(true)
+
+const { getEffectiveDomain } = useDomain()
 
 const navItems = [
   { path: '/', label: '图源管理', subtitle: 'API 源配置与监听', icon: Layers },
+  { path: '/endpoints', label: '接口管理', subtitle: '分类分发与总接口配置', icon: Link2 },
   { path: '/health', label: '健康检测', subtitle: '可用性与延迟评估', icon: Activity },
   { path: '/settings', label: '系统设置', subtitle: '中转模式与缓存策略', icon: Sliders },
 ]
@@ -32,8 +38,28 @@ function getTitle() {
   return current ? current.label : '控制台'
 }
 
+async function checkBackendHealth() {
+  try {
+    const res = await fetch('/api/settings', { method: 'GET' })
+    backendConnected.value = res.ok
+  } catch {
+    backendConnected.value = false
+  }
+}
+
+let healthTimer: any = null
+
+onMounted(() => {
+  checkBackendHealth()
+  healthTimer = setInterval(checkBackendHealth, 8000)
+})
+
+onUnmounted(() => {
+  if (healthTimer) clearInterval(healthTimer)
+})
+
 function copyUserApiUrl() {
-  const apiUrl = `${window.location.origin}/random`
+  const apiUrl = `${getEffectiveDomain()}/random`
   navigator.clipboard.writeText(apiUrl)
   copiedUrl.value = true
   setTimeout(() => copiedUrl.value = false, 2500)
@@ -42,8 +68,8 @@ function copyUserApiUrl() {
 
 <template>
   <div class="min-h-screen bg-morandi-bg flex flex-col md:flex-row text-morandi-text font-sans">
-    <!-- Sidebar -->
-    <aside class="w-full md:w-64 bg-morandi-sidebar/80 backdrop-blur-md border-r border-morandi-border/60 flex flex-col justify-between p-4 md:min-h-screen shrink-0">
+    <!-- Sidebar (Fixed Position & Height on Desktop) -->
+    <aside class="w-full md:w-64 bg-morandi-sidebar/80 backdrop-blur-md border-r border-morandi-border/60 flex flex-col justify-between p-4 shrink-0 md:sticky md:top-0 md:h-screen md:overflow-y-auto z-20">
       <div>
         <!-- Brand / Header -->
         <div class="flex items-center gap-3 px-3 py-3 mb-6">
@@ -83,24 +109,28 @@ function copyUserApiUrl() {
         </nav>
       </div>
 
-      <!-- Footer Widget (Node Ready - Click to Copy) -->
+      <!-- Footer Widget (Node Health Status - Click to Copy) -->
       <div class="mt-6 pt-4 border-t border-morandi-border/40 px-2 space-y-3">
         <div
           @click="copyUserApiUrl"
           class="bg-white/80 hover:bg-white rounded-xl p-3 border border-morandi-borderSoft flex items-center justify-between cursor-pointer transition-all duration-200 hover:shadow-sm group relative"
-          title="点击复制对外 API 分发接口 URL"
+          :title="backendConnected ? '点击复制对外 API 分发接口 URL' : '后端服务未连接'"
         >
-          <div class="flex items-center gap-2">
-            <span class="relative flex h-2 w-2">
-              <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+          <div class="flex items-center gap-2.5">
+            <!-- Dynamic Breathing Dot (Green if connected, Red if disconnected) -->
+            <span class="relative flex h-2.5 w-2.5">
+              <span
+                class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75"
+                :class="backendConnected ? 'bg-emerald-400' : 'bg-rose-400'"
+              ></span>
+              <span
+                class="relative inline-flex rounded-full h-2.5 w-2.5"
+                :class="backendConnected ? 'bg-emerald-500' : 'bg-rose-500'"
+              ></span>
             </span>
-            <div class="text-[11px]">
-              <p class="font-semibold text-morandi-text flex items-center gap-1">
-                <span>节点就绪</span>
-                <span v-if="copiedUrl" class="text-[10px] text-emerald-600 font-medium">已复制!</span>
-              </p>
-              <p class="text-[10px] text-morandi-muted truncate max-w-[120px]" :title="`/random`">/random 统一分发</p>
+            <div class="text-xs font-semibold flex items-center gap-1.5" :class="backendConnected ? 'text-morandi-text' : 'text-rose-600'">
+              <span>{{ backendConnected ? '节点就绪' : '未就绪' }}</span>
+              <span v-if="copiedUrl" class="text-[10px] text-emerald-600 font-medium">已复制!</span>
             </div>
           </div>
           <component :is="copiedUrl ? Check : Copy" class="w-4 h-4 text-morandi-muted group-hover:text-morandi-sage-dark transition-colors" />
@@ -109,17 +139,15 @@ function copyUserApiUrl() {
         <a
           href="/community/"
           target="_blank"
-          class="flex items-center justify-between w-full px-3 py-2 text-xs text-morandi-ocean hover:text-morandi-ocean-dark bg-morandi-ocean/10 hover:bg-morandi-ocean/15 rounded-xl transition-colors font-medium"
+          class="flex items-center justify-between w-full px-3 py-2 text-xs text-morandi-ocean hover:text-morandi-ocean-dark bg-morandi-ocean/10 hover:bg-morandi-ocean/15 rounded-xl transition-colors font-medium relative group"
         >
           <span class="flex items-center gap-1.5">
             <ShieldCheck class="w-3.5 h-3.5" /> 探索社区规则广场
           </span>
-          <ExternalLink class="w-3 h-3" />
+          <span class="text-[10px] px-1.5 py-0.2 bg-amber-100 text-amber-800 font-bold rounded">待开发</span>
         </a>
       </div>
     </aside>
-
-
 
     <!-- Main Content Area -->
     <div class="flex-1 flex flex-col min-w-0">
@@ -137,5 +165,3 @@ function copyUserApiUrl() {
     </div>
   </div>
 </template>
-
-

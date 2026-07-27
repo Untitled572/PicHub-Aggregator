@@ -11,11 +11,13 @@ import (
 )
 
 type HealthChecker struct {
-	store  *store.Store
-	client *http.Client
-	mu     sync.Mutex
-	ticker *time.Ticker
-	quit   chan struct{}
+	store      *store.Store
+	client     *http.Client
+	mu         sync.Mutex
+	ticker     *time.Ticker
+	quit       chan struct{}
+	lastResult []HealthResult
+	lastRunAt  time.Time
 }
 
 type HealthResult struct {
@@ -42,6 +44,7 @@ func NewHealthChecker(st *store.Store) *HealthChecker {
 }
 
 func (hc *HealthChecker) Start() {
+	hc.CheckAll()
 	hc.ticker = time.NewTicker(5 * time.Minute)
 	go func() {
 		for {
@@ -63,20 +66,35 @@ func (hc *HealthChecker) Stop() {
 }
 
 func (hc *HealthChecker) CheckAll() []HealthResult {
-	hc.mu.Lock()
-	defer hc.mu.Unlock()
-
 	sources, err := hc.store.ListSources()
 	if err != nil {
 		return nil
 	}
 
-	var results []HealthResult
+	results := make([]HealthResult, 0, len(sources))
 	for _, src := range sources {
 		result := hc.checkSource(src)
 		results = append(results, result)
 	}
+
+	hc.mu.Lock()
+	hc.lastResult = results
+	hc.lastRunAt = time.Now()
+	hc.mu.Unlock()
+
 	return results
+}
+
+func (hc *HealthChecker) GetLastResult() []HealthResult {
+	hc.mu.Lock()
+	defer hc.mu.Unlock()
+	return hc.lastResult
+}
+
+func (hc *HealthChecker) LastRunAt() time.Time {
+	hc.mu.Lock()
+	defer hc.mu.Unlock()
+	return hc.lastRunAt
 }
 
 func (hc *HealthChecker) checkSource(src model.Source) HealthResult {

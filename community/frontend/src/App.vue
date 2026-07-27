@@ -37,7 +37,8 @@ function isActive(path: string) {
               : 'text-morandi-muted hover:bg-morandi-hover hover:text-morandi-text'"
           >
             <Compass class="w-4 h-4" />
-            规则广场
+            <span>规则广场</span>
+            <span class="text-[10px] px-1 py-0.2 bg-amber-100 text-amber-800 font-bold rounded">待开发</span>
           </RouterLink>
 
           <RouterLink
@@ -48,8 +49,9 @@ function isActive(path: string) {
               : 'bg-morandi-ocean-light text-morandi-ocean-dark hover:bg-morandi-ocean/20'"
           >
             <PlusCircle class="w-4 h-4" />
-            提交规则
+            <span>提交规则</span>
           </RouterLink>
+
 
           <div class="h-4 w-px bg-morandi-border/60 mx-1"></div>
 

@@ -4,9 +4,12 @@ import { useHealthCheck } from '../composables/useHealthCheck'
 import HealthStatusBadge from '../components/HealthStatusBadge.vue'
 import { Activity, RefreshCw, CheckCircle2, AlertTriangle, Clock, Layers } from 'lucide-vue-next'
 
-const { results, running, progress, summary, runCheck } = useHealthCheck()
+const { results, lastRun, running, progress, summary, loadCached, runCheck } = useHealthCheck()
 
-onMounted(runCheck)
+onMounted(async () => {
+  await loadCached()
+  if (results.value.length === 0) runCheck()
+})
 </script>
 
 <template>

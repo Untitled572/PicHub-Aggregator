@@ -51,7 +51,7 @@ func main() {
 	checker.Start()
 	defer checker.Stop()
 
-	h := handler.NewHandler(st)
+	h := handler.NewHandlerWithHealth(st, checker)
 	r := gin.Default()
 
 	r.Use(middleware.CORS())
@@ -72,6 +72,7 @@ func main() {
 		api.POST("/sources/:id/toggle", h.ToggleSource)
 		api.GET("/settings", h.GetSettings)
 		api.PUT("/settings", h.UpdateSettings)
+		api.GET("/health", h.GetHealthStatus)
 		api.POST("/export", h.ExportRules)
 		api.POST("/import", h.ImportRules)
 	}

@@ -23,7 +23,9 @@ export interface Settings {
   min_resolution: string
   rate_limit: number
   timeout: number
+  custom_domain?: string
 }
+
 
 export interface DetectResult {
   resp_type: string

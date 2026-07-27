@@ -66,8 +66,14 @@ func (h *Handler) ImportRules(c *gin.Context) {
 			Headers:    s.Headers,
 			Enabled:    s.Enabled,
 		}
-		if src.Weight == 0 {
-			src.Weight = 10
+		if src.Weight <= 0 {
+			src.Weight = 3
+		}
+		if src.Weight > 5 {
+			src.Weight = 5
+		}
+		if src.Name == "" {
+			src.Name = parseDefaultName(src.URL)
 		}
 		if src.Headers == nil {
 			src.Headers = make(map[string]string)

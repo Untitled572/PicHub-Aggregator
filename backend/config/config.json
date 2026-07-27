@@ -13,7 +13,7 @@
       "url": "https://picsum.photos/200",
       "resp_type": "redirect",
       "json_path": "",
-      "weight": 10,
+      "weight": 3,
       "categories": ["avatar", "landscape"]
     }
   ]
