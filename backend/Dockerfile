@@ -5,13 +5,14 @@ RUN npm ci
 COPY dashboard/ ./
 RUN npm run build
 
-FROM golang:1.26-alpine AS backend-builder
+FROM golang:1.22-alpine AS backend-builder
+RUN apk add --no-cache gcc musl-dev
 WORKDIR /app
 COPY backend/go.* ./
 RUN go mod download
 COPY backend/ ./
 COPY --from=dashboard-builder /dashboard/dist ./embed/dist
-RUN CGO_ENABLED=0 go build -o pichub .
+RUN CGO_ENABLED=1 go build -o pichub .
 
 FROM alpine:3.20
 RUN apk add --no-cache ca-certificates tzdata
