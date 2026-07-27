@@ -8,7 +8,8 @@
 [![Vue3](https://img.shields.io/badge/Vue.js-v3.4-4FC08D?style=flat-square&logo=vue.js)](https://vuejs.org)
 [![Tailwind CSS](https://img.shields.io/badge/TailwindCSS-v3.4-38BDF8?style=flat-square&logo=tailwindcss)](https://tailwindcss.com)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=flat-square&logo=docker)](https://www.docker.com)
-[![License](https://img.shields.io/badge/License-MIT-blue.style=flat-square)](LICENSE)
+[![License](https://img.shields.io/badge/License-GPL--3.0-blue.svg?style=flat-square)](LICENSE)
+
 
 [快速开始](#-快速开始) •
 [核心特性](#-核心特性) •
@@ -198,4 +199,5 @@ PicHub/
 
 ## 📄 开源协议
 
-本项目采用 [MIT License](LICENSE) 协议开源。
+本项目采用 [GPL-3.0 License](LICENSE) 协议开源。
+
