@@ -63,7 +63,9 @@ func (s *Store) migrate() error {
 			return err
 		}
 	}
+	_, _ = s.db.Exec("ALTER TABLE sources ADD COLUMN params TEXT DEFAULT '[]'")
 	if err := s.seedDefaults(); err != nil {
+
 		return err
 	}
 	return nil
@@ -95,24 +97,25 @@ func (s *Store) seedDefaults() error {
 }
 
 func (s *Store) ListSources() ([]model.Source, error) {
-	rows, err := s.db.Query("SELECT id, name, url, resp_type, json_path, weight, categories, headers, enabled, fail_count, success_rate, avg_latency, status, created_at, updated_at FROM sources ORDER BY id")
+	rows, err := s.db.Query("SELECT id, name, url, resp_type, json_path, weight, categories, headers, params, enabled, fail_count, success_rate, avg_latency, status, created_at, updated_at FROM sources ORDER BY id")
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var sources []model.Source
+	sources := make([]model.Source, 0)
 	for rows.Next() {
 		var src model.Source
-		var categoriesJSON, headersJSON string
+		var categoriesJSON, headersJSON, paramsJSON string
 		var createdAt, updatedAt string
 		err := rows.Scan(&src.ID, &src.Name, &src.URL, &src.RespType, &src.JsonPath, &src.Weight,
-			&categoriesJSON, &headersJSON, &src.Enabled, &src.FailCount, &src.SuccessRate,
+			&categoriesJSON, &headersJSON, &paramsJSON, &src.Enabled, &src.FailCount, &src.SuccessRate,
 			&src.AvgLatency, &src.Status, &createdAt, &updatedAt)
 		if err != nil {
 			return nil, err
 		}
 		json.Unmarshal([]byte(categoriesJSON), &src.Categories)
 		json.Unmarshal([]byte(headersJSON), &src.Headers)
+		json.Unmarshal([]byte(paramsJSON), &src.Params)
 		src.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
 		src.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAt)
 		sources = append(sources, src)
@@ -122,17 +125,18 @@ func (s *Store) ListSources() ([]model.Source, error) {
 
 func (s *Store) GetSource(id int64) (*model.Source, error) {
 	var src model.Source
-	var categoriesJSON, headersJSON string
+	var categoriesJSON, headersJSON, paramsJSON string
 	var createdAt, updatedAt string
-	err := s.db.QueryRow("SELECT id, name, url, resp_type, json_path, weight, categories, headers, enabled, fail_count, success_rate, avg_latency, status, created_at, updated_at FROM sources WHERE id=?", id).
+	err := s.db.QueryRow("SELECT id, name, url, resp_type, json_path, weight, categories, headers, params, enabled, fail_count, success_rate, avg_latency, status, created_at, updated_at FROM sources WHERE id=?", id).
 		Scan(&src.ID, &src.Name, &src.URL, &src.RespType, &src.JsonPath, &src.Weight,
-			&categoriesJSON, &headersJSON, &src.Enabled, &src.FailCount, &src.SuccessRate,
+			&categoriesJSON, &headersJSON, &paramsJSON, &src.Enabled, &src.FailCount, &src.SuccessRate,
 			&src.AvgLatency, &src.Status, &createdAt, &updatedAt)
 	if err != nil {
 		return nil, err
 	}
 	json.Unmarshal([]byte(categoriesJSON), &src.Categories)
 	json.Unmarshal([]byte(headersJSON), &src.Headers)
+	json.Unmarshal([]byte(paramsJSON), &src.Params)
 	src.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
 	src.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAt)
 	return &src, nil
@@ -141,9 +145,10 @@ func (s *Store) GetSource(id int64) (*model.Source, error) {
 func (s *Store) CreateSource(src *model.Source) (int64, error) {
 	categoriesJSON, _ := json.Marshal(src.Categories)
 	headersJSON, _ := json.Marshal(src.Headers)
+	paramsJSON, _ := json.Marshal(src.Params)
 	result, err := s.db.Exec(
-		"INSERT INTO sources (name, url, resp_type, json_path, weight, categories, headers, enabled, fail_count, success_rate, avg_latency, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		src.Name, src.URL, src.RespType, src.JsonPath, src.Weight, string(categoriesJSON), string(headersJSON), src.Enabled, src.FailCount, src.SuccessRate, src.AvgLatency, src.Status,
+		"INSERT INTO sources (name, url, resp_type, json_path, weight, categories, headers, params, enabled, fail_count, success_rate, avg_latency, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		src.Name, src.URL, src.RespType, src.JsonPath, src.Weight, string(categoriesJSON), string(headersJSON), string(paramsJSON), src.Enabled, src.FailCount, src.SuccessRate, src.AvgLatency, src.Status,
 	)
 	if err != nil {
 		return 0, err
@@ -154,9 +159,10 @@ func (s *Store) CreateSource(src *model.Source) (int64, error) {
 func (s *Store) UpdateSource(src *model.Source) error {
 	categoriesJSON, _ := json.Marshal(src.Categories)
 	headersJSON, _ := json.Marshal(src.Headers)
+	paramsJSON, _ := json.Marshal(src.Params)
 	_, err := s.db.Exec(
-		"UPDATE sources SET name=?, url=?, resp_type=?, json_path=?, weight=?, categories=?, headers=?, enabled=?, fail_count=?, success_rate=?, avg_latency=?, status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
-		src.Name, src.URL, src.RespType, src.JsonPath, src.Weight, string(categoriesJSON), string(headersJSON), src.Enabled, src.FailCount, src.SuccessRate, src.AvgLatency, src.Status, src.ID,
+		"UPDATE sources SET name=?, url=?, resp_type=?, json_path=?, weight=?, categories=?, headers=?, params=?, enabled=?, fail_count=?, success_rate=?, avg_latency=?, status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+		src.Name, src.URL, src.RespType, src.JsonPath, src.Weight, string(categoriesJSON), string(headersJSON), string(paramsJSON), src.Enabled, src.FailCount, src.SuccessRate, src.AvgLatency, src.Status, src.ID,
 	)
 	return err
 }
@@ -216,21 +222,30 @@ func (s *Store) GetSettings() (*model.Settings, error) {
 			}
 		case "custom_domain":
 			settings.CustomDomain = v
+		case "health_check_interval":
+			if n, err := fmt.Sscanf(v, "%d", &settings.HealthCheckInterval); err != nil || n != 1 {
+				settings.HealthCheckInterval = 360
+			}
 		}
+	}
+	if settings.HealthCheckInterval <= 0 {
+		settings.HealthCheckInterval = 360
 	}
 	return settings, nil
 }
 
 func (s *Store) UpdateSettings(settings *model.Settings) error {
 	pairs := map[string]string{
-		"proxy_mode":     fmt.Sprintf("%v", settings.ProxyMode),
-		"cache_max_mb":   fmt.Sprintf("%d", settings.CacheMaxMB),
-		"cache_ttl":      fmt.Sprintf("%d", settings.CacheTTL),
-		"min_resolution": settings.MinResolution,
-		"rate_limit":     fmt.Sprintf("%d", settings.RateLimit),
-		"timeout":        fmt.Sprintf("%d", settings.Timeout),
-		"custom_domain":  settings.CustomDomain,
+		"proxy_mode":            fmt.Sprintf("%v", settings.ProxyMode),
+		"cache_max_mb":          fmt.Sprintf("%d", settings.CacheMaxMB),
+		"cache_ttl":             fmt.Sprintf("%d", settings.CacheTTL),
+		"min_resolution":        settings.MinResolution,
+		"rate_limit":            fmt.Sprintf("%d", settings.RateLimit),
+		"timeout":               fmt.Sprintf("%d", settings.Timeout),
+		"custom_domain":         settings.CustomDomain,
+		"health_check_interval": fmt.Sprintf("%d", settings.HealthCheckInterval),
 	}
+
 
 	for k, v := range pairs {
 		_, err := s.db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", k, v)

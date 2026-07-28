@@ -1,3 +1,10 @@
+export interface QueryParam {
+  key: string
+  value: string
+  weight?: number
+  categories?: string[]
+}
+
 export interface Source {
   id: number
   name: string
@@ -7,6 +14,7 @@ export interface Source {
   weight: number
   categories: string[]
   headers: Record<string, string>
+  params?: QueryParam[]
   enabled: boolean
   fail_count: number
   success_rate: number
@@ -16,6 +24,7 @@ export interface Source {
   updated_at: string
 }
 
+
 export interface Settings {
   proxy_mode: boolean
   cache_max_mb: number
@@ -24,7 +33,9 @@ export interface Settings {
   rate_limit: number
   timeout: number
   custom_domain?: string
+  health_check_interval?: number
 }
+
 
 
 export interface DetectResult {

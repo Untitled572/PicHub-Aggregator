@@ -45,7 +45,12 @@ func NewHealthChecker(st *store.Store) *HealthChecker {
 
 func (hc *HealthChecker) Start() {
 	hc.CheckAll()
-	hc.ticker = time.NewTicker(5 * time.Minute)
+	interval := 360
+	if settings, err := hc.store.GetSettings(); err == nil && settings.HealthCheckInterval > 0 {
+		interval = settings.HealthCheckInterval
+	}
+	hc.ticker = time.NewTicker(time.Duration(interval) * time.Minute)
+
 	go func() {
 		for {
 			select {
@@ -141,9 +146,16 @@ func (hc *HealthChecker) checkSource(src model.Source) HealthResult {
 }
 
 func calculateSuccessRate(src model.Source, success bool) float64 {
+	if src.SuccessRate <= 0 {
+		if success {
+			return 100.0
+		}
+		return 0.0
+	}
 	var val float64
 	if success {
 		val = 100.0
 	}
 	return src.SuccessRate*0.9 + val*0.1
 }
+

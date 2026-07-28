@@ -30,7 +30,9 @@ const settings = ref<Settings>({
   rate_limit: 60,
   timeout: 3000,
   custom_domain: '',
+  health_check_interval: 360,
 })
+
 const saving = ref(false)
 const saved = ref(false)
 
@@ -203,7 +205,7 @@ const tabs = [
           </h3>
         </div>
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
           <div>
             <label class="font-medium text-morandi-text block mb-1.5 flex items-center gap-1">
               <Gauge class="w-3.5 h-3.5 text-morandi-light" /> 全局请求速率限制 (次/分钟)
@@ -217,9 +219,18 @@ const tabs = [
               <Clock class="w-3.5 h-3.5 text-morandi-light" /> 单次请求响应超时 (毫秒 ms)
             </label>
             <input v-model.number="settings.timeout" type="number" class="morandi-input w-full px-3 py-2 font-mono" />
-            <p class="text-[10px] text-morandi-muted mt-1">请求第三方源的超时间隔，超时自动重试下一个源</p>
+            <p class="text-[10px] text-morandi-muted mt-1">请求第三方源的超时间隔，超时重试下一个源</p>
+          </div>
+
+          <div>
+            <label class="font-medium text-morandi-text block mb-1.5 flex items-center gap-1">
+              <Clock class="w-3.5 h-3.5 text-morandi-sage font-bold" /> 后台健康检查轮询周期 (分钟)
+            </label>
+            <input v-model.number="settings.health_check_interval" type="number" class="morandi-input w-full px-3 py-2 font-mono font-bold text-morandi-sage-dark" />
+            <p class="text-[10px] text-morandi-muted mt-1">后台巡检所有图源连通性的时间间隔 (默认 360 分钟 / 6 小时)</p>
           </div>
         </div>
+
       </div>
 
       <!-- Save Actions Footer -->

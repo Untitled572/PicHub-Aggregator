@@ -11,14 +11,16 @@ type AppConfig struct {
 }
 
 type SettingsConfig struct {
-	ProxyMode     bool   `json:"proxy_mode"`
-	CacheMaxMB    int    `json:"cache_max_mb"`
-	CacheTTL      int    `json:"cache_ttl"`
-	MinResolution string `json:"min_resolution"`
-	RateLimit     int    `json:"rate_limit"`
-	Timeout       int    `json:"timeout"`
-	CustomDomain  string `json:"custom_domain"`
+	ProxyMode           bool   `json:"proxy_mode"`
+	CacheMaxMB          int    `json:"cache_max_mb"`
+	CacheTTL            int    `json:"cache_ttl"`
+	MinResolution       string `json:"min_resolution"`
+	RateLimit           int    `json:"rate_limit"`
+	Timeout             int    `json:"timeout"`
+	CustomDomain        string `json:"custom_domain"`
+	HealthCheckInterval int    `json:"health_check_interval"`
 }
+
 
 
 type SourceConfig struct {

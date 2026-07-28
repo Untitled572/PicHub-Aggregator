@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc --noEmit && vite build",
+    "build": "vue-tsc --noEmit && vite build && rm -rf ../backend/embed/dist/* && cp -r dist/* ../backend/embed/dist/",
     "preview": "vite preview"
+
   },
   "dependencies": {
     "lucide-vue-next": "^0.577.0",

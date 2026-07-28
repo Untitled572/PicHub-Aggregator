@@ -79,7 +79,7 @@ function copyUserApiUrl() {
           <div>
             <div class="flex items-center gap-1.5">
               <span class="font-bold text-base tracking-tight text-morandi-text">PicHub</span>
-              <span class="text-[10px] px-1.5 py-0.2 bg-morandi-sage/15 text-morandi-sage-dark font-medium rounded-md">v0.1</span>
+              <span class="text-[10px] px-1.5 py-0.2 bg-morandi-sage/15 text-morandi-sage-dark font-medium rounded-md">v0.2</span>
             </div>
             <p class="text-xs text-morandi-muted">图源聚合中转引擎</p>
           </div>

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useApi } from '../composables/useApi'
-import type { Source } from '../types'
+import type { Source, QueryParam } from '../types'
 import { X, Plus, Trash2, Sliders, ChevronDown, Sparkles, Loader2, Check } from 'lucide-vue-next'
 
 const props = defineProps<{
@@ -10,7 +10,8 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ saved: [], close: [] }>()
 
-const { createSource, updateSource } = useApi()
+const { createSource, updateSource, detectURL } = useApi()
+
 const saving = ref(false)
 const testingUrl = ref(false)
 const testDetected = ref<string | null>(null)
@@ -33,8 +34,10 @@ const form = ref({
   weight: 3,
   categories: [] as string[],
   headers: {} as Record<string, string>,
+  params: [] as QueryParam[],
   enabled: true,
 })
+
 
 import { computed } from 'vue'
 import { useTags } from '../composables/useTags'
@@ -52,11 +55,54 @@ const weightLabels: Record<number, string> = {
   5: '极高'
 }
 
+interface ParamRow {
+  key: string
+  value: string
+  weight: number
+  categories: string[]
+}
+
+const paramRows = ref<ParamRow[]>([])
+
+function addParamRow() {
+  paramRows.value.push({ key: '', value: '', weight: 3, categories: [] })
+}
+
+function removeParamRow(index: number) {
+  paramRows.value.splice(index, 1)
+}
+
+function toggleParamCategory(paramRow: ParamRow, cat: string) {
+  const idx = paramRow.categories.indexOf(cat)
+  if (idx >= 0) paramRow.categories.splice(idx, 1)
+  else paramRow.categories.push(cat)
+}
+
+function syncParamRowsToForm() {
+  const params: QueryParam[] = []
+  for (const row of paramRows.value) {
+    if (row.key.trim() && row.value.trim()) {
+      params.push({
+        key: row.key.trim(),
+        value: row.value.trim(),
+        weight: row.weight || 3,
+        categories: [...row.categories]
+      })
+    }
+  }
+  form.value.params = params
+}
+
 onMounted(() => {
   if (props.source) {
-    form.value = { ...props.source, headers: { ...props.source.headers } }
+    form.value = {
+      ...props.source,
+      headers: { ...props.source.headers },
+      params: props.source.params ? [...props.source.params] : []
+    }
     showAdvanced.value = true
   } else if (props.initialData) {
+
     Object.assign(form.value, props.initialData)
   }
 
@@ -68,9 +114,24 @@ onMounted(() => {
       headerRows.value.push({ key: k, value: v })
     }
   }
+
+  // Initialize param rows array
+  paramRows.value = []
+  if (form.value.params && form.value.params.length > 0) {
+    for (const p of form.value.params) {
+      paramRows.value.push({
+        key: p.key,
+        value: p.value,
+        weight: p.weight || 3,
+        categories: [...(p.categories || [])]
+      })
+    }
+  }
 })
 
+
 function handleUrlInput() {
+
   if (userManuallySetType.value) return
   const val = form.value.url.trim().toLowerCase()
   if (!val) return
@@ -78,10 +139,18 @@ function handleUrlInput() {
   if (val.includes('.json') || val.includes('format=json') || val.includes('type=json') || val.includes('json=1')) {
     form.value.resp_type = 'json'
     if (!form.value.json_path) form.value.json_path = 'url'
-  } else if (val.includes('redirect') || val.includes('302') || val.includes('picsum.photos') || val.includes('unsplash.com')) {
-    form.value.resp_type = 'redirect'
-  } else {
+  } else if (
+    val.endsWith('.jpg') ||
+    val.endsWith('.jpeg') ||
+    val.endsWith('.png') ||
+    val.endsWith('.webp') ||
+    val.endsWith('.gif') ||
+    val.endsWith('.svg')
+  ) {
     form.value.resp_type = 'image'
+  } else {
+    // PHP, ASP, API endpoints (e.g. index.php, picsum.photos, xl0408.top) perform 302 redirect
+    form.value.resp_type = 'redirect'
   }
 }
 
@@ -95,18 +164,13 @@ async function autoDetectUrlType() {
   testingUrl.value = true
   testDetected.value = null
   try {
-    const res = await fetch(form.value.url.trim(), { method: 'HEAD', mode: 'no-cors' })
-    const contentType = res.headers.get('content-type') || ''
-    if (contentType.includes('image/')) {
-      form.value.resp_type = 'image'
-      testDetected.value = '图片二进制流'
-    } else if (contentType.includes('json')) {
-      form.value.resp_type = 'json'
-      if (!form.value.json_path) form.value.json_path = 'url'
-      testDetected.value = 'JSON 节点提取'
-    } else if (res.redirected) {
-      form.value.resp_type = 'redirect'
-      testDetected.value = '302 重定向直链'
+    const res = await detectURL(form.value.url.trim())
+    if (res && res.resp_type && res.resp_type !== 'unknown') {
+      form.value.resp_type = res.resp_type as any
+      if (res.resp_type === 'json' && res.url_hints && res.url_hints.length > 0) {
+        form.value.json_path = res.url_hints[0]
+      }
+      testDetected.value = res.resp_type === 'image' ? '图片二进制流' : res.resp_type === 'json' ? 'JSON 节点提取' : '302 重定向直链'
     } else {
       handleUrlInput()
       testDetected.value = form.value.resp_type === 'image' ? '图片直链' : form.value.resp_type === 'json' ? 'JSON提取' : '302重定向'
@@ -118,6 +182,7 @@ async function autoDetectUrlType() {
     testingUrl.value = false
   }
 }
+
 
 function parseFallbackName(rawUrl: string): string {
   try {
@@ -167,7 +232,9 @@ async function handleSave() {
   saving.value = true
   try {
     syncHeaderRowsToForm()
+    syncParamRowsToForm()
     const finalForm = { ...form.value }
+
     if (!finalForm.name.trim()) {
       finalForm.name = parseFallbackName(finalForm.url)
     }
@@ -213,24 +280,22 @@ async function handleSave() {
             >
               <Loader2 v-if="testingUrl" class="w-3 h-3 animate-spin" />
               <Sparkles v-else class="w-3 h-3 text-morandi-sage" />
-              <span>自动测类型</span>
+              <span>自动检测类型</span>
             </button>
           </div>
           <input
             v-model="form.url"
-            @input="handleUrlInput"
             placeholder="https://api.example.com/v1/photos/random"
             class="morandi-input w-full px-3 py-2 font-mono text-xs"
           />
 
-          <!-- Auto-detected status pill -->
-          <div v-if="form.url.trim()" class="mt-1.5 flex items-center gap-2 text-[11px]">
-            <span class="text-morandi-muted">智能推导格式：</span>
-            <span class="px-2 py-0.5 bg-morandi-sage-light text-morandi-sage-dark rounded-md font-medium border border-morandi-sage/20 flex items-center gap-1">
-              <Check class="w-3 h-3 text-morandi-sage font-bold" />
-              {{ form.resp_type === 'image' ? '图片二进制流' : form.resp_type === 'json' ? 'JSON 节点提取' : '302 重定向直链' }}
+          <!-- Auto-detected status pill (Only displays after manually clicking 自动检测类型) -->
+          <div v-if="testDetected" class="mt-1.5 flex items-center gap-2 text-[11px] animate-in fade-in duration-200">
+            <span class="text-morandi-muted">自动检测结果：</span>
+            <span class="px-2.5 py-0.5 bg-morandi-sage-light text-morandi-sage-dark rounded-md font-bold border border-morandi-sage/20 flex items-center gap-1">
+              <Check class="w-3.5 h-3.5 text-morandi-sage font-bold" />
+              {{ testDetected }}
             </span>
-            <span v-if="testDetected" class="text-morandi-muted text-[10px]">({{ testDetected }})</span>
           </div>
         </div>
 
@@ -256,7 +321,7 @@ async function handleSave() {
           >
             <span class="flex items-center gap-2">
               <Sliders class="w-3.5 h-3.5 text-morandi-sage" />
-              <span>{{ showAdvanced ? '折叠高级参数设置' : '展开高级选项 (响应类型、权重、分类、请求头)' }}</span>
+              <span>{{ showAdvanced ? '折叠高级参数设置' : '展开高级选项 (分类Tags、响应类型、权重、参数分支、请求头)' }}</span>
             </span>
             <ChevronDown class="w-4 h-4 transition-transform duration-200" :class="{ 'rotate-180': showAdvanced }" />
           </button>
@@ -264,6 +329,28 @@ async function handleSave() {
 
         <!-- 4. Advanced Section (Collapsible) -->
         <div v-if="showAdvanced" class="space-y-4 pt-2 border-t border-morandi-border/40 animate-in fade-in duration-200">
+          <!-- Main Categories Tag Selector (Inside Advanced Settings) -->
+          <div>
+            <label class="font-medium text-morandi-text block mb-1.5 flex items-center justify-between">
+              <span>关联分类标签 (Tags)</span>
+              <span class="text-[10px] text-morandi-muted font-normal">点击选择/取消关联 Tag</span>
+            </label>
+            <div class="flex flex-wrap gap-1.5">
+              <button
+                v-for="cat in categories"
+                :key="cat"
+                type="button"
+                @click="toggleCategory(cat)"
+                class="px-2.5 py-1 rounded-lg font-medium text-xs border transition-all cursor-pointer"
+                :class="form.categories.includes(cat)
+                  ? 'bg-morandi-sage text-white border-morandi-sage shadow-xs'
+                  : 'bg-morandi-sidebar text-morandi-muted border-morandi-borderSoft hover:bg-morandi-hover'"
+              >
+                #{{ categoryMap[cat] || cat }}
+              </button>
+            </div>
+          </div>
+
           <!-- Response Type Selector -->
           <div class="grid grid-cols-2 gap-3">
             <div>
@@ -280,7 +367,7 @@ async function handleSave() {
             </div>
 
             <div>
-              <label class="font-medium text-morandi-text block mb-1">JSON 提取 Key 路径</label>
+              <label class="font-medium text-morandi-text block mb-1">JSON 提取路径</label>
               <input
                 v-model="form.json_path"
                 placeholder="例如: data.image_url"
@@ -312,29 +399,89 @@ async function handleSave() {
             </div>
           </div>
 
-          <!-- Categories Tag Selector -->
-          <div>
-            <label class="font-medium text-morandi-text block mb-1.5">关联分类标签</label>
-            <div class="flex flex-wrap gap-1.5">
+          <!-- Query Parameter Variants (请求参数与衍生分支) -->
+          <div class="border-t border-morandi-border/40 pt-3 space-y-2.5">
+            <div class="flex items-center justify-between">
+              <label class="font-medium text-morandi-text text-xs flex items-center gap-1.5">
+                <Sliders class="w-3.5 h-3.5 text-morandi-sage" /> 请求参数与衍生分支 (Query Params)
+              </label>
               <button
-                v-for="cat in categories"
-                :key="cat"
                 type="button"
-                @click="toggleCategory(cat)"
-                class="px-2.5 py-1 rounded-lg transition-colors font-medium text-xs"
-                :class="form.categories.includes(cat)
-                  ? 'bg-morandi-sage text-white shadow-xs'
-                  : 'bg-morandi-sidebar text-morandi-muted hover:bg-morandi-hover'"
+                @click="addParamRow"
+                class="text-[11px] text-morandi-sage-dark hover:underline flex items-center gap-1 font-semibold cursor-pointer"
               >
-                #{{ categoryMap[cat] || cat }}
+                <Plus class="w-3.5 h-3.5 text-morandi-sage" /> 添加参数分支
               </button>
+            </div>
+            <p class="text-[10px] text-morandi-muted leading-relaxed">
+              如 <code class="font-mono bg-morandi-bg px-1 py-0.5 rounded">type=pc</code> 或 <code class="font-mono bg-morandi-bg px-1 py-0.5 rounded">type=mobile</code>。每个分支可独立指定 Tags 与权重并参与分发，总体仍作为一个源统一进行健康检测。
+            </p>
+
+
+            <div v-if="paramRows.length > 0" class="space-y-2.5">
+              <div
+                v-for="(row, idx) in paramRows"
+                :key="idx"
+                class="p-3 bg-morandi-bg/60 rounded-xl border border-morandi-borderSoft space-y-2"
+              >
+                <div class="flex items-center gap-2">
+                  <input
+                    v-model="row.key"
+                    placeholder="参数键 (如 type)"
+                    class="morandi-input px-2.5 py-1.5 font-mono text-xs w-1/3"
+                  />
+                  <span class="text-morandi-muted font-bold text-xs">=</span>
+                  <input
+                    v-model="row.value"
+                    placeholder="参数值 (如 pc)"
+                    class="morandi-input px-2.5 py-1.5 font-mono text-xs flex-1"
+                  />
+                  <button
+                    type="button"
+                    @click="removeParamRow(idx)"
+                    class="p-1.5 text-morandi-muted hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors shrink-0 cursor-pointer"
+                    title="删除此分支"
+                  >
+                    <Trash2 class="w-4 h-4" />
+                  </button>
+                </div>
+
+                <!-- Branch Tag & Weight -->
+                <div class="flex items-center justify-between gap-2 pt-1 border-t border-morandi-border/30 flex-wrap">
+                  <div class="flex items-center gap-1 flex-wrap">
+                    <span class="text-[10px] text-morandi-muted mr-1">分支 Tag:</span>
+                    <button
+                      v-for="cat in categories"
+                      :key="cat"
+                      type="button"
+                      @click="toggleParamCategory(row, cat)"
+                      class="px-2 py-0.5 rounded-md text-[10px] font-semibold border transition-all cursor-pointer"
+                      :class="row.categories.includes(cat) ? 'bg-morandi-sage text-white border-morandi-sage' : 'bg-white text-morandi-muted border-morandi-borderSoft hover:bg-morandi-hover'"
+                    >
+                      #{{ categoryMap[cat] || cat }}
+                    </button>
+                  </div>
+
+                  <div class="flex items-center gap-1.5">
+                    <span class="text-[10px] text-morandi-muted">权重:</span>
+                    <input
+                      v-model.number="row.weight"
+                      type="number"
+                      min="1"
+                      max="100"
+                      class="morandi-input px-2 py-0.5 text-[11px] font-mono w-14 text-center"
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
           <!-- Custom Headers (Dynamic Rows: Add row / Remove row) -->
           <div class="border-t border-morandi-border/40 pt-3">
+
             <div class="flex items-center justify-between mb-2">
-              <label class="font-medium text-morandi-text">自定义请求头 (Headers 防盗链 / Referer)</label>
+              <label class="font-medium text-morandi-text">自定义请求头</label>
               <span v-if="headerRows.length > 0" class="text-[10px] text-morandi-muted">已配置 {{ headerRows.length }} 行</span>
             </div>
 

@@ -129,7 +129,17 @@ function saveRename(tagId: string) {
   }
   editingTagId.value = null
 }
+
+const confirmingTagId = ref<string | null>(null)
+
+function handleTagDelete(id: string) {
+  deleteTag(id)
+  confirmingTagId.value = null
+}
 </script>
+
+
+
 
 <template>
   <div class="space-y-6">
@@ -332,9 +342,28 @@ function saveRename(tagId: string) {
               <Edit3 class="w-3.5 h-3.5" />
               <span>重命名</span>
             </button>
+            <!-- Inline Tag Delete Confirmation -->
+            <div v-if="confirmingTagId === tag.id" class="flex items-center gap-1.5 bg-rose-50 px-2.5 py-1 rounded-xl border border-rose-200 animate-in fade-in zoom-in-95 duration-150">
+              <span class="text-[11px] font-bold text-rose-700">确认删除?</span>
+              <button
+                @click="handleTagDelete(tag.id)"
+                class="px-2 py-0.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-[11px] rounded-lg transition-colors cursor-pointer"
+              >
+                删除
+              </button>
+              <button
+                @click="confirmingTagId = null"
+                class="px-2 py-0.5 bg-white hover:bg-slate-100 text-slate-600 font-medium text-[11px] rounded-lg border border-slate-200 transition-colors cursor-pointer"
+              >
+                取消
+              </button>
+            </div>
+
+
             <button
-              @click="deleteTag(tag.id)"
-              class="flex items-center gap-1 px-2 py-1 text-morandi-muted hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+              v-else
+              @click="confirmingTagId = tag.id"
+              class="flex items-center gap-1 px-2 py-1 text-morandi-muted hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
             >
               <Trash2 class="w-3.5 h-3.5" />
               <span>删除</span>
@@ -355,27 +384,26 @@ function saveRename(tagId: string) {
           <h3 class="font-bold text-base text-morandi-text flex items-center gap-1.5">
             <Plus class="w-4 h-4 text-morandi-sage" /> 新增分类 Tag 标签
           </h3>
-          <button @click="showAddTagModal = false" class="text-morandi-muted hover:text-morandi-text">
-            <X class="w-4 h-4" />
+          <button @click="showAddTagModal = false" class="p-1 text-morandi-light hover:text-morandi-text rounded-lg">
+            <X class="w-5 h-5" />
           </button>
         </div>
 
         <div class="space-y-3 text-xs">
           <div>
-            <label class="font-medium text-morandi-text block mb-1">标签标识 Identifier (英文或拼音) <span class="text-rose-500">*</span></label>
+            <label class="font-medium text-morandi-text block mb-1">标签标识 Identifier (仅英文字母/数字)</label>
             <input
               v-model="newTagId"
-              placeholder="例如: wallpaper 或 bz"
-              class="morandi-input w-full px-3 py-2 font-mono text-xs"
+              placeholder="如: anime, wallpaper, portrait"
+              class="morandi-input w-full px-3 py-2 font-mono"
             />
           </div>
-
           <div>
-            <label class="font-medium text-morandi-text block mb-1">中文显示名称</label>
+            <label class="font-medium text-morandi-text block mb-1">标签显示名称 Name</label>
             <input
               v-model="newTagName"
-              placeholder="例如: 高清壁纸"
-              class="morandi-input w-full px-3 py-2 text-xs"
+              placeholder="如: 二次元, 壁纸, 人像"
+              class="morandi-input w-full px-3 py-2"
             />
           </div>
         </div>
@@ -399,3 +427,4 @@ function saveRename(tagId: string) {
     </div>
   </div>
 </template>
+

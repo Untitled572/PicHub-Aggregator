@@ -17,6 +17,7 @@ import {
 } from 'lucide-vue-next'
 
 const { listSources, deleteSource, toggleSource } = useApi()
+import ParamVariantsModal from '../components/ParamVariantsModal.vue'
 import { useTags } from '../composables/useTags'
 
 const sources = ref<Source[]>([])
@@ -25,19 +26,48 @@ const categoryFilter = ref('')
 const showForm = ref(false)
 const editingSource = ref<Source | undefined>()
 const showExportImport = ref(false)
+const showParamsModal = ref(false)
+const paramsSource = ref<Source | null>(null)
+
+function handleOpenParams(src: Source) {
+  paramsSource.value = src
+  showParamsModal.value = true
+}
+
 
 const { tags, getCategoryMap } = useTags()
 const categoryMap = computed(() => getCategoryMap())
 const categories = computed(() => tags.value.map(t => t.id))
-
+const healthStatusMap = ref<Record<number, boolean>>({})
 
 onMounted(loadSources)
 
 async function loadSources() {
   try {
-    sources.value = await listSources()
+    const [srcs, healthRes] = await Promise.all([
+      listSources(),
+      fetch('/api/health').then(r => r.ok ? r.json() : null).catch(() => null)
+    ])
+    const map: Record<number, boolean> = {}
+    if (healthRes && healthRes.results) {
+      for (const r of healthRes.results) {
+        map[r.id] = r.available
+      }
+    }
+    if (srcs) {
+      for (const s of srcs) {
+        if (map[s.id] === undefined) {
+          map[s.id] = s.status !== 'error'
+        }
+      }
+    }
+    healthStatusMap.value = map
+    sources.value = srcs || []
   } catch {}
+
 }
+
+
 
 const filteredSources = computed(() => {
   return sources.value.filter(s => {
@@ -59,15 +89,17 @@ const stats = computed(() => {
   return { total, enabled, avgLatency, avgSuccess }
 })
 
-
 async function handleDelete(id: number) {
-  if (confirm('确认删除该图源节点吗？删除后不可恢复。')) {
+  try {
     await deleteSource(id)
-    loadSources()
-  }
+    sources.value = sources.value.filter(s => s.id !== id)
+    await loadSources()
+  } catch {}
 }
 
+
 async function handleToggle(id: number) {
+
   await toggleSource(id)
   loadSources()
 }
@@ -185,9 +217,11 @@ function onFormSaved() {
         v-for="src in filteredSources"
         :key="src.id"
         :source="src"
+        :available="healthStatusMap[src.id]"
         @edit="editSource(src)"
         @delete="handleDelete(src.id)"
         @toggle="handleToggle(src.id)"
+        @open-params="handleOpenParams"
       />
     </div>
 
@@ -219,10 +253,17 @@ function onFormSaved() {
       @close="showForm = false"
     />
 
+    <ParamVariantsModal
+      v-if="showParamsModal && paramsSource"
+      :source="paramsSource"
+      @saved="loadSources"
+      @close="showParamsModal = false"
+    />
+
     <ExportImportModal
       v-if="showExportImport"
-      @close="showExportImport = false; loadSources()"
+      @imported="loadSources"
+      @close="showExportImport = false"
     />
   </div>
 </template>
-

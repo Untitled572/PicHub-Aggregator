@@ -5,7 +5,9 @@ import (
 	"io"
 	"math/rand"
 	"net/http"
+	"net/url"
 	"strings"
+
 	"time"
 
 	"github.com/tidwall/gjson"
@@ -128,22 +130,93 @@ func (e *Engine) RandomImage(category string, format string) (*Result, int, erro
 func filterSources(sources []model.Source, category string) []model.Source {
 	var result []model.Source
 	for _, src := range sources {
-		if !src.Enabled {
+		if !src.Enabled || src.Status == "error" {
 			continue
 		}
-		if src.Status == "error" {
-			continue
-		}
-		if category != "" {
-			cats := strings.Split(category, ",")
-			if !hasAnyCategory(src.Categories, cats) {
-				continue
+
+		if len(src.Params) > 0 {
+			for _, param := range src.Params {
+				key := strings.TrimSpace(param.Key)
+				val := strings.TrimSpace(param.Value)
+				if key == "" {
+					continue
+				}
+				paramURL := buildURL(src.URL, key, val)
+				paramWeight := param.Weight
+				if paramWeight <= 0 {
+					paramWeight = src.Weight
+				}
+				paramCats := param.Categories
+				if len(paramCats) == 0 {
+					paramCats = src.Categories
+				}
+
+				if category != "" {
+					cats := strings.Split(category, ",")
+					if !hasAnyCategory(paramCats, cats) {
+						continue
+					}
+				}
+
+				variant := src
+				variant.URL = paramURL
+				variant.Weight = paramWeight
+				variant.Categories = paramCats
+				result = append(result, variant)
 			}
+		} else {
+			if category != "" {
+				cats := strings.Split(category, ",")
+				if !hasAnyCategory(src.Categories, cats) {
+					continue
+				}
+			}
+			result = append(result, src)
 		}
-		result = append(result, src)
 	}
 	return result
 }
+
+func buildURL(baseURL, key, value string) string {
+	key = strings.TrimSpace(key)
+	value = strings.TrimSpace(value)
+	if key == "" && value == "" {
+		return baseURL
+	}
+
+	if key == "/" || strings.HasPrefix(value, "/") {
+		path := value
+		if !strings.HasPrefix(path, "/") {
+			path = "/" + path
+		}
+		return strings.TrimRight(baseURL, "/") + path
+	}
+
+	if key == "" || strings.Contains(key, "=") {
+		paramStr := key
+		if paramStr == "" {
+			paramStr = value
+		}
+		if strings.Contains(baseURL, "?") {
+			return fmt.Sprintf("%s&%s", baseURL, paramStr)
+		}
+		return fmt.Sprintf("%s?%s", baseURL, paramStr)
+	}
+
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		if strings.Contains(baseURL, "?") {
+			return fmt.Sprintf("%s&%s=%s", baseURL, url.QueryEscape(key), url.QueryEscape(value))
+		}
+		return fmt.Sprintf("%s?%s=%s", baseURL, url.QueryEscape(key), url.QueryEscape(value))
+	}
+	q := u.Query()
+	q.Set(key, value)
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
+
 
 func hasAnyCategory(srcCats, queryCats []string) bool {
 	for _, qc := range queryCats {
@@ -195,16 +268,29 @@ func checkAndSuspend(id int64, st *store.Store) {
 }
 
 func extractImageURL(resp *http.Response, src model.Source) (string, error) {
+	reqURL := src.URL
+	if resp.Request != nil && resp.Request.URL != nil {
+		reqURL = resp.Request.URL.String()
+	}
+
 	if resp.StatusCode == 301 || resp.StatusCode == 302 || resp.StatusCode == 303 || resp.StatusCode == 307 || resp.StatusCode == 308 {
 		loc := resp.Header.Get("Location")
 		if loc != "" {
+			loc = resolveURL(reqURL, loc)
+			if strings.Contains(loc, "image.baidu.com/search/down") || strings.Contains(loc, "search/down") {
+				if u, err := url.Parse(loc); err == nil {
+					if realURL := u.Query().Get("url"); realURL != "" && (strings.HasPrefix(realURL, "http://") || strings.HasPrefix(realURL, "https://")) {
+						return realURL, nil
+					}
+				}
+			}
 			return loc, nil
 		}
 	}
 
 	ct := resp.Header.Get("Content-Type")
 	if strings.HasPrefix(ct, "image/") {
-		return src.URL, nil
+		return reqURL, nil
 	}
 
 	if strings.HasPrefix(ct, "application/json") || src.RespType == "json" {
@@ -218,10 +304,31 @@ func extractImageURL(resp *http.Response, src model.Source) (string, error) {
 		}
 		result := gjson.Get(string(body), path)
 		if result.Exists() {
-			return result.String(), nil
+			return resolveURL(reqURL, result.String()), nil
 		}
 		return "", fmt.Errorf("json path %s not found", path)
 	}
 
-	return src.URL, nil
+	return reqURL, nil
 }
+
+func resolveURL(baseURLStr, targetURLStr string) string {
+	targetURLStr = strings.TrimSpace(targetURLStr)
+	if targetURLStr == "" {
+		return baseURLStr
+	}
+	if strings.HasPrefix(targetURLStr, "http://") || strings.HasPrefix(targetURLStr, "https://") {
+		return targetURLStr
+	}
+	base, err := url.Parse(baseURLStr)
+	if err != nil {
+		return targetURLStr
+	}
+	rel, err := url.Parse(targetURLStr)
+	if err != nil {
+		return targetURLStr
+	}
+	resolved := base.ResolveReference(rel)
+	return resolved.String()
+}
+

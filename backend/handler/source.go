@@ -50,15 +50,23 @@ func (h *Handler) CreateSource(c *gin.Context) {
 	if src.Status == "" {
 		src.Status = "normal"
 	}
+	if src.SuccessRate <= 0 {
+		src.SuccessRate = 100.0
+	}
 	src.Enabled = true
+
 	id, err := h.store.CreateSource(&src)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	src.ID = id
+	if h.healthChecker != nil {
+		go h.healthChecker.CheckAll()
+	}
 	c.JSON(http.StatusCreated, src)
 }
+
 
 func parseDefaultName(rawURL string) string {
 	u, err := url.Parse(rawURL)
