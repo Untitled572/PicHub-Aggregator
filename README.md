@@ -25,7 +25,7 @@
 
 **PicHub** 是一个专为开发者、博客作者与前端应用打造的图片 API 聚合与分发引擎。
 
-它可以将全网散落的各种第三方随机图片 API（包括图片直链、302 重定向、JSON 响应提取等）统一收归管理，对外提供极速、稳定且支持多维度过滤的单分发入口 `/random`。内置莫兰迪 (Morandi) 冷灰蓝风格的现代化控制台，无需额外部署 Web 服务。
+它可以将全网散落的各种第三方随机图片 API（包括图片直链、302 重定向、JSON 响应提取等）统一收归管理，对外提供极速、稳定且支持多维度过滤的单分发入口 `/random`。内置控制台，无需额外部署 Web 服务。
 
 ```
 		[前端 / Markdown / 博客 / APP]
@@ -79,7 +79,7 @@
 ```bash
 services:
   pichub:
-    image: ghcr.io/untitled572/pichub-aggregator:latest
+    image: ghcr.nju.edu.cn/untitled572/pichub-aggregator:latest
     network_mode: host
     volumes:
       - ./data:/app/data
@@ -90,6 +90,7 @@ services:
       - PORT=5721
       - DB_PATH=/app/data/pichub.db
       - CACHE_PATH=/app/cache
+      - TRUSTED_PROXIES=127.0.0.1/32,172.16.0.0/12
     restart: unless-stopped
 ```
 
@@ -109,7 +110,7 @@ docker run -d --name pichub --network host \
   -e PUID=1000 -e PGID=1000 \
   -v ./pichub_data:/app/data \
   -v ./pichub_cache:/app/cache \
-  ghcr.io/untitled572/pichub-aggregator:latest
+  ghcr.nju.edu.cn/untitled572/pichub-aggregator:latest
 ```
 
 ---

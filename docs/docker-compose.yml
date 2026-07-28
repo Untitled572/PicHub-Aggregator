@@ -1,6 +1,6 @@
 services:
   pichub:
-    image: ghcr.io/untitled572/pichub-aggregator:latest
+    image: ghcr.nju.edu.cn/untitled572/pichub-aggregator:latest
     network_mode: host
     volumes:
       - ./pichub_data:/app/data

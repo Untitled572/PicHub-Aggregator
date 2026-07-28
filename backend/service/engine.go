@@ -179,6 +179,20 @@ func filterSources(sources []model.Source, category string) []model.Source {
 				variant.Categories = paramCats
 				result = append(result, variant)
 			}
+
+			baseURL := appendDefaultQuery(src.URL, src.DefaultQuery)
+			if len(src.Categories) > 0 && category != "" {
+				cats := strings.Split(category, ",")
+				if hasAnyCategory(src.Categories, cats) {
+					variant := src
+					variant.URL = baseURL
+					result = append(result, variant)
+				}
+			} else {
+				variant := src
+				variant.URL = baseURL
+				result = append(result, variant)
+			}
 		} else {
 			if len(src.Categories) > 0 && category != "" {
 				cats := strings.Split(category, ",")
