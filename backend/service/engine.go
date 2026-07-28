@@ -34,7 +34,7 @@ type Result struct {
 	Categories []string `json:"categories"`
 }
 
-func (e *Engine) RandomImage(category string, format string) (*Result, int, error) {
+func (e *Engine) RandomImage(category string, format string, clientUA string) (*Result, int, error) {
 	settings, err := e.store.GetSettings()
 	if err != nil {
 		return nil, 0, fmt.Errorf("get settings: %w", err)
@@ -62,6 +62,18 @@ func (e *Engine) RandomImage(category string, format string) (*Result, int, erro
 		}
 		for k, v := range selected.Headers {
 			req.Header.Set(k, v)
+		}
+		if clientUA != "" {
+			hasUA := false
+			for k := range selected.Headers {
+				if strings.EqualFold(k, "User-Agent") {
+					hasUA = true
+					break
+				}
+			}
+			if !hasUA {
+				req.Header.Set("User-Agent", clientUA)
+			}
 		}
 
 		client := &http.Client{

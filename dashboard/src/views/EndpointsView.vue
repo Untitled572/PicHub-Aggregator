@@ -3,7 +3,6 @@ import { ref, computed, onMounted } from 'vue'
 import type { Source } from '../types'
 import { useTags } from '../composables/useTags'
 import { useApi } from '../composables/useApi'
-import { useDomain } from '../composables/useDomain'
 import {
   Link2,
   Copy,
@@ -24,7 +23,6 @@ import {
 
 const { tags, masterBoundTags, addTag, renameTag, deleteTag, setMasterBoundTags } = useTags()
 const { listSources } = useApi()
-const { effectiveDomain } = useDomain()
 
 const sources = ref<Source[]>([])
 const copiedState = ref<Record<string, boolean>>({})
@@ -40,7 +38,7 @@ onMounted(async () => {
   } catch {}
 })
 
-const origin = computed(() => effectiveDomain.value)
+const origin = computed(() => window.location.origin)
 
 // Count sources per tag
 const tagSourceCounts = computed(() => {

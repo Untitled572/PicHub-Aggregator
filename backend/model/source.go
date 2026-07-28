@@ -36,7 +36,6 @@ type Settings struct {
 	MinResolution       string `json:"min_resolution"`
 	RateLimit           int    `json:"rate_limit"`
 	Timeout             int    `json:"timeout"`
-	CustomDomain        string `json:"custom_domain"`
 	HealthCheckInterval int    `json:"health_check_interval"`
 }
 

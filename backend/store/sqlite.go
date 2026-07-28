@@ -221,7 +221,7 @@ func (s *Store) GetSettings() (*model.Settings, error) {
 				settings.Timeout = 3000
 			}
 		case "custom_domain":
-			settings.CustomDomain = v
+			_ = v
 		case "health_check_interval":
 			if n, err := fmt.Sscanf(v, "%d", &settings.HealthCheckInterval); err != nil || n != 1 {
 				settings.HealthCheckInterval = 360
@@ -242,7 +242,7 @@ func (s *Store) UpdateSettings(settings *model.Settings) error {
 		"min_resolution":        settings.MinResolution,
 		"rate_limit":            fmt.Sprintf("%d", settings.RateLimit),
 		"timeout":               fmt.Sprintf("%d", settings.Timeout),
-		"custom_domain":         settings.CustomDomain,
+		"custom_domain":         "",
 		"health_check_interval": fmt.Sprintf("%d", settings.HealthCheckInterval),
 	}
 

@@ -10,8 +10,9 @@ import (
 func (h *Handler) RandomImage(c *gin.Context) {
 	category := c.Query("category")
 	format := c.Query("format")
+	clientUA := c.GetHeader("User-Agent")
 
-	result, statusCode, err := h.engine.RandomImage(category, format)
+	result, statusCode, err := h.engine.RandomImage(category, format, clientUA)
 	if err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		return

@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useApi } from '../composables/useApi'
-import { useDomain } from '../composables/useDomain'
 import type { Settings } from '../types'
 import {
   Sliders,
@@ -12,15 +11,13 @@ import {
   Clock,
   Gauge,
   Image,
-  Globe,
   Wrench,
   AlertCircle
 } from 'lucide-vue-next'
 
 const { getSettings, updateSettings } = useApi()
-const { customDomain, setCustomDomain } = useDomain()
 
-const activeTab = ref<'domain' | 'cache' | 'security'>('domain')
+const activeTab = ref<'cache' | 'security'>('cache')
 
 const settings = ref<Settings>({
   proxy_mode: false,
@@ -29,7 +26,6 @@ const settings = ref<Settings>({
   min_resolution: '640x480',
   rate_limit: 60,
   timeout: 3000,
-  custom_domain: '',
   health_check_interval: 360,
 })
 
@@ -40,22 +36,13 @@ onMounted(async () => {
   try {
     const s = await getSettings()
     settings.value = s
-    if (s.custom_domain) {
-      setCustomDomain(s.custom_domain)
-    } else if (customDomain.value) {
-      settings.value.custom_domain = customDomain.value
-    }
-  } catch {
-    settings.value.custom_domain = customDomain.value
-  }
+  } catch {}
 })
 
 async function handleSave() {
   saving.value = true
   saved.value = false
   try {
-    const domainToSave = settings.value.custom_domain || ''
-    setCustomDomain(domainToSave)
     await updateSettings(settings.value)
     saved.value = true
     setTimeout(() => saved.value = false, 3000)
@@ -64,7 +51,6 @@ async function handleSave() {
 }
 
 const tabs = [
-  { id: 'domain', label: '域名与接口前缀', icon: Globe },
   { id: 'cache', label: '代理中转与缓存', icon: HardDrive },
   { id: 'security', label: '速率与安全限制', icon: Shield },
 ]
@@ -81,7 +67,7 @@ const tabs = [
         </div>
         <div>
           <h2 class="font-bold text-base text-morandi-text">系统全局中转策略与设置</h2>
-          <p class="text-xs text-morandi-muted mt-0.5">分页设置对外域名绑定、代理缓存中转模式以及 Rate Limit 防刷保护</p>
+          <p class="text-xs text-morandi-muted mt-0.5">配置代理缓存中转模式以及 Rate Limit 防刷保护</p>
         </div>
       </div>
     </div>
@@ -105,33 +91,7 @@ const tabs = [
         </button>
       </div>
 
-      <!-- Tab Page 1: Custom Domain Settings -->
-      <div v-if="activeTab === 'domain'" class="space-y-4 animate-in fade-in duration-200">
-        <div class="flex items-center justify-between pb-2 border-b border-morandi-border/40">
-          <h3 class="text-xs font-bold text-morandi-sage-dark uppercase tracking-wider flex items-center gap-1.5">
-            <Globe class="w-4 h-4" /> 对外 API 自定义域名前缀
-          </h3>
-        </div>
-
-        <div class="space-y-3">
-          <label class="font-medium text-morandi-text block text-xs">
-            绑定自定义域名 (Custom Domain Prefix)
-          </label>
-          <input
-            v-model="settings.custom_domain"
-            placeholder="例如: https://pic.example.com"
-            class="morandi-input w-full px-3.5 py-2.5 font-mono text-xs"
-          />
-          <div class="p-3 bg-morandi-bg/80 rounded-xl border border-morandi-borderSoft text-xs text-morandi-muted space-y-1">
-            <p class="font-semibold text-morandi-text">📌 提示：</p>
-            <p class="text-[11px] leading-relaxed">
-              配置后，控制台内所有生成与一键复制的 API 分发链接（包括总分发接口、Tag 分类接口、节点快捷链接等）将自动使用该域名作为前缀。
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <!-- Tab Page 2: Proxy Mode & Cache Settings -->
+      <!-- Tab Page 1: Proxy Mode & Cache Settings -->
       <div v-if="activeTab === 'cache'" class="space-y-4 animate-in fade-in duration-200">
         <div class="flex items-center justify-between pb-2 border-b border-morandi-border/40">
           <h3 class="text-xs font-bold text-morandi-sage-dark uppercase tracking-wider flex items-center gap-1.5">
@@ -197,7 +157,7 @@ const tabs = [
         </div>
       </div>
 
-      <!-- Tab Page 3: Security & Rate Limit Settings -->
+      <!-- Tab Page 2: Security & Rate Limit Settings -->
       <div v-if="activeTab === 'security'" class="space-y-4 animate-in fade-in duration-200">
         <div class="flex items-center justify-between pb-2 border-b border-morandi-border/40">
           <h3 class="text-xs font-bold text-morandi-ocean-dark uppercase tracking-wider flex items-center gap-1.5">

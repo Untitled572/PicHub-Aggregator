@@ -32,7 +32,6 @@ export interface Settings {
   min_resolution: string
   rate_limit: number
   timeout: number
-  custom_domain?: string
   health_check_interval?: number
 }
 

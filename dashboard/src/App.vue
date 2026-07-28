@@ -13,13 +13,10 @@ import {
   Check,
   Link2
 } from 'lucide-vue-next'
-import { useDomain } from './composables/useDomain'
 
 const route = useRoute()
 const copiedUrl = ref(false)
 const backendConnected = ref(true)
-
-const { getEffectiveDomain } = useDomain()
 
 const navItems = [
   { path: '/', label: '图源管理', subtitle: 'API 源配置与监听', icon: Layers },
@@ -59,7 +56,7 @@ onUnmounted(() => {
 })
 
 function copyUserApiUrl() {
-  const apiUrl = `${getEffectiveDomain()}/random`
+  const apiUrl = `${window.location.origin}/random`
   navigator.clipboard.writeText(apiUrl)
   copiedUrl.value = true
   setTimeout(() => copiedUrl.value = false, 2500)
