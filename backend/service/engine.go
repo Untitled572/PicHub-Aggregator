@@ -180,7 +180,7 @@ func filterSources(sources []model.Source, category string) []model.Source {
 				result = append(result, variant)
 			}
 		} else {
-			if category != "" {
+			if len(src.Categories) > 0 && category != "" {
 				cats := strings.Split(category, ",")
 				if !hasAnyCategory(src.Categories, cats) {
 					continue

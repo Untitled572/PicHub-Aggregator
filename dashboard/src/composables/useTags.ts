@@ -1,9 +1,5 @@
-import { ref, watch } from 'vue'
-
-export interface Tag {
-  id: string
-  name: string
-}
+import { ref } from 'vue'
+import type { Tag } from '../types'
 
 const DEFAULT_TAGS: Tag[] = [
   { id: 'horizontal', name: '横屏' },
@@ -11,26 +7,34 @@ const DEFAULT_TAGS: Tag[] = [
   { id: 'adaptive', name: '自适应' },
 ]
 
-
-const STORAGE_KEY = 'pichub_tags_v1'
-
-function loadTags(): Tag[] {
-  const saved = localStorage.getItem(STORAGE_KEY)
-  if (saved) {
-    try {
-      return JSON.parse(saved)
-    } catch {}
-  }
-  return DEFAULT_TAGS
-}
-
-const tags = ref<Tag[]>(loadTags())
-
-watch(tags, (newTags) => {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(newTags))
-}, { deep: true })
+const tags = ref<Tag[]>([...DEFAULT_TAGS])
+let loaded = false
 
 export function useTags() {
+  async function loadTags() {
+    if (loaded) return
+    try {
+      const res = await fetch('/api/tags')
+      if (res.ok) {
+        const data = await res.json()
+        if (Array.isArray(data) && data.length > 0) {
+          tags.value = data
+        }
+      }
+    } catch {}
+    loaded = true
+  }
+
+  async function saveTags() {
+    try {
+      await fetch('/api/tags', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(tags.value),
+      })
+    } catch {}
+  }
+
   function addTag(id: string, name: string) {
     const cleanId = id.trim().toLowerCase()
     const cleanName = name.trim() || cleanId
@@ -41,12 +45,14 @@ export function useTags() {
     } else {
       tags.value.push({ id: cleanId, name: cleanName })
     }
+    saveTags()
   }
 
   function renameTag(id: string, newName: string) {
     const target = tags.value.find(t => t.id === id)
     if (target) {
       target.name = newName.trim()
+      saveTags()
     }
   }
 
@@ -54,6 +60,7 @@ export function useTags() {
     const idx = tags.value.findIndex(t => t.id === id)
     if (idx >= 0) {
       tags.value.splice(idx, 1)
+      saveTags()
     }
   }
 
@@ -67,6 +74,7 @@ export function useTags() {
 
   return {
     tags,
+    loadTags,
     addTag,
     renameTag,
     deleteTag,

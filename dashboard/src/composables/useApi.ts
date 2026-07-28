@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import type { Source, Settings, DetectResult, ExportData, ImportResult, HealthResult } from '../types'
+import type { Source, Settings, DetectResult, ExportData, ImportResult, HealthResult, Tag } from '../types'
 
 const API_BASE = ''
 
@@ -62,6 +62,14 @@ export function useApi() {
     return request<Settings>('/api/settings', { method: 'PUT', body: JSON.stringify(data) })
   }
 
+  function getTags() {
+    return request<Tag[]>('/api/tags')
+  }
+
+  function updateTags(data: Tag[]) {
+    return request<Tag[]>('/api/tags', { method: 'PUT', body: JSON.stringify(data) })
+  }
+
   function detectURL(url: string) {
     return request<DetectResult>('/random/detect', { method: 'POST', body: JSON.stringify({ url }) })
   }
@@ -81,7 +89,7 @@ export function useApi() {
   return {
     loading, error,
     listSources, getSource, createSource, updateSource, deleteSource, toggleSource,
-    getSettings, updateSettings,
+    getSettings, updateSettings, getTags, updateTags,
     detectURL, healthCheck,
     exportRules, importRules,
   }

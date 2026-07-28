@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import { RouterView, RouterLink, useRoute } from 'vue-router'
+import { useTags } from './composables/useTags'
 import {
   Layers,
   Activity,
@@ -17,6 +18,7 @@ import {
 const route = useRoute()
 const copiedUrl = ref(false)
 const backendConnected = ref(true)
+const { loadTags } = useTags()
 
 const navItems = [
   { path: '/', label: '图源管理', subtitle: 'API 源配置与监听', icon: Layers },
@@ -47,6 +49,7 @@ async function checkBackendHealth() {
 let healthTimer: any = null
 
 onMounted(() => {
+  loadTags()
   checkBackendHealth()
   healthTimer = setInterval(checkBackendHealth, 8000)
 })

@@ -270,6 +270,36 @@ func encodeBoundTags(tags []string) string {
 	return string(b)
 }
 
+func (s *Store) GetTags() ([]model.Tag, error) {
+	var v string
+	err := s.db.QueryRow("SELECT value FROM settings WHERE key='tags'").Scan(&v)
+	if err != nil {
+		return defaultTags(), nil
+	}
+	if v == "" {
+		return defaultTags(), nil
+	}
+	var tags []model.Tag
+	if err := json.Unmarshal([]byte(v), &tags); err != nil || len(tags) == 0 {
+		return defaultTags(), nil
+	}
+	return tags, nil
+}
+
+func (s *Store) UpdateTags(tags []model.Tag) error {
+	b, _ := json.Marshal(tags)
+	_, err := s.db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('tags', ?)", string(b))
+	return err
+}
+
+func defaultTags() []model.Tag {
+	return []model.Tag{
+		{ID: "horizontal", Name: "横屏"},
+		{ID: "vertical", Name: "竖屏"},
+		{ID: "adaptive", Name: "自适应"},
+	}
+}
+
 func (s *Store) GetEnabledSources() ([]model.Source, error) {
 	all, err := s.ListSources()
 	if err != nil {
