@@ -35,6 +35,7 @@ const form = ref({
   categories: [] as string[],
   headers: {} as Record<string, string>,
   params: [] as QueryParam[],
+  default_query: '',
   enabled: true,
 })
 
@@ -397,6 +398,17 @@ async function handleSave() {
                 {{ w }} ({{ weightLabels[w] }})
               </button>
             </div>
+          </div>
+
+          <!-- Default Query Parameters (默认请求参数) -->
+          <div>
+            <label class="font-medium text-morandi-text block mb-1">默认请求参数 <span class="text-morandi-muted font-normal">(追加到所有子分支 URL)</span></label>
+            <p class="text-[10px] text-morandi-muted mb-1.5">如 <code class="font-mono bg-morandi-bg px-1 py-0.5 rounded">num=1</code> 或 <code class="font-mono bg-morandi-bg px-1 py-0.5 rounded">num=1&size=500</code>，格式为 key=value，多个参数用 & 连接。</p>
+            <input
+              v-model="form.default_query"
+              placeholder="如 num=1 或 num=1&size=500"
+              class="morandi-input w-full px-3 py-2 font-mono text-xs"
+            />
           </div>
 
           <!-- Query Parameter Variants (请求参数与衍生分支) -->

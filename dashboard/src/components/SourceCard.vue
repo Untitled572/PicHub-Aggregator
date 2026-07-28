@@ -47,6 +47,13 @@ function handleDeleteConfirm() {
         <span class="truncate">{{ source.url }}</span>
       </div>
 
+      <!-- Default Query Params -->
+      <div v-if="source.default_query" class="flex items-center gap-1.5">
+        <span class="text-[10px] px-2 py-0.5 bg-morandi-sand-light/80 text-morandi-sand-dark rounded-md font-medium border border-morandi-sand/20 font-mono">
+          默认参数: {{ source.default_query }}
+        </span>
+      </div>
+
       <!-- Category Tags -->
       <div v-if="(source.categories && source.categories.length > 0) || (source.params && source.params.length > 0)" class="flex items-center gap-1.5 flex-wrap pt-0.5">
         <span

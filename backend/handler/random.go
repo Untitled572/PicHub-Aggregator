@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/pichub/backend/service"
@@ -11,6 +12,13 @@ func (h *Handler) RandomImage(c *gin.Context) {
 	category := c.Query("category")
 	format := c.Query("format")
 	clientUA := c.GetHeader("User-Agent")
+
+	if category == "" {
+		settings, err := h.store.GetSettings()
+		if err == nil && len(settings.BoundTags) > 0 {
+			category = strings.Join(settings.BoundTags, ",")
+		}
+	}
 
 	result, statusCode, err := h.engine.RandomImage(category, format, clientUA)
 	if err != nil {

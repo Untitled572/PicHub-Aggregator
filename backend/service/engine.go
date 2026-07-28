@@ -156,7 +156,7 @@ func filterSources(sources []model.Source, category string) []model.Source {
 				if key == "" {
 					continue
 				}
-				paramURL := buildURL(src.URL, key, val)
+				paramURL := appendDefaultQuery(buildURL(src.URL, key, val), src.DefaultQuery)
 				paramWeight := param.Weight
 				if paramWeight <= 0 {
 					paramWeight = src.Weight
@@ -166,9 +166,9 @@ func filterSources(sources []model.Source, category string) []model.Source {
 					paramCats = src.Categories
 				}
 
-				if category != "" {
+				if len(param.Categories) > 0 && category != "" {
 					cats := strings.Split(category, ",")
-					if !hasAnyCategory(paramCats, cats) {
+					if !hasAnyCategory(param.Categories, cats) {
 						continue
 					}
 				}
@@ -186,10 +186,23 @@ func filterSources(sources []model.Source, category string) []model.Source {
 					continue
 				}
 			}
-			result = append(result, src)
+			variant := src
+			variant.URL = appendDefaultQuery(src.URL, src.DefaultQuery)
+			result = append(result, variant)
 		}
 	}
 	return result
+}
+
+func appendDefaultQuery(baseURL, defaultQuery string) string {
+	defaultQuery = strings.TrimSpace(defaultQuery)
+	if defaultQuery == "" {
+		return baseURL
+	}
+	if strings.Contains(baseURL, "?") {
+		return baseURL + "&" + defaultQuery
+	}
+	return baseURL + "?" + defaultQuery
 }
 
 func buildURL(baseURL, key, value string) string {

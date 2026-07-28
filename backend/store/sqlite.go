@@ -64,6 +64,7 @@ func (s *Store) migrate() error {
 		}
 	}
 	_, _ = s.db.Exec("ALTER TABLE sources ADD COLUMN params TEXT DEFAULT '[]'")
+	_, _ = s.db.Exec("ALTER TABLE sources ADD COLUMN default_query TEXT DEFAULT ''")
 	if err := s.seedDefaults(); err != nil {
 
 		return err
@@ -97,7 +98,7 @@ func (s *Store) seedDefaults() error {
 }
 
 func (s *Store) ListSources() ([]model.Source, error) {
-	rows, err := s.db.Query("SELECT id, name, url, resp_type, json_path, weight, categories, headers, params, enabled, fail_count, success_rate, avg_latency, status, created_at, updated_at FROM sources ORDER BY id")
+	rows, err := s.db.Query("SELECT id, name, url, resp_type, json_path, weight, categories, headers, params, default_query, enabled, fail_count, success_rate, avg_latency, status, created_at, updated_at FROM sources ORDER BY id")
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +109,7 @@ func (s *Store) ListSources() ([]model.Source, error) {
 		var categoriesJSON, headersJSON, paramsJSON string
 		var createdAt, updatedAt string
 		err := rows.Scan(&src.ID, &src.Name, &src.URL, &src.RespType, &src.JsonPath, &src.Weight,
-			&categoriesJSON, &headersJSON, &paramsJSON, &src.Enabled, &src.FailCount, &src.SuccessRate,
+			&categoriesJSON, &headersJSON, &paramsJSON, &src.DefaultQuery, &src.Enabled, &src.FailCount, &src.SuccessRate,
 			&src.AvgLatency, &src.Status, &createdAt, &updatedAt)
 		if err != nil {
 			return nil, err
@@ -127,9 +128,9 @@ func (s *Store) GetSource(id int64) (*model.Source, error) {
 	var src model.Source
 	var categoriesJSON, headersJSON, paramsJSON string
 	var createdAt, updatedAt string
-	err := s.db.QueryRow("SELECT id, name, url, resp_type, json_path, weight, categories, headers, params, enabled, fail_count, success_rate, avg_latency, status, created_at, updated_at FROM sources WHERE id=?", id).
+	err := s.db.QueryRow("SELECT id, name, url, resp_type, json_path, weight, categories, headers, params, default_query, enabled, fail_count, success_rate, avg_latency, status, created_at, updated_at FROM sources WHERE id=?", id).
 		Scan(&src.ID, &src.Name, &src.URL, &src.RespType, &src.JsonPath, &src.Weight,
-			&categoriesJSON, &headersJSON, &paramsJSON, &src.Enabled, &src.FailCount, &src.SuccessRate,
+			&categoriesJSON, &headersJSON, &paramsJSON, &src.DefaultQuery, &src.Enabled, &src.FailCount, &src.SuccessRate,
 			&src.AvgLatency, &src.Status, &createdAt, &updatedAt)
 	if err != nil {
 		return nil, err
@@ -147,8 +148,8 @@ func (s *Store) CreateSource(src *model.Source) (int64, error) {
 	headersJSON, _ := json.Marshal(src.Headers)
 	paramsJSON, _ := json.Marshal(src.Params)
 	result, err := s.db.Exec(
-		"INSERT INTO sources (name, url, resp_type, json_path, weight, categories, headers, params, enabled, fail_count, success_rate, avg_latency, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		src.Name, src.URL, src.RespType, src.JsonPath, src.Weight, string(categoriesJSON), string(headersJSON), string(paramsJSON), src.Enabled, src.FailCount, src.SuccessRate, src.AvgLatency, src.Status,
+		"INSERT INTO sources (name, url, resp_type, json_path, weight, categories, headers, params, default_query, enabled, fail_count, success_rate, avg_latency, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		src.Name, src.URL, src.RespType, src.JsonPath, src.Weight, string(categoriesJSON), string(headersJSON), string(paramsJSON), src.DefaultQuery, src.Enabled, src.FailCount, src.SuccessRate, src.AvgLatency, src.Status,
 	)
 	if err != nil {
 		return 0, err
@@ -161,8 +162,8 @@ func (s *Store) UpdateSource(src *model.Source) error {
 	headersJSON, _ := json.Marshal(src.Headers)
 	paramsJSON, _ := json.Marshal(src.Params)
 	_, err := s.db.Exec(
-		"UPDATE sources SET name=?, url=?, resp_type=?, json_path=?, weight=?, categories=?, headers=?, params=?, enabled=?, fail_count=?, success_rate=?, avg_latency=?, status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
-		src.Name, src.URL, src.RespType, src.JsonPath, src.Weight, string(categoriesJSON), string(headersJSON), string(paramsJSON), src.Enabled, src.FailCount, src.SuccessRate, src.AvgLatency, src.Status, src.ID,
+		"UPDATE sources SET name=?, url=?, resp_type=?, json_path=?, weight=?, categories=?, headers=?, params=?, default_query=?, enabled=?, fail_count=?, success_rate=?, avg_latency=?, status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+		src.Name, src.URL, src.RespType, src.JsonPath, src.Weight, string(categoriesJSON), string(headersJSON), string(paramsJSON), src.DefaultQuery, src.Enabled, src.FailCount, src.SuccessRate, src.AvgLatency, src.Status, src.ID,
 	)
 	return err
 }
@@ -226,6 +227,10 @@ func (s *Store) GetSettings() (*model.Settings, error) {
 			if n, err := fmt.Sscanf(v, "%d", &settings.HealthCheckInterval); err != nil || n != 1 {
 				settings.HealthCheckInterval = 360
 			}
+		case "bound_tags":
+			if v != "" {
+				json.Unmarshal([]byte(v), &settings.BoundTags)
+			}
 		}
 	}
 	if settings.HealthCheckInterval <= 0 {
@@ -244,6 +249,7 @@ func (s *Store) UpdateSettings(settings *model.Settings) error {
 		"timeout":               fmt.Sprintf("%d", settings.Timeout),
 		"custom_domain":         "",
 		"health_check_interval": fmt.Sprintf("%d", settings.HealthCheckInterval),
+		"bound_tags":           encodeBoundTags(settings.BoundTags),
 	}
 
 
@@ -254,6 +260,14 @@ func (s *Store) UpdateSettings(settings *model.Settings) error {
 		}
 	}
 	return nil
+}
+
+func encodeBoundTags(tags []string) string {
+	if tags == nil {
+		return ""
+	}
+	b, _ := json.Marshal(tags)
+	return string(b)
 }
 
 func (s *Store) GetEnabledSources() ([]model.Source, error) {

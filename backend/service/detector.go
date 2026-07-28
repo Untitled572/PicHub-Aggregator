@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -130,10 +131,46 @@ func findURLFields(prefix string, data []byte, depth int) []string {
 		}
 		return true
 	})
+	sort.SliceStable(hints, func(i, j int) bool {
+		return hintPriority(hints[i]) > hintPriority(hints[j])
+	})
 	return hints
 }
 
 func isURLString(s string) bool {
 	s = strings.ToLower(s)
 	return strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://")
+}
+
+func hintPriority(path string) int {
+	lower := strings.ToLower(path)
+	parts := strings.Split(lower, ".")
+	key := ""
+	if len(parts) > 0 {
+		key = parts[len(parts)-1]
+	}
+	// 去除引号: 0.['url'] → url
+	key = strings.Trim(key, "'\"[]")
+
+	// 图片相关字段优先
+	switch {
+	case key == "url" || key == "img_url" || key == "image_url":
+		return 10
+	case key == "src" || key == "image" || key == "file" || key == "file_url":
+		return 9
+	case strings.Contains(key, "img") || strings.Contains(key, "image") || strings.Contains(key, "src"):
+		return 7
+	case key == "download" || key == "pic" || key == "thumbnail":
+		return 6
+	}
+
+	// 页面/链接类字段降权
+	switch {
+	case key == "page" || key == "link" || key == "href":
+		return 2
+	case key == "detail" || key == "origin" || key == "original":
+		return 3
+	}
+
+	return 5
 }

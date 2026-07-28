@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import type { Source } from '../types'
+import type { Source, Settings } from '../types'
 import { useTags } from '../composables/useTags'
 import { useApi } from '../composables/useApi'
 import {
@@ -21,8 +21,8 @@ import {
   X
 } from 'lucide-vue-next'
 
-const { tags, masterBoundTags, addTag, renameTag, deleteTag, setMasterBoundTags } = useTags()
-const { listSources } = useApi()
+const { tags, addTag, renameTag, deleteTag } = useTags()
+const { listSources, getSettings, updateSettings } = useApi()
 
 const sources = ref<Source[]>([])
 const copiedState = ref<Record<string, boolean>>({})
@@ -31,10 +31,19 @@ const newTagId = ref('')
 const newTagName = ref('')
 const editingTagId = ref<string | null>(null)
 const editingTagName = ref('')
+const boundTags = ref<string[]>([])
+const cachedSettings = ref<Settings | null>(null)
 
 onMounted(async () => {
   try {
     sources.value = await listSources()
+  } catch {}
+  try {
+    const settings = await getSettings()
+    cachedSettings.value = settings
+    if (settings.bound_tags) {
+      boundTags.value = settings.bound_tags
+    }
   } catch {}
 })
 
@@ -56,32 +65,33 @@ const tagSourceCounts = computed(() => {
   return counts
 })
 
-// Master API URL
 const masterUrl = computed(() => {
-  if (masterBoundTags.value.length === 0 || masterBoundTags.value.length === tags.value.length) {
-    return `${origin.value}/random`
-  }
-  return `${origin.value}/random?category=${masterBoundTags.value.join(',')}`
+  return `${origin.value}/random`
 })
 
 const masterJsonUrl = computed(() => {
-  if (masterBoundTags.value.length === 0 || masterBoundTags.value.length === tags.value.length) {
-    return `${origin.value}/random?format=json`
-  }
-  return `${origin.value}/random?category=${masterBoundTags.value.join(',')}&format=json`
+  return `${origin.value}/random?format=json`
 })
 
-// Check if all tags bound
 const isAllTagsBound = computed(() => {
-  return masterBoundTags.value.length === 0 || masterBoundTags.value.length === tags.value.length
+  return boundTags.value.length === 0 || boundTags.value.length === tags.value.length
 })
+
+async function saveBoundTags(tags: string[]) {
+  const base = cachedSettings.value || { proxy_mode: false, cache_max_mb: 200, cache_ttl: 60, min_resolution: '640x480', rate_limit: 60, timeout: 3000 }
+  try {
+    const updated = await updateSettings({ ...base, bound_tags: tags })
+    cachedSettings.value = updated
+  } catch {}
+}
 
 function toggleAllTagsBound() {
-  setMasterBoundTags([])
+  boundTags.value = []
+  saveBoundTags([])
 }
 
 function toggleTagBound(tagId: string) {
-  let current = [...masterBoundTags.value]
+  let current = [...boundTags.value]
   if (current.length === 0) {
     current = tags.value.map(t => t.id).filter(id => id !== tagId)
   } else {
@@ -92,12 +102,13 @@ function toggleTagBound(tagId: string) {
       current.push(tagId)
     }
   }
-  setMasterBoundTags(current)
+  boundTags.value = current
+  saveBoundTags(current)
 }
 
 function isTagBound(tagId: string): boolean {
-  if (masterBoundTags.value.length === 0) return true
-  return masterBoundTags.value.includes(tagId)
+  if (boundTags.value.length === 0) return true
+  return boundTags.value.includes(tagId)
 }
 
 function copyToClipboard(key: string, text: string) {
@@ -234,7 +245,7 @@ function handleTagDelete(id: string) {
             <Sliders class="w-3.5 h-3.5 text-morandi-sage" /> 主接口绑定的 Tag 标签范围：
           </label>
           <span class="text-[11px] text-morandi-muted">
-            {{ isAllTagsBound ? '全选 (无过滤条件)' : `已绑定 ${masterBoundTags.length} 个标签` }}
+            {{ isAllTagsBound ? '全选 (无过滤条件)' : `已绑定 ${boundTags.length} 个标签` }}
           </span>
         </div>
 

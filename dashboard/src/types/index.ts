@@ -15,6 +15,7 @@ export interface Source {
   categories: string[]
   headers: Record<string, string>
   params?: QueryParam[]
+  default_query: string
   enabled: boolean
   fail_count: number
   success_rate: number
@@ -33,6 +34,7 @@ export interface Settings {
   rate_limit: number
   timeout: number
   health_check_interval?: number
+  bound_tags?: string[]
 }
 
 
@@ -64,6 +66,7 @@ export interface ExportData {
     weight: number
     categories: string[]
     headers: Record<string, string>
+    default_query: string
     enabled: boolean
   }>
 }

@@ -13,7 +13,6 @@ const DEFAULT_TAGS: Tag[] = [
 
 
 const STORAGE_KEY = 'pichub_tags_v1'
-const MASTER_BOUND_KEY = 'pichub_master_bound_tags_v1'
 
 function loadTags(): Tag[] {
   const saved = localStorage.getItem(STORAGE_KEY)
@@ -25,25 +24,10 @@ function loadTags(): Tag[] {
   return DEFAULT_TAGS
 }
 
-function loadMasterBound(): string[] {
-  const saved = localStorage.getItem(MASTER_BOUND_KEY)
-  if (saved) {
-    try {
-      return JSON.parse(saved)
-    } catch {}
-  }
-  return [] // Empty list means all tags bound
-}
-
 const tags = ref<Tag[]>(loadTags())
-const masterBoundTags = ref<string[]>(loadMasterBound())
 
 watch(tags, (newTags) => {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(newTags))
-}, { deep: true })
-
-watch(masterBoundTags, (newBound) => {
-  localStorage.setItem(MASTER_BOUND_KEY, JSON.stringify(newBound))
 }, { deep: true })
 
 export function useTags() {
@@ -71,14 +55,6 @@ export function useTags() {
     if (idx >= 0) {
       tags.value.splice(idx, 1)
     }
-    const bIdx = masterBoundTags.value.indexOf(id)
-    if (bIdx >= 0) {
-      masterBoundTags.value.splice(bIdx, 1)
-    }
-  }
-
-  function setMasterBoundTags(boundIds: string[]) {
-    masterBoundTags.value = boundIds
   }
 
   function getCategoryMap(): Record<string, string> {
@@ -91,11 +67,9 @@ export function useTags() {
 
   return {
     tags,
-    masterBoundTags,
     addTag,
     renameTag,
     deleteTag,
-    setMasterBoundTags,
     getCategoryMap
   }
 }
