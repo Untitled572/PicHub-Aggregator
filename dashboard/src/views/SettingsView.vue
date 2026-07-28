@@ -3,11 +3,24 @@ import { ref, onMounted } from 'vue'
 import { useApi } from '../composables/useApi'
 import { useDomain } from '../composables/useDomain'
 import type { Settings } from '../types'
-import { Sliders, Save, CheckCircle2, Shield, HardDrive, Clock, Gauge, Image, Globe, Wrench, AlertCircle } from 'lucide-vue-next'
-
+import {
+  Sliders,
+  Save,
+  CheckCircle2,
+  Shield,
+  HardDrive,
+  Clock,
+  Gauge,
+  Image,
+  Globe,
+  Wrench,
+  AlertCircle
+} from 'lucide-vue-next'
 
 const { getSettings, updateSettings } = useApi()
 const { customDomain, setCustomDomain } = useDomain()
+
+const activeTab = ref<'domain' | 'cache' | 'security'>('domain')
 
 const settings = ref<Settings>({
   proxy_mode: false,
@@ -47,11 +60,18 @@ async function handleSave() {
   } catch {}
   saving.value = false
 }
+
+const tabs = [
+  { id: 'domain', label: '域名与接口前缀', icon: Globe },
+  { id: 'cache', label: '代理中转与缓存', icon: HardDrive },
+  { id: 'security', label: '速率与安全限制', icon: Shield },
+]
 </script>
 
 <template>
-  <div class="max-w-2xl space-y-6">
+  <div class="space-y-6">
     <!-- Header -->
+
     <div class="morandi-card p-5">
       <div class="flex items-center gap-3">
         <div class="w-10 h-10 rounded-xl bg-morandi-ocean/15 text-morandi-ocean-dark flex items-center justify-center shrink-0">
@@ -59,39 +79,61 @@ async function handleSave() {
         </div>
         <div>
           <h2 class="font-bold text-base text-morandi-text">系统全局中转策略与设置</h2>
-          <p class="text-xs text-morandi-muted mt-0.5">控制底层代理中转模式、防盗链解决、本地磁盘缓存及 Rate Limit 速率限制</p>
+          <p class="text-xs text-morandi-muted mt-0.5">分页设置对外域名绑定、代理缓存中转模式以及 Rate Limit 防刷保护</p>
         </div>
       </div>
     </div>
 
-    <!-- Form Panel -->
+    <!-- Tabbed Settings Form Container -->
     <div class="morandi-card p-6 space-y-6">
-      <!-- Section 0: Custom Domain -->
-      <div class="space-y-4">
-        <h3 class="text-xs font-bold text-morandi-sage-dark uppercase tracking-wider flex items-center gap-1.5 pb-2 border-b border-morandi-border/60">
-          <Globe class="w-4 h-4" /> 绑定自定义域名 (Custom Domain Prefix)
-        </h3>
+      <!-- Top Paginated Navigation Tabs -->
+      <div class="flex items-center gap-2 border-b border-morandi-border/60 pb-3 overflow-x-auto">
+        <button
+          v-for="tab in tabs"
+          :key="tab.id"
+          type="button"
+          @click="activeTab = tab.id as any"
+          class="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all shrink-0 cursor-pointer"
+          :class="activeTab === tab.id
+            ? 'bg-morandi-sage text-white shadow-xs'
+            : 'bg-morandi-bg text-morandi-muted hover:bg-morandi-hover hover:text-morandi-text border border-morandi-borderSoft/60'"
+        >
+          <component :is="tab.icon" class="w-4 h-4" />
+          <span>{{ tab.label }}</span>
+        </button>
+      </div>
 
-        <div>
-          <label class="font-medium text-morandi-text block mb-1.5 flex items-center gap-1 text-xs">
-            <Globe class="w-3.5 h-3.5 text-morandi-sage" /> 对外 API 自定义域名
+      <!-- Tab Page 1: Custom Domain Settings -->
+      <div v-if="activeTab === 'domain'" class="space-y-4 animate-in fade-in duration-200">
+        <div class="flex items-center justify-between pb-2 border-b border-morandi-border/40">
+          <h3 class="text-xs font-bold text-morandi-sage-dark uppercase tracking-wider flex items-center gap-1.5">
+            <Globe class="w-4 h-4" /> 对外 API 自定义域名前缀
+          </h3>
+        </div>
+
+        <div class="space-y-3">
+          <label class="font-medium text-morandi-text block text-xs">
+            绑定自定义域名 (Custom Domain Prefix)
           </label>
           <input
             v-model="settings.custom_domain"
             placeholder="例如: https://pic.example.com"
-            class="morandi-input w-full px-3 py-2 font-mono text-xs"
+            class="morandi-input w-full px-3.5 py-2.5 font-mono text-xs"
           />
-          <p class="text-[10px] text-morandi-muted mt-1">
-            配置后，控制台内所有生成与一键复制的 API 分发链接（包括总分发接口、Tag 独立接口、节点快捷链接等）将自动使用该域名作为前缀。
-          </p>
+          <div class="p-3 bg-morandi-bg/80 rounded-xl border border-morandi-borderSoft text-xs text-morandi-muted space-y-1">
+            <p class="font-semibold text-morandi-text">📌 提示：</p>
+            <p class="text-[11px] leading-relaxed">
+              配置后，控制台内所有生成与一键复制的 API 分发链接（包括总分发接口、Tag 分类接口、节点快捷链接等）将自动使用该域名作为前缀。
+            </p>
+          </div>
         </div>
       </div>
 
-      <!-- Section 1: Proxy Mode & Cache -->
-      <div class="space-y-4">
-        <div class="flex items-center justify-between pb-2 border-b border-morandi-border/60">
+      <!-- Tab Page 2: Proxy Mode & Cache Settings -->
+      <div v-if="activeTab === 'cache'" class="space-y-4 animate-in fade-in duration-200">
+        <div class="flex items-center justify-between pb-2 border-b border-morandi-border/40">
           <h3 class="text-xs font-bold text-morandi-sage-dark uppercase tracking-wider flex items-center gap-1.5">
-            <HardDrive class="w-4 h-4" /> 代理中转与缓存策略
+            <HardDrive class="w-4 h-4" /> 代理中转与磁盘缓存策略
           </h3>
           <span class="text-[10px] px-2 py-0.5 bg-amber-100 text-amber-800 font-bold rounded-md flex items-center gap-1">
             <Wrench class="w-3 h-3" /> 功能待开发完善 (研发中)
@@ -126,8 +168,7 @@ async function handleSave() {
           </label>
         </div>
 
-
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs pt-2">
           <div>
             <label class="font-medium text-morandi-text block mb-1.5 flex items-center gap-1">
               <HardDrive class="w-3.5 h-3.5 text-morandi-light" /> 最大磁盘缓存容量 (MB)
@@ -154,11 +195,13 @@ async function handleSave() {
         </div>
       </div>
 
-      <!-- Section 2: Rate Limit & Failover -->
-      <div class="space-y-4 pt-2">
-        <h3 class="text-xs font-bold text-morandi-ocean-dark uppercase tracking-wider flex items-center gap-1.5 pb-2 border-b border-morandi-border/60">
-          <Shield class="w-4 h-4" /> 速率限制与容错阈值
-        </h3>
+      <!-- Tab Page 3: Security & Rate Limit Settings -->
+      <div v-if="activeTab === 'security'" class="space-y-4 animate-in fade-in duration-200">
+        <div class="flex items-center justify-between pb-2 border-b border-morandi-border/40">
+          <h3 class="text-xs font-bold text-morandi-ocean-dark uppercase tracking-wider flex items-center gap-1.5">
+            <Shield class="w-4 h-4" /> 速率限制与容错阈值设置
+          </h3>
+        </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
           <div>
@@ -179,12 +222,12 @@ async function handleSave() {
         </div>
       </div>
 
-      <!-- Save Actions -->
+      <!-- Save Actions Footer -->
       <div class="pt-4 border-t border-morandi-border/60 flex items-center gap-3">
         <button
           @click="handleSave"
           :disabled="saving"
-          class="flex items-center gap-2 px-6 py-2.5 bg-morandi-sage hover:bg-morandi-sage-dark text-white rounded-xl text-xs font-semibold shadow-sm transition-all disabled:opacity-50"
+          class="flex items-center gap-2 px-6 py-2.5 bg-morandi-sage hover:bg-morandi-sage-dark text-white rounded-xl text-xs font-semibold shadow-sm transition-all disabled:opacity-50 cursor-pointer"
         >
           <Save class="w-4 h-4" />
           <span>{{ saving ? '保存设置中...' : '保存系统设置' }}</span>
@@ -196,9 +239,6 @@ async function handleSave() {
           </span>
         </Transition>
       </div>
-
-
     </div>
   </div>
 </template>
-

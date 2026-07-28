@@ -136,16 +136,16 @@ function copyUserApiUrl() {
           <component :is="copiedUrl ? Check : Copy" class="w-4 h-4 text-morandi-muted group-hover:text-morandi-sage-dark transition-colors" />
         </div>
 
-        <a
-          href="/community/"
-          target="_blank"
-          class="flex items-center justify-between w-full px-3 py-2 text-xs text-morandi-ocean hover:text-morandi-ocean-dark bg-morandi-ocean/10 hover:bg-morandi-ocean/15 rounded-xl transition-colors font-medium relative group"
+        <div
+          class="flex items-center justify-between w-full px-3 py-2 text-xs text-morandi-ocean/70 bg-morandi-ocean/10 rounded-xl font-medium cursor-not-allowed select-none opacity-80"
+          title="社区规则广场暂未开放 (功能研发中)"
         >
           <span class="flex items-center gap-1.5">
-            <ShieldCheck class="w-3.5 h-3.5" /> 探索社区规则广场
+            <ShieldCheck class="w-3.5 h-3.5 text-morandi-ocean/60" /> 探索社区规则广场
           </span>
-          <span class="text-[10px] px-1.5 py-0.2 bg-amber-100 text-amber-800 font-bold rounded">待开发</span>
-        </a>
+          <span class="text-[10px] px-1.5 py-0.2 bg-amber-100/90 text-amber-800 font-bold rounded">待开发</span>
+        </div>
+
       </div>
     </aside>
 

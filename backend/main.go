@@ -63,10 +63,11 @@ func main() {
 	r.Use(middleware.CORS())
 	r.Use(middleware.RateLimit(st))
 
-	r.GET("/health", h.HealthCheck)
+	r.GET("/ping", h.HealthCheck)
 	r.GET("/random", h.RandomImage)
 	r.POST("/random/detect", h.DetectURL)
 	r.POST("/api/sources/health-check", h.BatchHealthCheck)
+
 
 	api := r.Group("/api")
 	{

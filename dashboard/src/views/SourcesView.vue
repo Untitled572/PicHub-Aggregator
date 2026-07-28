@@ -55,9 +55,10 @@ const stats = computed(() => {
   const total = sources.value.length
   const enabled = sources.value.filter(s => s.enabled).length
   const avgLatency = total > 0 ? Math.round(sources.value.reduce((acc, s) => acc + (s.avg_latency || 0), 0) / total) : 0
-  const avgSuccess = total > 0 ? Math.round((sources.value.reduce((acc, s) => acc + (s.success_rate || 0), 0) / total) * 100) : 100
+  const avgSuccess = total > 0 ? Math.round(sources.value.reduce((acc, s) => acc + (s.success_rate || 0), 0) / total) : 100
   return { total, enabled, avgLatency, avgSuccess }
 })
+
 
 async function handleDelete(id: number) {
   if (confirm('确认删除该图源节点吗？删除后不可恢复。')) {

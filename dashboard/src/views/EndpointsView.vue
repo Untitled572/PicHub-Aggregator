@@ -3,8 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import type { Source } from '../types'
 import { useTags } from '../composables/useTags'
 import { useApi } from '../composables/useApi'
-
-
+import { useDomain } from '../composables/useDomain'
 import {
   Link2,
   Copy,
@@ -19,17 +18,15 @@ import {
   Globe,
   Tag as TagIcon,
   CheckSquare,
-  Square
+  Square,
+  X
 } from 'lucide-vue-next'
-
-import { useDomain } from '../composables/useDomain'
 
 const { tags, masterBoundTags, addTag, renameTag, deleteTag, setMasterBoundTags } = useTags()
 const { listSources } = useApi()
 const { effectiveDomain } = useDomain()
 
 const sources = ref<Source[]>([])
-
 const copiedState = ref<Record<string, boolean>>({})
 const showAddTagModal = ref(false)
 const newTagId = ref('')
@@ -44,7 +41,6 @@ onMounted(async () => {
 })
 
 const origin = computed(() => effectiveDomain.value)
-
 
 // Count sources per tag
 const tagSourceCounts = computed(() => {
@@ -83,19 +79,12 @@ const isAllTagsBound = computed(() => {
 })
 
 function toggleAllTagsBound() {
-  if (isAllTagsBound.value) {
-    // Uncheck all -> select empty
-    setMasterBoundTags([])
-  } else {
-    // Check all -> select empty (means all)
-    setMasterBoundTags([])
-  }
+  setMasterBoundTags([])
 }
 
 function toggleTagBound(tagId: string) {
   let current = [...masterBoundTags.value]
   if (current.length === 0) {
-    // If currently 'all', populate all except this one
     current = tags.value.map(t => t.id).filter(id => id !== tagId)
   } else {
     const idx = current.indexOf(tagId)
@@ -148,19 +137,12 @@ function saveRename(tagId: string) {
     <div class="morandi-card p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
       <div>
         <h2 class="font-bold text-base text-morandi-text flex items-center gap-2">
-          <Link2 class="w-5 h-5 text-morandi-sage" /> 分布式 API 接口分发中心
+          <Link2 class="w-5 h-5 text-morandi-sage" /> 分发接口与 Tag 标签管理
         </h2>
-        <p class="text-xs text-morandi-muted mt-0.5">管理分类 Tag 标签，配置独立接口与全局总聚合分发接口</p>
+        <p class="text-xs text-morandi-muted mt-0.5">管理分类 Tag 标签、配置绑定范围与主服务聚合分发接口</p>
       </div>
-
-      <button
-        @click="showAddTagModal = true"
-        class="flex items-center gap-1.5 px-4 py-2 bg-morandi-sage hover:bg-morandi-sage-dark text-white rounded-xl text-xs font-semibold shadow-sm transition-all shrink-0"
-      >
-        <Plus class="w-4 h-4" />
-        <span>新增分类 Tag 标签</span>
-      </button>
     </div>
+
 
     <!-- Master Endpoint Card -->
     <div class="morandi-card p-6 space-y-4 border-l-4 border-l-morandi-sage">
@@ -280,131 +262,83 @@ function saveRename(tagId: string) {
       </div>
     </div>
 
-    <!-- Tags List & Standalone Endpoints -->
-    <div class="space-y-4">
+    <!-- Pure Tag Management Section -->
+    <div class="morandi-card p-6 space-y-4">
       <div class="flex items-center justify-between">
-        <h3 class="font-bold text-sm text-morandi-text flex items-center gap-1.5">
-          <TagIcon class="w-4 h-4 text-morandi-sage" /> 分类 Tag 独立分发接口列表 (共 {{ tags.length }} 个)
-        </h3>
-        <span class="text-xs text-morandi-muted">每个 Tag 标签提供专属独占 API 分发链接</span>
+        <div>
+          <h3 class="font-bold text-sm text-morandi-text flex items-center gap-1.5">
+            <TagIcon class="w-4 h-4 text-morandi-sage" /> Tag 标签库管理 (共 {{ tags.length }} 个)
+          </h3>
+          <p class="text-xs text-morandi-muted mt-0.5">可在此增加、修改或删除系统 Tag 标签，关联到对应的图源或主分发范围</p>
+        </div>
+
+        <button
+          @click="showAddTagModal = true"
+          class="flex items-center gap-1.5 px-3.5 py-1.5 bg-morandi-sidebar hover:bg-morandi-hover border border-morandi-borderSoft text-morandi-text rounded-xl text-xs font-medium transition-colors"
+        >
+          <Plus class="w-3.5 h-3.5 text-morandi-sage" />
+          <span>添加标签</span>
+        </button>
       </div>
 
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <!-- Tag Grid Cards -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 pt-2">
         <div
           v-for="tag in tags"
           :key="tag.id"
-          class="morandi-card p-4 space-y-3 flex flex-col justify-between hover:shadow-morandi transition-all"
+          class="p-3.5 bg-morandi-bg/60 hover:bg-white rounded-xl border border-morandi-borderSoft flex flex-col justify-between space-y-2.5 transition-all hover:shadow-sm"
         >
-          <div class="space-y-2">
-            <!-- Tag Header & Actions -->
-            <div class="flex items-center justify-between">
-              <div class="flex items-center gap-2">
-                <span class="px-2.5 py-0.5 bg-morandi-sage-light text-morandi-sage-dark rounded-lg font-bold text-xs border border-morandi-sage/30">
-                  #{{ tag.name }}
-                </span>
-                <span class="font-mono text-xs text-morandi-muted">({{ tag.id }})</span>
-              </div>
-
-              <div class="flex items-center gap-1.5">
-                <!-- Count badge -->
-                <span class="text-[10px] px-2 py-0.5 bg-morandi-sidebar text-morandi-muted rounded-md font-medium">
-                  {{ tagSourceCounts[tag.id] || 0 }} 个关联源
-                </span>
-
-                <!-- Edit / Rename -->
-                <button
-                  v-if="editingTagId !== tag.id"
-                  @click="startRename(tag)"
-                  class="p-1 text-morandi-muted hover:text-morandi-sage-dark rounded hover:bg-morandi-hover transition-colors"
-                  title="重命名标签"
-                >
-                  <Edit3 class="w-3.5 h-3.5" />
-                </button>
-
-                <!-- Delete -->
-                <button
-                  @click="deleteTag(tag.id)"
-                  class="p-1 text-morandi-muted hover:text-rose-600 rounded hover:bg-rose-50 transition-colors"
-                  title="删除标签"
-                >
-                  <Trash2 class="w-3.5 h-3.5" />
-                </button>
-              </div>
+          <!-- Top Tag Identifier & Count -->
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="px-2.5 py-0.5 bg-morandi-sage-light text-morandi-sage-dark rounded-lg font-bold text-xs border border-morandi-sage/20">
+                #{{ tag.name }}
+              </span>
+              <span class="font-mono text-xs text-morandi-muted">({{ tag.id }})</span>
             </div>
 
-            <!-- Rename Input if editing -->
-            <div v-if="editingTagId === tag.id" class="flex gap-2 pt-1">
-              <input
-                v-model="editingTagName"
-                placeholder="新名称"
-                class="morandi-input px-2 py-1 text-xs flex-1"
-                @keyup.enter="saveRename(tag.id)"
-              />
-              <button
-                @click="saveRename(tag.id)"
-                class="px-2.5 py-1 bg-morandi-sage text-white rounded-lg text-xs font-semibold"
-              >
-                保存
-              </button>
-              <button
-                @click="editingTagId = null"
-                class="px-2 py-1 text-morandi-muted hover:bg-morandi-hover rounded-lg text-xs"
-              >
-                取消
-              </button>
-            </div>
+            <span class="text-[10px] px-2 py-0.5 bg-morandi-sidebar text-morandi-muted rounded-md font-medium">
+              {{ tagSourceCounts[tag.id] || 0 }} 源关联
+            </span>
+          </div>
 
-            <!-- Standalone Direct Link -->
-            <div class="space-y-1 bg-morandi-bg/60 p-2.5 rounded-xl border border-morandi-borderSoft/60 text-xs">
-              <div class="flex items-center justify-between text-[11px] text-morandi-muted">
-                <span>直链分发接口:</span>
-                <div class="flex items-center gap-2">
-                  <button
-                    @click="copyToClipboard(tag.id + '_direct', `${origin}/random?category=${tag.id}`)"
-                    class="text-morandi-sage-dark font-medium hover:underline flex items-center gap-0.5"
-                  >
-                    <component :is="copiedState[tag.id + '_direct'] ? Check : Copy" class="w-3 h-3" />
-                    <span>{{ copiedState[tag.id + '_direct'] ? '已复制' : '复制' }}</span>
-                  </button>
-                  <a
-                    :href="`${origin}/random?category=${tag.id}`"
-                    target="_blank"
-                    class="hover:underline flex items-center gap-0.5"
-                  >
-                    <ExternalLink class="w-3 h-3" />
-                  </a>
-                </div>
-              </div>
-              <div class="font-mono text-[11px] text-morandi-text truncate selection:bg-morandi-sage-light">
-                {{ origin }}/random?category={{ tag.id }}
-              </div>
-            </div>
+          <!-- Edit Mode / Normal Action Buttons -->
+          <div v-if="editingTagId === tag.id" class="flex gap-2 pt-1">
+            <input
+              v-model="editingTagName"
+              placeholder="新名称"
+              class="morandi-input px-2 py-1 text-xs flex-1"
+              @keyup.enter="saveRename(tag.id)"
+            />
+            <button
+              @click="saveRename(tag.id)"
+              class="px-2.5 py-1 bg-morandi-sage text-white rounded-lg text-xs font-semibold"
+            >
+              保存
+            </button>
+            <button
+              @click="editingTagId = null"
+              class="px-2 py-1 text-morandi-muted hover:bg-morandi-hover rounded-lg text-xs"
+            >
+              取消
+            </button>
+          </div>
 
-            <!-- Standalone JSON Link -->
-            <div class="space-y-1 bg-morandi-bg/60 p-2.5 rounded-xl border border-morandi-borderSoft/60 text-xs">
-              <div class="flex items-center justify-between text-[11px] text-morandi-muted">
-                <span>JSON 节点接口:</span>
-                <div class="flex items-center gap-2">
-                  <button
-                    @click="copyToClipboard(tag.id + '_json', `${origin}/random?category=${tag.id}&format=json`)"
-                    class="text-morandi-ocean-dark font-medium hover:underline flex items-center gap-0.5"
-                  >
-                    <component :is="copiedState[tag.id + '_json'] ? Check : Copy" class="w-3 h-3" />
-                    <span>{{ copiedState[tag.id + '_json'] ? '已复制' : '复制' }}</span>
-                  </button>
-                  <a
-                    :href="`${origin}/random?category=${tag.id}&format=json`"
-                    target="_blank"
-                    class="hover:underline flex items-center gap-0.5"
-                  >
-                    <ExternalLink class="w-3 h-3" />
-                  </a>
-                </div>
-              </div>
-              <div class="font-mono text-[11px] text-morandi-text truncate">
-                {{ origin }}/random?category={{ tag.id }}&format=json
-              </div>
-            </div>
+          <div v-else class="flex items-center justify-end gap-2 pt-1 border-t border-morandi-border/30 text-xs">
+            <button
+              @click="startRename(tag)"
+              class="flex items-center gap-1 px-2 py-1 text-morandi-muted hover:text-morandi-sage-dark hover:bg-morandi-sage-light/50 rounded-lg transition-colors"
+            >
+              <Edit3 class="w-3.5 h-3.5" />
+              <span>重命名</span>
+            </button>
+            <button
+              @click="deleteTag(tag.id)"
+              class="flex items-center gap-1 px-2 py-1 text-morandi-muted hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+            >
+              <Trash2 class="w-3.5 h-3.5" />
+              <span>删除</span>
+            </button>
           </div>
         </div>
       </div>

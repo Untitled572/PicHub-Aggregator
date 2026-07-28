@@ -7,7 +7,7 @@ dashboard/dist/
 community/frontend/node_modules/
 community/frontend/dist/
 *.db
-prd.md
+PRD.md
 .~prd.md
 DEVELOPMENT_PLAN.md
 DEVELOPMENT_PROMPT.md

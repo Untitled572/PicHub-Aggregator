@@ -7,7 +7,7 @@ export default defineConfig({
     proxy: {
       '/api': 'http://localhost:5721',
       '/random': 'http://localhost:5721',
-      '/health': 'http://localhost:5721',
     }
   }
 })
+

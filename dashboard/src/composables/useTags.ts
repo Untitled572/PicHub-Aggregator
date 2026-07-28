@@ -6,13 +6,11 @@ export interface Tag {
 }
 
 const DEFAULT_TAGS: Tag[] = [
-  { id: 'avatar', name: '头像' },
-  { id: 'anime', name: '二次元' },
-  { id: 'landscape', name: '风景' },
-  { id: 'portrait', name: '人像' },
+  { id: 'horizontal', name: '横屏' },
+  { id: 'vertical', name: '竖屏' },
   { id: 'adaptive', name: '自适应' },
-  { id: 'ai-generated', name: 'AI生成' },
 ]
+
 
 const STORAGE_KEY = 'pichub_tags_v1'
 const MASTER_BOUND_KEY = 'pichub_master_bound_tags_v1'

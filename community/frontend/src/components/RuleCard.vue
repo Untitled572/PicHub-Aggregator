@@ -11,13 +11,16 @@ const showComments = ref(false)
 const copied = ref(false)
 
 const categoryMap: Record<string, string> = {
+  horizontal: '横屏',
+  vertical: '竖屏',
+  adaptive: '自适应',
   avatar: '头像',
   anime: '二次元',
   landscape: '风景',
   portrait: '人像',
-  adaptive: '自适应',
   'ai-generated': 'AI生成'
 }
+
 
 const respTypeMap: Record<string, { label: string; class: string }> = {
   json: { label: 'JSON 提取', class: 'bg-morandi-ocean-light text-morandi-ocean-dark border-morandi-ocean/20' },

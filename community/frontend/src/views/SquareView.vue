@@ -12,13 +12,16 @@ const category = ref('')
 const sort = ref('popular')
 
 const categoryMap: Record<string, string> = {
+  horizontal: '横屏',
+  vertical: '竖屏',
+  adaptive: '自适应',
   avatar: '头像',
   anime: '二次元',
   landscape: '风景',
   portrait: '人像',
-  adaptive: '自适应',
   'ai-generated': 'AI生成'
 }
+
 
 const categories = Object.keys(categoryMap)
 
