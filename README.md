@@ -85,6 +85,8 @@ services:
       - ./data:/app/data
       - ./cache:/app/cache
     environment:
+      - PUID=1000
+      - PGID=1000
       - PORT=5721
       - DB_PATH=/app/data/pichub.db
       - CACHE_PATH=/app/cache
@@ -104,6 +106,7 @@ services:
 
 ```bash
 docker run -d --name pichub --network host \
+  -e PUID=1000 -e PGID=1000 \
   -v ./pichub_data:/app/data \
   -v ./pichub_cache:/app/cache \
   ghcr.io/untitled572/pichub-aggregator:latest

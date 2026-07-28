@@ -15,9 +15,11 @@ COPY --from=dashboard-builder /dashboard/dist ./embed/dist
 RUN CGO_ENABLED=1 go build -o pichub .
 
 FROM alpine:3.20
-RUN apk add --no-cache ca-certificates tzdata
+RUN apk add --no-cache ca-certificates tzdata su-exec
 WORKDIR /app
 COPY --from=backend-builder /app/pichub .
 COPY backend/config/config.json .
+COPY backend/entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 EXPOSE 5721
-CMD ["./pichub"]
+ENTRYPOINT ["/app/entrypoint.sh"]
