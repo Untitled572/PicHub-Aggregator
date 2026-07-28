@@ -94,6 +94,7 @@ func main() {
 	}
 
 	distFS := embed.GetDistFS()
+	assetsFS := embed.GetAssetsFS()
 	if distFS != nil {
 		r.GET("/", func(c *gin.Context) {
 			data, err := fs.ReadFile(distFS, "index.html")
@@ -103,7 +104,9 @@ func main() {
 			}
 			c.Data(200, "text/html; charset=utf-8", data)
 		})
-		r.StaticFS("/assets", http.FS(distFS))
+		if assetsFS != nil {
+			r.StaticFS("/assets", http.FS(assetsFS))
+		}
 		r.NoRoute(func(c *gin.Context) {
 			if strings.HasPrefix(c.Request.URL.Path, "/api/") || strings.HasPrefix(c.Request.URL.Path, "/random/") {
 				c.JSON(404, gin.H{"error": "not found"})

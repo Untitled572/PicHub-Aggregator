@@ -15,3 +15,11 @@ func GetDistFS() fs.FS {
 	}
 	return f
 }
+
+func GetAssetsFS() fs.FS {
+	f, err := fs.Sub(DistFS, "dist/assets")
+	if err != nil {
+		return nil
+	}
+	return f
+}
