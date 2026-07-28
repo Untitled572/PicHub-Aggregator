@@ -3,7 +3,7 @@ WORKDIR /dashboard
 COPY dashboard/package*.json ./
 RUN npm ci
 COPY dashboard/ ./
-RUN npm run build
+RUN npx vue-tsc --noEmit && npx vite build
 
 FROM golang:1.26-alpine AS backend-builder
 RUN apk add --no-cache gcc musl-dev

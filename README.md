@@ -203,11 +203,17 @@ PicHub/
 ├── dashboard/                # Vue 3 + TypeScript 现代化 Dashboard
 │   ├── src/
 │   │   ├── components/       # 视图组件 (SourceCard, SourceForm, HealthStatusBadge)
-│   │   ├── composables/      # 响应式状态管理 (useApi, useTags, useDomain)
+│   │   ├── composables/      # 响应式状态管理 (useApi, useTags)
 │   │   └── views/            # 核心页面 (SourcesView, EndpointsView, HealthCheckView, SettingsView)
 │   └── tailwind.config.js    # Morandi 色系主题样式定义
 └── community/                # Serverless 规则共享社区 (研发中)
 ```
+
+---
+
+## 🔗 相关资源
+
+- [随机二次元图片 API 合集](https://blog.air-kevin.rf.gd/2025/random-pix-api-list/?i=2) - 汇总了大量可用的随机图片 API 接口，可作为 PicHub 图源配置的参考来源。
 
 ---
 
