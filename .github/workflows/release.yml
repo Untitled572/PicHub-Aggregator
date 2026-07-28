@@ -36,6 +36,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: 'stable'
+          cache-dependency-path: backend/go.sum
       - uses: actions/download-artifact@v4
         with:
           name: dashboard-dist
@@ -46,28 +47,31 @@ jobs:
           sudo apt-get install -y gcc-aarch64-linux-gnu gcc-mingw-w64-x86-64
       - name: Build linux-amd64
         run: |
-          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -o pichub ./backend/
-          mkdir -p release/pichub-linux-amd64
-          cp pichub release/pichub-linux-amd64/pichub
-          cp backend/config/config.json release/pichub-linux-amd64/
-          cp README.md release/pichub-linux-amd64/
-          cd release && tar czf pichub-linux-amd64.tar.gz pichub-linux-amd64/
+          cd backend
+          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -o pichub .
+          mkdir -p ../release/pichub-linux-amd64
+          cp pichub ../release/pichub-linux-amd64/
+          cp config/config.json ../release/pichub-linux-amd64/
+          cp ../README.md ../release/pichub-linux-amd64/
+          cd ../release && tar czf pichub-linux-amd64.tar.gz pichub-linux-amd64/
       - name: Build linux-arm64
         run: |
-          CC=aarch64-linux-gnu-gcc CGO_ENABLED=1 GOOS=linux GOARCH=arm64 go build -o pichub ./backend/
-          mkdir -p release/pichub-linux-arm64
-          cp pichub release/pichub-linux-arm64/pichub
-          cp backend/config/config.json release/pichub-linux-arm64/
-          cp README.md release/pichub-linux-arm64/
-          cd release && tar czf pichub-linux-arm64.tar.gz pichub-linux-arm64/
+          cd backend
+          CC=aarch64-linux-gnu-gcc CGO_ENABLED=1 GOOS=linux GOARCH=arm64 go build -o pichub .
+          mkdir -p ../release/pichub-linux-arm64
+          cp pichub ../release/pichub-linux-arm64/
+          cp config/config.json ../release/pichub-linux-arm64/
+          cp ../README.md ../release/pichub-linux-arm64/
+          cd ../release && tar czf pichub-linux-arm64.tar.gz pichub-linux-arm64/
       - name: Build windows-amd64
         run: |
-          CC=x86_64-w64-mingw32-gcc CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -o pichub.exe ./backend/
-          mkdir -p release/pichub-windows-amd64
-          cp pichub.exe release/pichub-windows-amd64/
-          cp backend/config/config.json release/pichub-windows-amd64/
-          cp README.md release/pichub-windows-amd64/
-          cd release && zip -r pichub-windows-amd64.zip pichub-windows-amd64/
+          cd backend
+          CC=x86_64-w64-mingw32-gcc CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -o pichub.exe .
+          mkdir -p ../release/pichub-windows-amd64
+          cp pichub.exe ../release/pichub-windows-amd64/
+          cp config/config.json ../release/pichub-windows-amd64/
+          cp ../README.md ../release/pichub-windows-amd64/
+          cd ../release && zip -r pichub-windows-amd64.zip pichub-windows-amd64/
       - uses: actions/upload-artifact@v4
         with:
           name: release-binaries
