@@ -10,8 +10,8 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
-  ACR_REGISTRY: registry.cn-hangzhou.aliyuncs.com
-  ACR_IMAGE_NAME: untitled572/pichub-aggregator
+  ACR_REGISTRY: crpi-1ml0uqt093yc1v96.cn-beijing.personal.cr.aliyuncs.com
+  ACR_IMAGE_NAME: untitled572/pichub
 
 jobs:
   build-and-push:
