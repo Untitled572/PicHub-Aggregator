@@ -12,12 +12,15 @@ import (
 	"github.com/pichub/backend/config"
 	"github.com/pichub/backend/embed"
 	"github.com/pichub/backend/handler"
+	"github.com/pichub/backend/logger"
 	"github.com/pichub/backend/middleware"
 	"github.com/pichub/backend/service"
 	"github.com/pichub/backend/store"
 )
 
 func main() {
+	gin.SetMode(gin.ReleaseMode)
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "5721"
@@ -33,15 +36,20 @@ func main() {
 		log.Printf("warning: failed to create cache dir: %v", err)
 	}
 
+	logger.Init("./data")
+	defer logger.Close()
+
+	logger.System("PicHub-Aggregator initializing")
+
 	cfgPath := "config.json"
 	if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
-		log.Println("config.json not found, using default config")
+		logger.System("config.json not found, using default config")
 	} else {
 		cfg, err := config.LoadConfig(cfgPath)
 		if err != nil {
-			log.Printf("warning: failed to load config: %v", err)
+			logger.Error("failed to load config: %v", err)
 		} else {
-			log.Printf("loaded config with %d preset sources", len(cfg.Sources))
+			logger.System("loaded config with %d preset sources", len(cfg.Sources))
 		}
 	}
 
@@ -58,8 +66,9 @@ func main() {
 	proxyCache := service.NewProxyCache(st, "./cache")
 	engine := service.NewEngine(st, proxyCache)
 	h := handler.NewHandlerWithEngine(st, engine, checker)
-	r := gin.Default()
-
+	r := gin.New()
+	r.Use(gin.Recovery())
+	r.Use(middleware.AccessLog())
 	r.Use(middleware.CORS())
 	r.Use(middleware.RateLimit(st))
 
@@ -109,7 +118,7 @@ func main() {
 		})
 	}
 
-	log.Printf("PicHub-Aggregator starting on :%s", port)
+	logger.System("PicHub-Aggregator starting on :%s", port)
 	if err := r.Run(":" + port); err != nil {
 		log.Fatalf("failed to start server: %v", err)
 	}

@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pichub/backend/logger"
 	"github.com/pichub/backend/model"
 	"github.com/pichub/backend/store"
 )
@@ -86,6 +87,14 @@ func (hc *HealthChecker) CheckAll() []HealthResult {
 	hc.lastResult = results
 	hc.lastRunAt = time.Now()
 	hc.mu.Unlock()
+
+	available := 0
+	for _, r := range results {
+		if r.Available {
+			available++
+		}
+	}
+	logger.System("health check: %d/%d sources available", available, len(results))
 
 	return results
 }

@@ -12,6 +12,7 @@ import (
 
 	"github.com/tidwall/gjson"
 
+	"github.com/pichub/backend/logger"
 	"github.com/pichub/backend/model"
 	"github.com/pichub/backend/store"
 )
@@ -84,6 +85,7 @@ func (e *Engine) RandomImage(category string, format string, clientUA string) (*
 		}
 		resp, err := client.Do(req)
 		if err != nil {
+			logger.Error("source %q fetch failed: %v", selected.Name, err)
 			e.store.IncrementFailCount(selected.ID)
 			candidates = removeSource(candidates, selected.ID)
 			checkAndSuspend(selected.ID, e.store)
@@ -93,6 +95,7 @@ func (e *Engine) RandomImage(category string, format string, clientUA string) (*
 		hasFailed := false
 
 		if resp.StatusCode >= 500 {
+			logger.Error("source %q returned %d", selected.Name, resp.StatusCode)
 			e.store.IncrementFailCount(selected.ID)
 			candidates = removeSource(candidates, selected.ID)
 			checkAndSuspend(selected.ID, e.store)

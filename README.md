@@ -195,11 +195,14 @@ GET /random?category=anime&format=json
 PicHub/
 ├── backend/                  # Go + Gin 后端服务
 │   ├── config/               # 种子配置与默认设置
+│   ├── embed/                # 前端静态资源嵌入 (go:embed)
 │   ├── handler/              # API 路由处理函数 (Source / Settings / Health / Random)
+│   ├── logger/               # 文件日志支持 (200 行轮转)
+│   ├── middleware/            # Gin 中间件 (CORS / Rate Limit / Access Log)
 │   ├── model/                # 数据模型与结构体定义
 │   ├── service/              # 核心引擎 (Weighted Pick / Health Checker / Proxy)
 │   ├── store/                # SQLite 持久化存储驱动
-│   └── main.go               # 主入口 (go:embed 嵌入前端静态资源)
+│   └── main.go               # 主入口
 ├── dashboard/                # Vue 3 + TypeScript 现代化 Dashboard
 │   ├── src/
 │   │   ├── components/       # 视图组件 (SourceCard, SourceForm, HealthStatusBadge)

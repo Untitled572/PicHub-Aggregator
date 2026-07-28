@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/pichub/backend/logger"
 	"github.com/pichub/backend/store"
 )
 
@@ -63,6 +64,7 @@ func RateLimit(st *store.Store) gin.HandlerFunc {
 		}
 		rl.mu.Unlock()
 		if len(recent) >= limit {
+			logger.Error("rate limit exceeded: %s (%d/%d)", ip, len(recent)+1, limit)
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "rate limit exceeded"})
 			return
 		}
