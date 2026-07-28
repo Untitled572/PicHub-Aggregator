@@ -46,12 +46,14 @@ func write(tag, format string, args ...any) {
 	mu.Lock()
 	defer mu.Unlock()
 
+	msg := fmt.Sprintf(format, args...)
+	line := fmt.Sprintf("[%s] [%s] %s\n", time.Now().Format("2006-01-02 15:04:05"), tag, msg)
+
+	fmt.Fprint(os.Stdout, line)
+
 	if file == nil {
 		return
 	}
-
-	msg := fmt.Sprintf(format, args...)
-	line := fmt.Sprintf("[%s] [%s] %s\n", time.Now().Format("2006-01-02 15:04:05"), tag, msg)
 
 	file.WriteString(line)
 	count++
