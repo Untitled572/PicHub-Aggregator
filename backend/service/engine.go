@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-
 	"time"
 
 	"github.com/tidwall/gjson"
@@ -20,12 +19,18 @@ import (
 type Engine struct {
 	store      *store.Store
 	proxyCache *ProxyCache
+	httpClient *http.Client
 }
 
 func NewEngine(st *store.Store, pc *ProxyCache) *Engine {
 	return &Engine{
 		store:      st,
 		proxyCache: pc,
+		httpClient: &http.Client{
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		},
 	}
 }
 
@@ -46,7 +51,8 @@ func (e *Engine) RandomImage(category string, format string, clientUA string) (*
 		return nil, 0, fmt.Errorf("list sources: %w", err)
 	}
 
-	candidates := filterSources(sources, category)
+	queryCats := strings.Split(category, ",")
+	candidates := filterSources(sources, queryCats)
 	if len(candidates) == 0 {
 		return nil, 0, fmt.Errorf("no available sources")
 	}
@@ -77,18 +83,15 @@ func (e *Engine) RandomImage(category string, format string, clientUA string) (*
 			}
 		}
 
-		client := &http.Client{
-			Timeout:       timeout,
-			CheckRedirect: func(req *http.Request, via []*http.Request) error {
-				return http.ErrUseLastResponse
-			},
-		}
-		resp, err := client.Do(req)
+		e.httpClient.Timeout = timeout
+		resp, err := e.httpClient.Do(req)
 		if err != nil {
 			logger.Error("source %q fetch failed: %v", selected.Name, err)
-			e.store.IncrementFailCount(selected.ID)
+			failCount, _ := e.store.IncrementFailCount(selected.ID)
 			candidates = removeSource(candidates, selected.ID)
-			checkAndSuspend(selected.ID, e.store)
+			if failCount >= 5 {
+				e.store.UpdateSourceStatus(selected.ID, "error")
+			}
 			continue
 		}
 
@@ -96,9 +99,11 @@ func (e *Engine) RandomImage(category string, format string, clientUA string) (*
 
 		if resp.StatusCode >= 500 {
 			logger.Error("source %q returned %d", selected.Name, resp.StatusCode)
-			e.store.IncrementFailCount(selected.ID)
+			failCount, _ := e.store.IncrementFailCount(selected.ID)
 			candidates = removeSource(candidates, selected.ID)
-			checkAndSuspend(selected.ID, e.store)
+			if failCount >= 5 {
+				e.store.UpdateSourceStatus(selected.ID, "error")
+			}
 			resp.Body.Close()
 			continue
 		}
@@ -114,13 +119,10 @@ func (e *Engine) RandomImage(category string, format string, clientUA string) (*
 
 		e.store.UpdateSourceStatus(selected.ID, "normal")
 
-		if e.proxyCache != nil {
-			settings, _ := e.store.GetSettings()
-			if settings != nil && settings.ProxyMode {
-				_, _, proxyErr := e.proxyCache.GetOrFetch(imageURL)
-				if proxyErr != nil {
-					hasFailed = true
-				}
+		if e.proxyCache != nil && settings.ProxyMode {
+			_, _, proxyErr := e.proxyCache.GetOrFetch(imageURL)
+			if proxyErr != nil {
+				hasFailed = true
 			}
 		}
 
@@ -142,8 +144,9 @@ func (e *Engine) RandomImage(category string, format string, clientUA string) (*
 	return nil, 0, fmt.Errorf("all sources failed")
 }
 
-func filterSources(sources []model.Source, category string) []model.Source {
+func filterSources(sources []model.Source, queryCats []string) []model.Source {
 	var result []model.Source
+	hasQueryCat := len(queryCats) > 0 && queryCats[0] != ""
 	for _, src := range sources {
 		if !src.Enabled || src.Status == "error" {
 			continue
@@ -166,9 +169,8 @@ func filterSources(sources []model.Source, category string) []model.Source {
 					paramCats = src.Categories
 				}
 
-				if len(param.Categories) > 0 && category != "" {
-					cats := strings.Split(category, ",")
-					if !hasAnyCategory(param.Categories, cats) {
+				if len(param.Categories) > 0 && hasQueryCat {
+					if !hasAnyCategory(param.Categories, queryCats) {
 						continue
 					}
 				}
@@ -181,9 +183,8 @@ func filterSources(sources []model.Source, category string) []model.Source {
 			}
 
 			baseURL := appendDefaultQuery(src.URL, src.DefaultQuery)
-			if len(src.Categories) > 0 && category != "" {
-				cats := strings.Split(category, ",")
-				if hasAnyCategory(src.Categories, cats) {
+			if len(src.Categories) > 0 && hasQueryCat {
+				if hasAnyCategory(src.Categories, queryCats) {
 					variant := src
 					variant.URL = baseURL
 					result = append(result, variant)
@@ -194,9 +195,8 @@ func filterSources(sources []model.Source, category string) []model.Source {
 				result = append(result, variant)
 			}
 		} else {
-			if len(src.Categories) > 0 && category != "" {
-				cats := strings.Split(category, ",")
-				if !hasAnyCategory(src.Categories, cats) {
+			if len(src.Categories) > 0 && hasQueryCat {
+				if !hasAnyCategory(src.Categories, queryCats) {
 					continue
 				}
 			}
@@ -299,16 +299,6 @@ func removeSource(sources []model.Source, id int64) []model.Source {
 	return sources
 }
 
-func checkAndSuspend(id int64, st *store.Store) {
-	src, err := st.GetSource(id)
-	if err != nil {
-		return
-	}
-	if src.FailCount >= 5 {
-		st.UpdateSourceStatus(id, "error")
-	}
-}
-
 func extractImageURL(resp *http.Response, src model.Source) (string, error) {
 	reqURL := src.URL
 	if resp.Request != nil && resp.Request.URL != nil {
@@ -319,14 +309,14 @@ func extractImageURL(resp *http.Response, src model.Source) (string, error) {
 		loc := resp.Header.Get("Location")
 		if loc != "" {
 			loc = resolveURL(reqURL, loc)
-			if strings.Contains(loc, "image.baidu.com/search/down") || strings.Contains(loc, "search/down") {
-				if u, err := url.Parse(loc); err == nil {
-					if realURL := u.Query().Get("url"); realURL != "" && (strings.HasPrefix(realURL, "http://") || strings.HasPrefix(realURL, "https://")) {
-						return realURL, nil
-					}
-				}
+			return resolveBaiduURL(loc), nil
+		}
+		body, err := io.ReadAll(resp.Body)
+		if err == nil {
+			text := strings.TrimSpace(string(body))
+			if strings.HasPrefix(text, "http://") || strings.HasPrefix(text, "https://") {
+				return resolveBaiduURL(text), nil
 			}
-			return loc, nil
 		}
 	}
 
@@ -351,7 +341,28 @@ func extractImageURL(resp *http.Response, src model.Source) (string, error) {
 		return "", fmt.Errorf("json path %s not found", path)
 	}
 
+	body, err := io.ReadAll(resp.Body)
+	if err == nil {
+		text := strings.TrimSpace(string(body))
+		if strings.HasPrefix(text, "http://") || strings.HasPrefix(text, "https://") {
+			return resolveBaiduURL(text), nil
+		}
+	}
+
 	return reqURL, nil
+}
+
+func resolveBaiduURL(rawURL string) string {
+	if !strings.Contains(rawURL, "image.baidu.com/search/down") && !strings.Contains(rawURL, "search/down") {
+		return rawURL
+	}
+	if u, err := url.Parse(rawURL); err == nil {
+		if realURL := u.Query().Get("url"); realURL != "" &&
+			(strings.HasPrefix(realURL, "http://") || strings.HasPrefix(realURL, "https://")) {
+			return realURL
+		}
+	}
+	return rawURL
 }
 
 func resolveURL(baseURLStr, targetURLStr string) string {

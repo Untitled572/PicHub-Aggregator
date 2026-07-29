@@ -82,18 +82,39 @@ func (s *Store) seedDefaults() error {
 		return nil
 	}
 	defaults := map[string]string{
-		"proxy_mode":     "false",
-		"cache_max_mb":   "200",
-		"cache_ttl":      "60",
-		"min_resolution": "640x480",
-		"rate_limit":     "60",
-		"timeout":        "3000",
+		"proxy_mode":            "false",
+		"cache_max_mb":          "200",
+		"cache_ttl":             "60",
+		"min_resolution":        "640x480",
+		"rate_limit":            "60",
+		"timeout":               "3000",
+		"health_check_interval": "360",
+		"admin_token":           "",
+		"seeded":                "true",
 	}
 	for k, v := range defaults {
 		if _, err := s.db.Exec("INSERT INTO settings (key, value) VALUES (?, ?)", k, v); err != nil {
 			return err
 		}
 	}
+	return nil
+}
+
+func (s *Store) SeedSources(sources []model.Source) error {
+	var seeded string
+	s.db.QueryRow("SELECT value FROM settings WHERE key='seeded'").Scan(&seeded)
+	if seeded == "true" {
+		return nil
+	}
+	for _, src := range sources {
+		var exists int
+		s.db.QueryRow("SELECT COUNT(*) FROM sources WHERE name=? AND url=?", src.Name, src.URL).Scan(&exists)
+		if exists > 0 {
+			continue
+		}
+		s.CreateSource(&src)
+	}
+	s.db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('seeded', 'true')")
 	return nil
 }
 
@@ -178,9 +199,14 @@ func (s *Store) UpdateSourceStatus(id int64, status string) error {
 	return err
 }
 
-func (s *Store) IncrementFailCount(id int64) error {
+func (s *Store) IncrementFailCount(id int64) (int, error) {
 	_, err := s.db.Exec("UPDATE sources SET fail_count = fail_count + 1, updated_at=CURRENT_TIMESTAMP WHERE id=?", id)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	var fc int
+	err = s.db.QueryRow("SELECT fail_count FROM sources WHERE id=?", id).Scan(&fc)
+	return fc, err
 }
 
 func (s *Store) ResetFailCount(id int64) error {
@@ -231,6 +257,10 @@ func (s *Store) GetSettings() (*model.Settings, error) {
 			if v != "" {
 				json.Unmarshal([]byte(v), &settings.BoundTags)
 			}
+		case "admin_token":
+			settings.AdminToken = v
+		case "seeded":
+			_ = v
 		}
 	}
 	if settings.HealthCheckInterval <= 0 {
@@ -249,7 +279,8 @@ func (s *Store) UpdateSettings(settings *model.Settings) error {
 		"timeout":               fmt.Sprintf("%d", settings.Timeout),
 		"custom_domain":         "",
 		"health_check_interval": fmt.Sprintf("%d", settings.HealthCheckInterval),
-		"bound_tags":           encodeBoundTags(settings.BoundTags),
+		"bound_tags":            encodeBoundTags(settings.BoundTags),
+		"admin_token":           settings.AdminToken,
 	}
 
 

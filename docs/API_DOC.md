@@ -3,7 +3,7 @@
 ## Health Check
 
 ```
-GET /health
+GET /ping
 ```
 
 Response: `{"status":"ok"}`
@@ -20,6 +20,8 @@ GET /random?category=landscape&format=json
 
 **Default response:** HTTP 302 redirect to image URL
 **JSON response:** `{"url":"...","source":"...","categories":["..."]}`
+
+**Note:** 速率限制基于内存实现（单实例），多实例负载均衡场景下各实例独立计数。多实例部署建议配合 sticky session 或外部 Redis。
 
 ## Smart Detect
 
@@ -80,9 +82,37 @@ Returns array of health results with status code, latency, and availability.
   "cache_ttl": 60,
   "min_resolution": "800x600",
   "rate_limit": 60,
-  "timeout": 3000
+  "timeout": 3000,
+  "health_check_interval": 360,
+  "bound_tags": ["horizontal"]
 }
 ```
+
+**Note:** `min_resolution` 仅在 `proxy_mode=true` 时生效。
+
+## Tags
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/tags` | Get all tags |
+| PUT | `/api/tags` | Update tags (full replacement) |
+
+**Tags JSON:**
+```json
+[
+  {"id": "horizontal", "name": "横屏"},
+  {"id": "vertical", "name": "竖屏"},
+  {"id": "adaptive", "name": "自适应"}
+]
+```
+
+## Health Status
+
+```
+GET /api/health
+```
+
+Returns cached health check results with last run timestamp.
 
 ## Export / Import
 

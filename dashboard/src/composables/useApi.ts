@@ -3,6 +3,21 @@ import type { Source, Settings, DetectResult, ExportData, ImportResult, HealthRe
 
 const API_BASE = ''
 
+function getAuthToken(): string {
+  try {
+    return localStorage.getItem('pichub_admin_token') || ''
+  } catch {
+    return ''
+  }
+}
+
+export function setAuthToken(token: string) {
+  try {
+    if (token) localStorage.setItem('pichub_admin_token', token)
+    else localStorage.removeItem('pichub_admin_token')
+  } catch {}
+}
+
 export function useApi() {
   const loading = ref(false)
   const error = ref<string | null>(null)
@@ -10,9 +25,14 @@ export function useApi() {
   async function request<T>(url: string, options?: RequestInit): Promise<T> {
     loading.value = true
     error.value = null
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    const token = getAuthToken()
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`
+    }
     try {
       const res = await fetch(`${API_BASE}${url}`, {
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        headers: { ...headers, ...options?.headers as Record<string, string> },
         ...options,
       })
       if (!res.ok) {

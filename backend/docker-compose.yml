@@ -3,7 +3,8 @@ services:
     build:
       context: ..
       dockerfile: backend/Dockerfile
-    network_mode: host
+    ports:
+      - "5721:5721"
     volumes:
       - ./data:/app/data
       - ./cache:/app/cache

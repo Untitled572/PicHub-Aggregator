@@ -44,6 +44,7 @@ type Settings struct {
 	Timeout             int      `json:"timeout"`
 	HealthCheckInterval int      `json:"health_check_interval"`
 	BoundTags           []string `json:"bound_tags"`
+	AdminToken          string   `json:"admin_token,omitempty"`
 }
 
 

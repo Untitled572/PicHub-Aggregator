@@ -40,6 +40,7 @@ export interface Settings {
   timeout: number
   health_check_interval?: number
   bound_tags?: string[]
+  admin_token?: string
 }
 
 
@@ -72,6 +73,7 @@ export interface ExportData {
     categories: string[]
     headers: Record<string, string>
     default_query: string
+    params?: QueryParam[]
     enabled: boolean
   }>
 }

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { useApi } from '../composables/useApi'
+import { useApi, setAuthToken } from '../composables/useApi'
 import type { Settings } from '../types'
 import {
   Sliders,
@@ -12,12 +12,13 @@ import {
   Gauge,
   Image,
   Wrench,
-  AlertCircle
+  AlertCircle,
+  Key
 } from 'lucide-vue-next'
 
 const { getSettings, updateSettings } = useApi()
 
-const activeTab = ref<'cache' | 'security'>('cache')
+const activeTab = ref<'cache' | 'security' | 'admin'>('cache')
 
 const settings = ref<Settings>({
   proxy_mode: false,
@@ -43,7 +44,10 @@ async function handleSave() {
   saving.value = true
   saved.value = false
   try {
-    await updateSettings(settings.value)
+    const updated = await updateSettings(settings.value)
+    if (updated && updated.admin_token) {
+      setAuthToken(updated.admin_token)
+    }
     saved.value = true
     setTimeout(() => saved.value = false, 3000)
   } catch {}
@@ -53,6 +57,7 @@ async function handleSave() {
 const tabs = [
   { id: 'cache', label: '代理中转与缓存', icon: HardDrive },
   { id: 'security', label: '速率与安全限制', icon: Shield },
+  { id: 'admin', label: '管理员认证', icon: Key },
 ]
 </script>
 
@@ -153,7 +158,7 @@ const tabs = [
             <Image class="w-3.5 h-3.5 text-morandi-light" /> 最小渲染分辨率过滤 (Min Resolution)
           </label>
           <input v-model="settings.min_resolution" placeholder="例如: 1920x1080 或 800x600" class="morandi-input w-full px-3 py-2 font-mono text-xs" />
-          <p class="text-[10px] text-morandi-muted mt-1">代理模式下自动丢弃低于该分辨率的低清图片源</p>
+          <p class="text-[10px] text-morandi-muted mt-1">代理模式下自动丢弃低于该分辨率的低清图片源。仅在代理模式开启时生效。</p>
         </div>
       </div>
 
@@ -191,6 +196,34 @@ const tabs = [
           </div>
         </div>
 
+      </div>
+
+      <!-- Tab Page 3: Admin Authentication -->
+      <div v-if="activeTab === 'admin'" class="space-y-4 animate-in fade-in duration-200">
+        <div class="flex items-center justify-between pb-2 border-b border-morandi-border/40">
+          <h3 class="text-xs font-bold text-morandi-sage-dark uppercase tracking-wider flex items-center gap-1.5">
+            <Key class="w-4 h-4" /> 管理接口认证令牌
+          </h3>
+        </div>
+
+        <div class="p-3.5 bg-blue-50/90 border border-blue-200 rounded-xl text-xs text-blue-900 flex items-start gap-2.5">
+          <Key class="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+          <div class="space-y-0.5">
+            <p class="font-bold">🔑 可选的 Admin Token 安全认证</p>
+            <p class="text-[11px] text-blue-800 leading-relaxed">
+              设置 token 后，Dashboard 的所有 POST/PUT/DELETE 写操作都需要在请求头携带 <code class="font-mono bg-blue-100 px-1 rounded">Authorization: Bearer &lt;token&gt;</code>。
+              GET 读操作不受影响。留空表示不启用认证。
+            </p>
+          </div>
+        </div>
+
+        <div>
+          <label class="font-medium text-morandi-text block mb-1.5 flex items-center gap-1">
+            <Key class="w-3.5 h-3.5 text-morandi-light" /> Admin Token
+          </label>
+          <input v-model="settings.admin_token" type="text" placeholder="留空则不启用认证" class="morandi-input w-full px-3 py-2 font-mono text-xs" />
+          <p class="text-[10px] text-morandi-muted mt-1">建议使用至少 16 位的随机字符串。设置后请保存，页面刷新后写操作将自动携带此 token。</p>
+        </div>
       </div>
 
       <!-- Save Actions Footer -->

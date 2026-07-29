@@ -14,6 +14,7 @@ import (
 	"github.com/pichub/backend/handler"
 	"github.com/pichub/backend/logger"
 	"github.com/pichub/backend/middleware"
+	"github.com/pichub/backend/model"
 	"github.com/pichub/backend/service"
 	"github.com/pichub/backend/store"
 )
@@ -42,10 +43,11 @@ func main() {
 	logger.System("PicHub-Aggregator initializing")
 
 	cfgPath := "config.json"
+	var cfg *config.AppConfig
 	if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
 		logger.System("config.json not found, using default config")
 	} else {
-		cfg, err := config.LoadConfig(cfgPath)
+		cfg, err = config.LoadConfig(cfgPath)
 		if err != nil {
 			logger.Error("failed to load config: %v", err)
 		} else {
@@ -59,6 +61,27 @@ func main() {
 	}
 	defer st.Close()
 
+	// seed config.json sources into DB (if not already seeded)
+	if cfg != nil {
+		var srcModels []model.Source
+		for _, sc := range cfg.Sources {
+			srcModels = append(srcModels, model.Source{
+				Name:       sc.Name,
+				URL:        sc.URL,
+				RespType:   sc.RespType,
+				JsonPath:   sc.JsonPath,
+				Weight:     sc.Weight,
+				Categories: sc.Categories,
+				Enabled:    true,
+				Status:     "normal",
+				SuccessRate: 100.0,
+			})
+		}
+		if err := st.SeedSources(srcModels); err != nil {
+			logger.Error("failed to seed sources: %v", err)
+		}
+	}
+
 	checker := service.NewHealthChecker(st)
 	checker.Start()
 	defer checker.Stop()
@@ -71,10 +94,9 @@ func main() {
 	r.Use(gin.Recovery())
 	r.Use(middleware.AccessLog())
 	r.Use(middleware.CORS())
-	r.Use(middleware.RateLimit(st))
 
 	r.GET("/ping", h.HealthCheck)
-	r.GET("/random", h.RandomImage)
+	r.GET("/random", middleware.RateLimit(st), h.RandomImage)
 	r.POST("/random/detect", h.DetectURL)
 	r.POST("/api/sources/health-check", h.BatchHealthCheck)
 
@@ -83,17 +105,17 @@ func main() {
 	{
 		api.GET("/sources", h.ListSources)
 		api.GET("/sources/:id", h.GetSource)
-		api.POST("/sources", h.CreateSource)
-		api.PUT("/sources/:id", h.UpdateSource)
-		api.DELETE("/sources/:id", h.DeleteSource)
-		api.POST("/sources/:id/toggle", h.ToggleSource)
+		api.POST("/sources", middleware.AdminAuth(st), h.CreateSource)
+		api.PUT("/sources/:id", middleware.AdminAuth(st), h.UpdateSource)
+		api.DELETE("/sources/:id", middleware.AdminAuth(st), h.DeleteSource)
+		api.POST("/sources/:id/toggle", middleware.AdminAuth(st), h.ToggleSource)
 		api.GET("/settings", h.GetSettings)
-		api.PUT("/settings", h.UpdateSettings)
+		api.PUT("/settings", middleware.AdminAuth(st), h.UpdateSettings)
 		api.GET("/tags", h.GetTags)
-		api.PUT("/tags", h.UpdateTags)
+		api.PUT("/tags", middleware.AdminAuth(st), h.UpdateTags)
 		api.GET("/health", h.GetHealthStatus)
-		api.POST("/export", h.ExportRules)
-		api.POST("/import", h.ImportRules)
+		api.POST("/export", middleware.AdminAuth(st), h.ExportRules)
+		api.POST("/import", middleware.AdminAuth(st), h.ImportRules)
 	}
 
 	distFS := embed.GetDistFS()
