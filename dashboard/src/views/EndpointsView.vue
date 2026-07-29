@@ -18,7 +18,8 @@ import {
   Tag as TagIcon,
   CheckSquare,
   Square,
-  X
+  X,
+  CheckCircle2
 } from 'lucide-vue-next'
 
 const { tags, addTag, renameTag, deleteTag } = useTags()
@@ -33,6 +34,7 @@ const editingTagId = ref<string | null>(null)
 const editingTagName = ref('')
 const boundTags = ref<string[]>([])
 const cachedSettings = ref<Settings | null>(null)
+const saveSuccess = ref(false)
 
 onMounted(async () => {
   try {
@@ -74,7 +76,9 @@ const masterJsonUrl = computed(() => {
 })
 
 const isAllTagsBound = computed(() => {
-  return boundTags.value.length === 0 || boundTags.value.length === tags.value.length
+  if (boundTags.value.length === 0) return false
+  const visibleTags = tags.value.map(t => t.id)
+  return visibleTags.every(t => boundTags.value.includes(t))
 })
 
 async function saveBoundTags(tags: string[]) {
@@ -82,18 +86,26 @@ async function saveBoundTags(tags: string[]) {
   try {
     const updated = await updateSettings({ ...base, bound_tags: tags })
     cachedSettings.value = updated
+    saveSuccess.value = true
+    setTimeout(() => saveSuccess.value = false, 1200)
   } catch {}
 }
 
 function toggleAllTagsBound() {
-  boundTags.value = []
-  saveBoundTags([])
+  if (isAllTagsBound.value) {
+    boundTags.value = []
+    saveBoundTags([])
+  } else {
+    const allWithHidden = [...tags.value.map(t => t.id), '__uncategorized__']
+    boundTags.value = allWithHidden
+    saveBoundTags(allWithHidden)
+  }
 }
 
 function toggleTagBound(tagId: string) {
-  let current = [...boundTags.value]
+  let current = boundTags.value.filter(id => id !== '__uncategorized__')
   if (current.length === 0) {
-    current = tags.value.map(t => t.id).filter(id => id !== tagId)
+    current = [tagId]
   } else {
     const idx = current.indexOf(tagId)
     if (idx >= 0) {
@@ -102,12 +114,16 @@ function toggleTagBound(tagId: string) {
       current.push(tagId)
     }
   }
+  const allVisible = tags.value.map(t => t.id)
+  if (allVisible.every(t => current.includes(t))) {
+    current.push('__uncategorized__')
+  }
   boundTags.value = current
   saveBoundTags(current)
 }
 
 function isTagBound(tagId: string): boolean {
-  if (boundTags.value.length === 0) return true
+  if (boundTags.value.length === 0) return false
   return boundTags.value.includes(tagId)
 }
 
@@ -242,7 +258,12 @@ function handleTagDelete(id: string) {
       <div class="pt-2 border-t border-morandi-border/40 space-y-2">
         <div class="flex items-center justify-between">
           <label class="text-xs font-bold text-morandi-text flex items-center gap-1.5">
-            <Sliders class="w-3.5 h-3.5 text-morandi-sage" /> 主接口绑定的 Tag 标签范围：
+            <Sliders class="w-3.5 h-3.5 text-morandi-sage" /> <span class="relative">主接口绑定的 Tag 标签范围：
+            <Transition name="fade">
+              <span v-if="saveSuccess" class="absolute left-full top-1/2 -translate-y-1/2 ml-1.5 whitespace-nowrap flex items-center gap-1 text-xs text-morandi-sage-dark font-medium">
+                <CheckCircle2 class="w-2.5 h-2.5" /> 已保存
+              </span>
+            </Transition></span>
           </label>
           <span class="text-[11px] text-morandi-muted">
             {{ isAllTagsBound ? '全选 (无过滤条件)' : `已绑定 ${boundTags.length} 个标签` }}
@@ -277,6 +298,11 @@ function handleTagDelete(id: string) {
             <component :is="isTagBound(t.id) ? CheckSquare : Square" class="w-3.5 h-3.5 text-morandi-sage" />
             <span>#{{ t.name }} ({{ t.id }})</span>
           </button>
+        </div>
+
+        <div v-if="boundTags.length === 0" class="mt-2 px-3 py-2 bg-morandi-bg/80 border border-morandi-borderSoft rounded-xl text-[11px] text-morandi-muted flex items-center gap-2">
+          <span class="text-amber-500">⚠</span>
+          <span>未绑定任何 Tag 标签，所有图源均会输出</span>
         </div>
       </div>
     </div>

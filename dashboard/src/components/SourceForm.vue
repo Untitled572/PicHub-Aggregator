@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { useApi } from '../composables/useApi'
 import type { Source, QueryParam } from '../types'
 import { X, Plus, Trash2, Sliders, ChevronDown, Sparkles, Loader2, Check } from 'lucide-vue-next'
@@ -10,7 +10,7 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ saved: [], close: [] }>()
 
-const { createSource, updateSource, detectURL } = useApi()
+const { createSource, updateSource, detectURL, listSources } = useApi()
 
 const saving = ref(false)
 const testingUrl = ref(false)
@@ -18,6 +18,9 @@ const testDetected = ref<string | null>(null)
 const userManuallySetType = ref(false)
 const showAdvanced = ref(false)
 const showHeaderInput = ref(false)
+const existingSources = ref<Source[]>([])
+const duplicateSource = ref<Source | null>(null)
+let checkTimer: ReturnType<typeof setTimeout> | undefined
 
 interface HeaderRow {
   key: string
@@ -128,8 +131,47 @@ onMounted(() => {
       })
     }
   }
+  loadExistingSources()
 })
 
+async function loadExistingSources() {
+  try {
+    existingSources.value = await listSources()
+    if (form.value.url.trim()) {
+      checkDuplicateURL(form.value.url.trim())
+    }
+  } catch {}
+}
+
+function checkDuplicateURL(url: string) {
+  if (!url) {
+    duplicateSource.value = null
+    return
+  }
+  const found = existingSources.value.find(
+    s => s.url === url && (props.source ? s.id !== props.source.id : true)
+  )
+  duplicateSource.value = found || null
+}
+
+watch(() => form.value.url, (newUrl) => {
+  if (checkTimer) clearTimeout(checkTimer)
+  const trimmed = newUrl.trim()
+  if (!trimmed) {
+    duplicateSource.value = null
+    return
+  }
+  checkTimer = setTimeout(() => checkDuplicateURL(trimmed), 400)
+})
+
+let startedOnCard = false
+function onBackdropClick() {
+  if (startedOnCard) {
+    startedOnCard = false
+    return
+  }
+  emit('close')
+}
 
 function handleUrlInput() {
 
@@ -252,8 +294,8 @@ async function handleSave() {
 </script>
 
 <template>
-  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-md transition-all" @click.self="emit('close')">
-    <div class="bg-white rounded-2xl shadow-morandi-lg w-full max-w-lg border border-morandi-borderSoft max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-md transition-all" @mousedown.self="startedOnCard = false" @click="onBackdropClick">
+    <div class="bg-white rounded-2xl shadow-morandi-lg w-full max-w-lg border border-morandi-borderSoft max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200" @mousedown="startedOnCard = true" @click.stop>
       <!-- Modal Header -->
       <div class="p-5 border-b border-morandi-border/60 flex justify-between items-center bg-morandi-bg/50">
         <div>
@@ -296,6 +338,14 @@ async function handleSave() {
             <span class="px-2.5 py-0.5 bg-morandi-sage-light text-morandi-sage-dark rounded-md font-bold border border-morandi-sage/20 flex items-center gap-1">
               <Check class="w-3.5 h-3.5 text-morandi-sage font-bold" />
               {{ testDetected }}
+            </span>
+          </div>
+
+          <!-- Duplicate URL warning -->
+          <div v-if="duplicateSource" class="mt-1.5 flex items-center gap-2 text-[11px] animate-in fade-in duration-200">
+            <span class="flex items-center gap-1.5 px-2.5 py-1 bg-amber-50 text-amber-700 rounded-md border border-amber-200">
+              <span class="text-amber-500 font-bold">⚠</span>
+              此链接已存在：<span class="font-semibold">{{ duplicateSource.name }}</span>
             </span>
           </div>
         </div>

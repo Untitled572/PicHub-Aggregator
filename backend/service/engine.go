@@ -151,6 +151,9 @@ func filterSources(sources []model.Source, queryCats []string) []model.Source {
 		if !src.Enabled || src.Status == "error" {
 			continue
 		}
+		if len(src.Categories) == 0 {
+			src.Categories = []string{"__uncategorized__"}
+		}
 
 		if len(src.Params) > 0 {
 			for _, param := range src.Params {
