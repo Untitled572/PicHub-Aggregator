@@ -83,6 +83,21 @@ func (s *Store) migrate() error {
 			categories TEXT,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
+		`CREATE TABLE IF NOT EXISTS images (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			file_id TEXT NOT NULL UNIQUE,
+			original_url TEXT NOT NULL,
+			source_id INTEGER NOT NULL DEFAULT 0,
+			source_name TEXT NOT NULL DEFAULT '',
+			width INTEGER NOT NULL DEFAULT 0,
+			height INTEGER NOT NULL DEFAULT 0,
+			format TEXT NOT NULL DEFAULT '',
+			file_size INTEGER NOT NULL DEFAULT 0,
+			categories TEXT NOT NULL DEFAULT '[]',
+			is_saved INTEGER NOT NULL DEFAULT 0,
+			saved_at DATETIME DEFAULT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
 	}
 	for _, q := range queries {
 		if _, err := s.db.Exec(q); err != nil {
@@ -91,6 +106,8 @@ func (s *Store) migrate() error {
 	}
 	_, _ = s.db.Exec("ALTER TABLE sources ADD COLUMN params TEXT DEFAULT '[]'")
 	_, _ = s.db.Exec("ALTER TABLE sources ADD COLUMN default_query TEXT DEFAULT ''")
+	_, _ = s.db.Exec("ALTER TABLE image_history ADD COLUMN image_id INTEGER DEFAULT 0")
+	_, _ = s.db.Exec("ALTER TABLE image_history ADD COLUMN file_id TEXT DEFAULT ''")
 	if err := s.seedDefaults(); err != nil {
 
 		return err
@@ -110,14 +127,17 @@ func (s *Store) seedDefaults() error {
 	defaults := map[string]string{
 		"proxy_mode":            "false",
 		"cache_max_mb":          "200",
-		"cache_ttl":             "60",
-		"min_resolution":        "640x480",
+		"cache_max_images":      "60",
+		"cache_ttl":             "0",
+		"min_resolution":        "1920x1080",
 		"rate_limit":            "60",
 		"timeout":               "3000",
 		"health_check_interval": "360",
 		"admin_token":           "",
+		"saved_images_dir":      "./data/saved",
 		"seeded":                "true",
 	}
+
 	for k, v := range defaults {
 		if _, err := s.db.Exec("INSERT INTO settings (key, value) VALUES (?, ?)", k, v); err != nil {
 			return err
@@ -259,10 +279,15 @@ func (s *Store) GetSettings() (*model.Settings, error) {
 			if n, err := fmt.Sscanf(v, "%d", &settings.CacheMaxMB); err != nil || n != 1 {
 				settings.CacheMaxMB = 200
 			}
+		case "cache_max_images":
+			if n, err := fmt.Sscanf(v, "%d", &settings.CacheMaxImages); err != nil || n != 1 {
+				settings.CacheMaxImages = 60
+			}
 		case "cache_ttl":
 			if n, err := fmt.Sscanf(v, "%d", &settings.CacheTTL); err != nil || n != 1 {
-				settings.CacheTTL = 60
+				settings.CacheTTL = 0
 			}
+
 		case "min_resolution":
 			settings.MinResolution = v
 		case "rate_limit":
@@ -289,6 +314,8 @@ func (s *Store) GetSettings() (*model.Settings, error) {
 			}
 		case "admin_token":
 			settings.AdminToken = v
+		case "saved_images_dir":
+			settings.SavedImagesDir = v
 		case "seeded":
 			_ = v
 		}
@@ -306,6 +333,7 @@ func (s *Store) UpdateSettings(settings *model.Settings) error {
 	pairs := map[string]string{
 		"proxy_mode":            fmt.Sprintf("%v", settings.ProxyMode),
 		"cache_max_mb":          fmt.Sprintf("%d", settings.CacheMaxMB),
+		"cache_max_images":      fmt.Sprintf("%d", settings.CacheMaxImages),
 		"cache_ttl":             fmt.Sprintf("%d", settings.CacheTTL),
 		"min_resolution":        settings.MinResolution,
 		"rate_limit":            fmt.Sprintf("%d", settings.RateLimit),
@@ -315,6 +343,7 @@ func (s *Store) UpdateSettings(settings *model.Settings) error {
 		"max_history_records":   fmt.Sprintf("%d", settings.MaxHistoryRecords),
 		"bound_tags":            encodeBoundTags(settings.BoundTags),
 		"admin_token":           settings.AdminToken,
+		"saved_images_dir":      settings.SavedImagesDir,
 	}
 
 	for k, v := range pairs {
@@ -378,7 +407,7 @@ func (s *Store) GetEnabledSources() ([]model.Source, error) {
 	return enabled, nil
 }
 
-func (s *Store) RecordStats(queryCats []string, src model.Source, imageURL string) error {
+func (s *Store) RecordStats(queryCats []string, src model.Source, imageURL string, imageID *int64, fileID string) error {
 	today := time.Now().Format("2006-01-02")
 	nowStr := time.Now().Format("2006-01-02 15:04:05")
 
@@ -394,8 +423,14 @@ func (s *Store) RecordStats(queryCats []string, src model.Source, imageURL strin
 	s.db.Exec("INSERT INTO stats_source (date, source_id, source_name, hit_count) VALUES (?, ?, ?, 1) ON CONFLICT(date, source_id) DO UPDATE SET hit_count = hit_count + 1, source_name = ?",
 		today, src.ID, src.Name, src.Name)
 
-	s.db.Exec("INSERT INTO image_history (image_url, source_id, source_name, categories, created_at) VALUES (?, ?, ?, ?, ?)",
-		imageURL, src.ID, src.Name, encodeStringSlice(queryCats), nowStr)
+	imgIDVal := int64(0)
+	fileIDVal := ""
+	if imageID != nil {
+		imgIDVal = *imageID
+		fileIDVal = fileID
+	}
+	s.db.Exec("INSERT INTO image_history (image_url, source_id, source_name, categories, created_at, image_id, file_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		imageURL, src.ID, src.Name, encodeStringSlice(queryCats), nowStr, imgIDVal, fileIDVal)
 
 	maxRecords := 60
 	if settings, err := s.GetSettings(); err == nil && settings.MaxHistoryRecords > 0 {
@@ -405,6 +440,95 @@ func (s *Store) RecordStats(queryCats []string, src model.Source, imageURL strin
 	s.db.Exec("DELETE FROM image_history WHERE id NOT IN (SELECT id FROM image_history ORDER BY id DESC LIMIT ?)", maxRecords)
 
 	return nil
+}
+
+func (s *Store) InsertImage(fileID, originalURL string, sourceID int64, sourceName string, width, height int, format string, fileSize int64, categories string) (int64, error) {
+	result, err := s.db.Exec(
+		"INSERT INTO images (file_id, original_url, source_id, source_name, width, height, format, file_size, categories) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		fileID, originalURL, sourceID, sourceName, width, height, format, fileSize, categories,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
+func (s *Store) GetImageByFileID(fileID string) (*model.CachedImage, error) {
+	var img model.CachedImage
+	var categories string
+	var createdAt string
+	var isSaved int
+	var savedAt sql.NullString
+	err := s.db.QueryRow(
+		"SELECT id, file_id, original_url, source_id, source_name, width, height, format, file_size, categories, is_saved, created_at FROM images WHERE file_id=?",
+		fileID,
+	).Scan(&img.ID, &img.FileID, &img.OriginalURL, &img.SourceID, &img.SourceName, &img.Width, &img.Height, &img.Format, &img.FileSize, &categories, &isSaved, &createdAt)
+	if err != nil {
+		return nil, err
+	}
+	img.Categories = categories
+	img.IsSaved = isSaved > 0
+	img.CreatedAt = createdAt
+	_ = savedAt
+	return &img, nil
+}
+
+func (s *Store) GetImageByID(id int64) (*model.CachedImage, error) {
+	var img model.CachedImage
+	var categories string
+	var createdAt string
+	var isSaved int
+	var savedAt sql.NullString
+	err := s.db.QueryRow(
+		"SELECT id, file_id, original_url, source_id, source_name, width, height, format, file_size, categories, is_saved, created_at FROM images WHERE id=?",
+		id,
+	).Scan(&img.ID, &img.FileID, &img.OriginalURL, &img.SourceID, &img.SourceName, &img.Width, &img.Height, &img.Format, &img.FileSize, &categories, &isSaved, &createdAt)
+	if err != nil {
+		return nil, err
+	}
+	img.Categories = categories
+	img.IsSaved = isSaved > 0
+	img.CreatedAt = createdAt
+	_ = savedAt
+	return &img, nil
+}
+
+func (s *Store) UpdateImageSaved(id int64, saved bool) error {
+	if saved {
+		_, err := s.db.Exec("UPDATE images SET is_saved=1, saved_at=CURRENT_TIMESTAMP WHERE id=?", id)
+		return err
+	}
+	_, err := s.db.Exec("UPDATE images SET is_saved=0, saved_at=NULL WHERE id=?", id)
+	return err
+}
+
+func (s *Store) ListSavedImages(limit, offset int) ([]model.SavedImage, int, error) {
+	var total int
+	s.db.QueryRow("SELECT COUNT(*) FROM images WHERE is_saved=1").Scan(&total)
+
+	rows, err := s.db.Query(
+		"SELECT id, file_id, source_name, width, height, format, file_size, original_url, COALESCE(saved_at, created_at) FROM images WHERE is_saved=1 ORDER BY saved_at DESC LIMIT ? OFFSET ?",
+		limit, offset,
+	)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var list []model.SavedImage
+	for rows.Next() {
+		var si model.SavedImage
+		var savedAt string
+		if err := rows.Scan(&si.ID, &si.FileID, &si.SourceName, &si.Width, &si.Height, &si.Format, &si.FileSize, &si.OriginalURL, &savedAt); err != nil {
+			return nil, 0, err
+		}
+		si.SavedAt, _ = time.Parse("2006-01-02 15:04:05", savedAt)
+		list = append(list, si)
+	}
+	if list == nil {
+		list = []model.SavedImage{}
+	}
+	return list, total, nil
 }
 
 func encodeStringSlice(s []string) string {
@@ -494,7 +618,7 @@ func (s *Store) GetImageHistory(limit, offset int) ([]model.ImageHistoryRecord, 
 	var total int
 	s.db.QueryRow("SELECT COUNT(*) FROM image_history").Scan(&total)
 
-	rows, err := s.db.Query("SELECT id, image_url, source_id, source_name, categories, created_at FROM image_history ORDER BY id DESC LIMIT ? OFFSET ?", limit, offset)
+	rows, err := s.db.Query("SELECT id, image_url, source_id, source_name, categories, created_at, COALESCE(image_id,0), COALESCE(file_id,'') FROM image_history ORDER BY id DESC LIMIT ? OFFSET ?", limit, offset)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -504,7 +628,7 @@ func (s *Store) GetImageHistory(limit, offset int) ([]model.ImageHistoryRecord, 
 	for rows.Next() {
 		var r model.ImageHistoryRecord
 		var createdAt string
-		if err := rows.Scan(&r.ID, &r.ImageURL, &r.SourceID, &r.SourceName, &r.Categories, &createdAt); err != nil {
+		if err := rows.Scan(&r.ID, &r.ImageURL, &r.SourceID, &r.SourceName, &r.Categories, &createdAt, &r.ImageID, &r.FileID); err != nil {
 			return nil, 0, err
 		}
 		parsedTime, err := time.Parse("2006-01-02 15:04:05", createdAt)

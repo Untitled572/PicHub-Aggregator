@@ -36,6 +36,9 @@ func main() {
 	if err := os.MkdirAll("./cache", 0755); err != nil {
 		log.Printf("warning: failed to create cache dir: %v", err)
 	}
+	if err := os.MkdirAll("./data/images", 0755); err != nil {
+		log.Printf("warning: failed to create images dir: %v", err)
+	}
 
 	logger.Init("./data")
 	defer logger.Close()
@@ -87,8 +90,9 @@ func main() {
 	defer checker.Stop()
 
 	proxyCache := service.NewProxyCache(st, "./cache")
-	engine := service.NewEngine(st, proxyCache)
-	h := handler.NewHandlerWithEngine(st, engine, checker)
+	imageStore := service.NewImageStore(st, "./data/images")
+	engine := service.NewEngine(st, proxyCache, imageStore)
+	h := handler.NewHandlerWithImageStore(st, engine, checker, imageStore)
 	r := gin.New()
 	r.SetTrustedProxies(strings.Split(os.Getenv("TRUSTED_PROXIES"), ","))
 	r.Use(gin.Recovery())
@@ -99,6 +103,7 @@ func main() {
 	r.GET("/random", middleware.RateLimit(st), h.RandomImage)
 	r.POST("/random/detect", h.DetectURL)
 	r.POST("/api/sources/health-check", h.BatchHealthCheck)
+	r.GET("/images/:file_id", h.ServeImage)
 
 
 	api := r.Group("/api")
@@ -116,6 +121,9 @@ func main() {
 		api.GET("/health", h.GetHealthStatus)
 		api.GET("/stats", h.GetStats)
 		api.GET("/stats/history", h.GetImageHistory)
+		api.GET("/images/saved", h.ListSavedImages)
+		api.POST("/images/:id/save", middleware.AdminAuth(st), h.SaveImage)
+		api.DELETE("/images/:id/save", middleware.AdminAuth(st), h.UnsaveImage)
 		api.POST("/export", middleware.AdminAuth(st), h.ExportRules)
 		api.POST("/import", middleware.AdminAuth(st), h.ImportRules)
 	}

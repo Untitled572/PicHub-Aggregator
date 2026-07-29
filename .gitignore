@@ -7,9 +7,6 @@ dashboard/dist/
 community/frontend/node_modules/
 community/frontend/dist/
 *.db
-PRD.md
-.~prd.md
-DEVELOPMENT_PLAN.md
-DEVELOPMENT_PROMPT.md
-docs/IMAGE_FLOW.md
-IMAGE_FLOW.md
+devdocs/
+**/data/images/
+**/data/saved/

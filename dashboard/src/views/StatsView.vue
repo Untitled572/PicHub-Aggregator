@@ -24,7 +24,7 @@ import {
   LineChart
 } from 'lucide-vue-next'
 
-const { getStats, getImageHistory } = useApi()
+const { getStats, getImageHistory, saveImage, unsaveImage } = useApi()
 const { getCategoryMap } = useTags()
 const categoryMap = computed(() => getCategoryMap())
 
@@ -34,6 +34,8 @@ const stats = ref<StatsResponse | null>(null)
 
 // History Pagination State
 const history = ref<ImageHistoryRecord[]>([])
+const savedImageIds = ref(new Set<number>())
+const savingImageId = ref<number | null>(null)
 const historyLoadingMore = ref(false)
 const historySearch = ref('')
 const currentPage = ref(1)
@@ -180,6 +182,27 @@ function parseCategories(catStr: string): string[] {
     }
   } catch {}
   return catStr === '__uncategorized__' ? [] : [catStr]
+}
+
+function thumbnailUrl(item: ImageHistoryRecord): string {
+  if (item.file_id) return `/images/${item.file_id}`
+  return item.image_url
+}
+
+async function toggleSaveImage(item: ImageHistoryRecord) {
+  if (!item.image_id) return
+  savingImageId.value = item.image_id
+  try {
+    if (savedImageIds.value.has(item.image_id)) {
+      await unsaveImage(item.image_id)
+      savedImageIds.value.delete(item.image_id)
+    } else {
+      await saveImage(item.image_id)
+      savedImageIds.value.add(item.image_id)
+    }
+    savedImageIds.value = new Set(savedImageIds.value)
+  } catch {}
+  savingImageId.value = null
 }
 
 function formatDate(isoStr: string): string {
@@ -717,7 +740,7 @@ const sourceTrendLines = computed(() => {
                   class="w-10 h-10 rounded-lg bg-morandi-bg overflow-hidden border border-morandi-borderSoft relative cursor-pointer group/thumb shadow-xs shrink-0"
                 >
                   <img
-                    :src="item.image_url"
+                    :src="thumbnailUrl(item)"
                     loading="lazy"
                     class="w-full h-full object-cover transition-transform duration-300 group-hover/thumb:scale-110"
                     @error="(e) => (e.target as HTMLElement).style.display = 'none'"
@@ -764,6 +787,19 @@ const sourceTrendLines = computed(() => {
               <!-- Actions -->
               <td class="py-2.5 pr-2 text-right whitespace-nowrap">
                 <div class="flex items-center justify-end gap-1.5">
+                  <button
+                    v-if="item.image_id"
+                    @click="toggleSaveImage(item)"
+                    :disabled="savingImageId === item.image_id"
+                    class="p-1.5 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                    :class="savedImageIds.has(item.image_id) ? 'text-rose-500 hover:bg-rose-50' : 'text-morandi-muted hover:text-rose-400 hover:bg-rose-50/60'"
+                    :title="savedImageIds.has(item.image_id) ? '取消保存' : '保存'"
+                  >
+                    <svg class="w-3.5 h-3.5" :class="savedImageIds.has(item.image_id) ? 'fill-rose-500' : 'fill-none'" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+                    </svg>
+                  </button>
+
                   <button
                     @click="copyToClipboard(item.image_url)"
                     class="p-1.5 text-morandi-muted hover:text-morandi-sage-dark hover:bg-morandi-sage-light/60 rounded-lg transition-colors cursor-pointer"

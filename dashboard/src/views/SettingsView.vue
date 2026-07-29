@@ -6,6 +6,7 @@ import {
   Sliders,
   Save,
   CheckCircle2,
+  Check,
   Shield,
   ShieldCheck,
   HardDrive,
@@ -19,6 +20,7 @@ import {
 } from 'lucide-vue-next'
 
 
+
 const { getSettings, updateSettings } = useApi()
 
 const activeTab = ref<'cache' | 'security' | 'admin'>('cache')
@@ -26,12 +28,14 @@ const activeTab = ref<'cache' | 'security' | 'admin'>('cache')
 const settings = ref<Settings>({
   proxy_mode: false,
   cache_max_mb: 200,
-  cache_ttl: 60,
-  min_resolution: '640x480',
+  cache_max_images: 60,
+  cache_ttl: 0,
+  min_resolution: '1920x1080',
   rate_limit: 60,
   timeout: 3000,
   health_check_interval: 360,
   max_history_records: 60,
+  saved_images_dir: './data/saved',
 })
 
 
@@ -41,9 +45,13 @@ const saved = ref(false)
 onMounted(async () => {
   try {
     const s = await getSettings()
+    if (s.cache_ttl === undefined || s.cache_ttl === null) s.cache_ttl = 0
+    if (!s.min_resolution) s.min_resolution = '1920x1080'
+    if (!s.saved_images_dir) s.saved_images_dir = './data/saved'
     settings.value = s
   } catch {}
 })
+
 
 async function handleSave() {
   saving.value = true
@@ -115,46 +123,61 @@ const tabs = [
           <h3 class="text-xs font-bold text-morandi-sage-dark uppercase tracking-wider flex items-center gap-1.5">
             <HardDrive class="w-4 h-4" /> 代理中转与磁盘缓存策略
           </h3>
-          <span class="text-[10px] px-2 py-0.5 bg-amber-100 text-amber-800 font-bold rounded-md flex items-center gap-1">
-            <Wrench class="w-3 h-3" /> 功能待开发完善 (研发中)
+          <span class="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-800 font-bold rounded-md flex items-center gap-1">
+            <HardDrive class="w-3 h-3" /> 本地缓存
           </span>
         </div>
 
-        <!-- Development Notice Alert -->
-        <div class="p-3.5 bg-amber-50/90 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-start gap-2.5">
-          <AlertCircle class="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-          <div class="space-y-0.5">
-            <p class="font-bold">⚠️ 提示：本地磁盘代理缓存模式目前处于待开发/内部测试阶段</p>
-            <p class="text-[11px] text-amber-800 leading-relaxed">
-              当前 PicHub 引擎默认使用 302 重定向/直链中转分发。开启代理缓存模式后可能由于目标 API 限制导致无法下载缓存，高可用本地缓存模块正在加速开发中。
-            </p>
-          </div>
-        </div>
-
-        <!-- Proxy Mode Toggle -->
-        <div class="flex items-center justify-between p-3.5 bg-morandi-bg/60 rounded-xl border border-morandi-borderSoft">
-          <div class="space-y-0.5">
-            <div class="text-xs font-semibold text-morandi-text flex items-center gap-1.5">
-              <span>代理中转 / 缓存模式 (Proxy Mode)</span>
-              <span class="text-[10px] px-1.5 py-0.2 bg-amber-100 text-amber-800 font-medium rounded">待开发</span>
+        <!-- Proxy Mode Toggle (Redesigned) -->
+        <div class="flex items-center justify-between p-4 bg-morandi-bg/60 rounded-2xl border border-morandi-borderSoft shadow-2xs">
+          <div class="space-y-1 pr-4">
+            <div class="text-xs font-bold text-morandi-text flex items-center gap-2">
+              <span>本地缓存模式</span>
+              <span
+                class="text-[10px] px-2 py-0.5 font-bold rounded-md transition-colors"
+                :class="settings.proxy_mode ? 'bg-morandi-sage-light text-morandi-sage-dark' : 'bg-morandi-bg text-morandi-muted border border-morandi-borderSoft'"
+              >
+                {{ settings.proxy_mode ? '已开启 (磁盘中转缓存)' : '已关闭 (302 重定向直链)' }}
+              </span>
             </div>
             <div class="text-[11px] text-morandi-muted leading-relaxed">
-              开启后主机下载第三方图片并做本地磁盘缓存，隐藏客户端 IP，完美解决第三方 API 跨域与防盗链限制。
+              开启后服务器自动将第三方图片下载并存储在本地磁盘中转分发，支持按图片真实像素尺寸精准过滤横竖屏，支持保存收藏偏好图片。关闭时保持 302 重定向直链分发。
             </div>
           </div>
-          <label class="relative inline-flex items-center cursor-pointer shrink-0 ml-4">
-            <input type="checkbox" v-model="settings.proxy_mode" class="sr-only peer" />
-            <div class="w-10 h-5 bg-morandi-sidebar peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-morandi-borderSoft after:border after:rounded-full after:h-4 after:w-4 after:transition-all duration-200 peer-checked:bg-morandi-sage"></div>
-          </label>
+
+          <!-- Redesigned Custom Toggle Switch -->
+          <button
+            type="button"
+            @click="settings.proxy_mode = !settings.proxy_mode"
+            class="w-12 h-[26px] rounded-full p-[2px] transition-colors duration-300 ease-in-out shrink-0 cursor-pointer focus:outline-none flex items-center shadow-inner"
+            :class="settings.proxy_mode ? 'bg-morandi-sage' : 'bg-morandi-border/80 hover:bg-morandi-border'"
+            :aria-checked="settings.proxy_mode"
+            role="switch"
+          >
+            <span
+              class="w-[22px] h-[22px] bg-white rounded-full shadow-md transition-transform duration-300 ease-in-out transform flex items-center justify-center"
+              :class="settings.proxy_mode ? 'translate-x-[22px]' : 'translate-x-0'"
+            >
+              <Check v-if="settings.proxy_mode" class="w-3 h-3 text-morandi-sage-dark font-bold" />
+            </span>
+          </button>
         </div>
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs pt-2">
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs pt-2">
           <div>
             <label class="font-medium text-morandi-text block mb-1.5 flex items-center gap-1">
               <HardDrive class="w-3.5 h-3.5 text-morandi-light" /> 最大磁盘缓存容量 (MB)
             </label>
             <input v-model.number="settings.cache_max_mb" type="number" class="morandi-input w-full px-3 py-2 font-mono" />
-            <p class="text-[10px] text-morandi-muted mt-1">超过设定容量将自动清除最早过期的本地缓存文件</p>
+            <p class="text-[10px] text-morandi-muted mt-1">超过容量后淘汰最早的缓存文件</p>
+          </div>
+
+          <div>
+            <label class="font-medium text-morandi-text block mb-1.5 flex items-center gap-1">
+              <Image class="w-3.5 h-3.5 text-morandi-light" /> 缓存图片数量上限
+            </label>
+            <input v-model.number="settings.cache_max_images" type="number" class="morandi-input w-full px-3 py-2 font-mono" />
+            <p class="text-[10px] text-morandi-muted mt-1">超过数量上限后自动淘汰最早的图片（默认 60 张）</p>
           </div>
 
           <div>
@@ -162,17 +185,27 @@ const tabs = [
               <Clock class="w-3.5 h-3.5 text-morandi-light" /> 缓存过期时间 TTL (分钟)
             </label>
             <input v-model.number="settings.cache_ttl" type="number" class="morandi-input w-full px-3 py-2 font-mono" />
-            <p class="text-[10px] text-morandi-muted mt-1">缓存图片的保存保留时长（默认 60 分钟）</p>
+            <p class="text-[10px] text-morandi-muted mt-1">缓存图片的保存保留时长（0 表示不随时间自动过期）</p>
           </div>
+        </div>
+
+
+        <div>
+          <label class="font-medium text-morandi-text block mb-1.5 flex items-center gap-1 text-xs">
+            <Image class="w-3.5 h-3.5 text-morandi-light" /> 最小渲染分辨率过滤
+          </label>
+          <input v-model="settings.min_resolution" placeholder="例如: 1920x1080 或 0 关闭" class="morandi-input w-full px-3 py-2 font-mono text-xs" />
+          <p class="text-[10px] text-morandi-muted mt-1">代理模式下自动丢弃低于该分辨率的低清图片。输入 0 关闭分辨率过滤。</p>
         </div>
 
         <div>
           <label class="font-medium text-morandi-text block mb-1.5 flex items-center gap-1 text-xs">
-            <Image class="w-3.5 h-3.5 text-morandi-light" /> 最小渲染分辨率过滤 (Min Resolution)
+            <HardDrive class="w-3.5 h-3.5 text-morandi-light" /> 保存图片目录
           </label>
-          <input v-model="settings.min_resolution" placeholder="例如: 1920x1080 或 800x600" class="morandi-input w-full px-3 py-2 font-mono text-xs" />
-          <p class="text-[10px] text-morandi-muted mt-1">代理模式下自动丢弃低于该分辨率的低清图片源。仅在代理模式开启时生效。</p>
+          <input v-model="settings.saved_images_dir" placeholder="./data/saved" class="morandi-input w-full px-3 py-2 font-mono text-xs" />
+          <p class="text-[10px] text-morandi-muted mt-1">保存图片时复制到的本地存储路径（默认 ./data/saved）。可在 docker-compose 中挂载卷持久化。</p>
         </div>
+
 
         <!-- History Log Storage Limit Section -->
         <div class="pt-4 border-t border-morandi-border/40 space-y-3">

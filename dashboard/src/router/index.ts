@@ -7,6 +7,7 @@ const router = createRouter({
     { path: '/endpoints', name: 'endpoints', component: () => import('../views/EndpointsView.vue') },
     { path: '/health', name: 'health', component: () => import('../views/HealthCheckView.vue') },
     { path: '/stats', name: 'stats', component: () => import('../views/StatsView.vue') },
+    { path: '/saved', name: 'saved', component: () => import('../views/SavedView.vue') },
     { path: '/settings', name: 'settings', component: () => import('../views/SettingsView.vue') },
   ],
 })

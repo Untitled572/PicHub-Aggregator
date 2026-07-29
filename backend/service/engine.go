@@ -19,13 +19,15 @@ import (
 type Engine struct {
 	store      *store.Store
 	proxyCache *ProxyCache
+	imageStore *ImageStore
 	httpClient *http.Client
 }
 
-func NewEngine(st *store.Store, pc *ProxyCache) *Engine {
+func NewEngine(st *store.Store, pc *ProxyCache, imgStore *ImageStore) *Engine {
 	return &Engine{
 		store:      st,
 		proxyCache: pc,
+		imageStore: imgStore,
 		httpClient: &http.Client{
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				return http.ErrUseLastResponse
@@ -36,11 +38,17 @@ func NewEngine(st *store.Store, pc *ProxyCache) *Engine {
 
 type Result struct {
 	URL        string   `json:"url"`
+	LocalURL   string   `json:"local_url,omitempty"`
 	SourceName string   `json:"source"`
 	Categories []string `json:"categories"`
+	FileID     string   `json:"file_id,omitempty"`
+	Width      int      `json:"width,omitempty"`
+	Height     int      `json:"height,omitempty"`
+	Format     string   `json:"format,omitempty"`
+	ImageID    int64    `json:"image_id,omitempty"`
 }
 
-func (e *Engine) RandomImage(category string, format string, clientUA string) (*Result, int, error) {
+func (e *Engine) RandomImage(category string, format string, orientation string, clientUA string) (*Result, int, error) {
 	settings, err := e.store.GetSettings()
 	if err != nil {
 		return nil, 0, fmt.Errorf("get settings: %w", err)
@@ -59,7 +67,12 @@ func (e *Engine) RandomImage(category string, format string, clientUA string) (*
 
 	timeout := time.Duration(settings.Timeout) * time.Millisecond
 
-	for attempt := 0; attempt < 3 && len(candidates) > 0; attempt++ {
+	maxAttempts := 3
+	if e.imageStore != nil && settings.ProxyMode && orientation != "" {
+		maxAttempts = 8
+	}
+
+	for attempt := 0; attempt < maxAttempts && len(candidates) > 0; attempt++ {
 		selected := weightedPick(candidates)
 
 		req, err := http.NewRequest("GET", selected.URL, nil)
@@ -96,6 +109,7 @@ func (e *Engine) RandomImage(category string, format string, clientUA string) (*
 		}
 
 		hasFailed := false
+		var cachedInfo *CachedImageInfo
 
 		if resp.StatusCode >= 500 {
 			logger.Error("source %q returned %d", selected.Name, resp.StatusCode)
@@ -119,7 +133,26 @@ func (e *Engine) RandomImage(category string, format string, clientUA string) (*
 
 		e.store.UpdateSourceStatus(selected.ID, "normal")
 
-		if e.proxyCache != nil && settings.ProxyMode {
+		if e.imageStore != nil && settings.ProxyMode {
+			cached, cacheErr := e.imageStore.DownloadAndStore(imageURL, selected.ID, selected.Name, queryCats)
+			if cacheErr != nil {
+				logger.Error("cache download failed for %s: %v", selected.Name, cacheErr)
+				candidates = removeSource(candidates, selected.ID)
+				continue
+			}
+			cachedInfo = cached
+
+			if orientation != "" {
+				imgOrient := GetOrientation(cached.Width, cached.Height)
+				if imgOrient != orientation {
+					logger.System("orientation mismatch for %s: got %s, wanted %s", selected.Name, imgOrient, orientation)
+					candidates = removeSource(candidates, selected.ID)
+					continue
+				}
+			}
+
+			imageURL = "/images/" + cached.FileID
+		} else if e.proxyCache != nil && settings.ProxyMode {
 			_, _, proxyErr := e.proxyCache.GetOrFetch(imageURL)
 			if proxyErr != nil {
 				hasFailed = true
@@ -131,16 +164,32 @@ func (e *Engine) RandomImage(category string, format string, clientUA string) (*
 			continue
 		}
 
-		go e.store.RecordStats(queryCats, selected, imageURL)
+		var imgID *int64
+		var fileID string
+		if cachedInfo != nil {
+			imgID = &cachedInfo.ID
+			fileID = cachedInfo.FileID
+		}
+		go e.store.RecordStats(queryCats, selected, imageURL, imgID, fileID)
+
+		res := &Result{
+			URL:        imageURL,
+			SourceName: selected.Name,
+			Categories: selected.Categories,
+		}
+		if cachedInfo != nil {
+			res.LocalURL = imageURL
+			res.FileID = cachedInfo.FileID
+			res.Width = cachedInfo.Width
+			res.Height = cachedInfo.Height
+			res.Format = cachedInfo.Format
+			res.ImageID = cachedInfo.ID
+		}
 
 		if format == "json" {
-			return &Result{
-				URL:        imageURL,
-				SourceName: selected.Name,
-				Categories: selected.Categories,
-			}, http.StatusOK, nil
+			return res, http.StatusOK, nil
 		}
-		return &Result{URL: imageURL}, http.StatusFound, nil
+		return res, http.StatusFound, nil
 	}
 
 	return nil, 0, fmt.Errorf("all sources failed")

@@ -11,6 +11,7 @@ import (
 func (h *Handler) RandomImage(c *gin.Context) {
 	category := c.Query("category")
 	format := c.Query("format")
+	orientation := c.Query("orientation")
 	clientUA := c.GetHeader("User-Agent")
 
 	if category == "" {
@@ -20,10 +21,15 @@ func (h *Handler) RandomImage(c *gin.Context) {
 		}
 	}
 
-	result, statusCode, err := h.engine.RandomImage(category, format, clientUA)
+	result, statusCode, err := h.engine.RandomImage(category, format, orientation, clientUA)
 	if err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		return
+	}
+
+	redirectURL := result.URL
+	if result.LocalURL != "" {
+		redirectURL = result.LocalURL
 	}
 
 	if format == "json" {
@@ -32,7 +38,7 @@ func (h *Handler) RandomImage(c *gin.Context) {
 	}
 
 	if statusCode == http.StatusFound {
-		c.Redirect(http.StatusFound, result.URL)
+		c.Redirect(http.StatusFound, redirectURL)
 		return
 	}
 

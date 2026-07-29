@@ -34,6 +34,7 @@ export interface Source {
 export interface Settings {
   proxy_mode: boolean
   cache_max_mb: number
+  cache_max_images: number
   cache_ttl: number
   min_resolution: string
   rate_limit: number
@@ -42,6 +43,7 @@ export interface Settings {
   max_history_records?: number
   bound_tags?: string[]
   admin_token?: string
+  saved_images_dir?: string
 }
 
 
@@ -116,6 +118,20 @@ export interface ImageHistoryRecord {
   source_name: string
   categories: string
   created_at: string
+  image_id?: number
+  file_id?: string
+}
+
+export interface SavedImage {
+  id: number
+  file_id: string
+  source_name: string
+  width: number
+  height: number
+  format: string
+  file_size: number
+  original_url: string
+  saved_at: string
 }
 
 export interface ExportData {

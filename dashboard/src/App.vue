@@ -13,7 +13,8 @@ import {
   Copy,
   Check,
   Link2,
-  BarChart3
+  BarChart3,
+  Heart
 } from 'lucide-vue-next'
 
 const route = useRoute()
@@ -26,6 +27,7 @@ const navItems = [
   { path: '/endpoints', label: '接口管理', subtitle: '分类分发与总接口配置', icon: Link2 },
   { path: '/health', label: '健康检测', subtitle: '可用性与延迟评估', icon: Activity },
   { path: '/stats', label: '使用统计', subtitle: '请求数、Tag/图源命中与记录', icon: BarChart3 },
+  { path: '/saved', label: '保存图片', subtitle: '已保存的图片', icon: Heart },
   { path: '/settings', label: '系统设置', subtitle: '中转模式与缓存策略', icon: Sliders },
 ]
 

@@ -26,11 +26,12 @@ onMounted(async () => {
       <button
         @click="runCheck"
         :disabled="running"
-        class="flex items-center gap-2 px-4 py-2 bg-morandi-sage hover:bg-morandi-sage-dark text-white rounded-xl text-xs font-semibold shadow-sm transition-all disabled:opacity-50 shrink-0"
+        class="px-4 py-2 text-xs font-semibold bg-white hover:bg-morandi-hover text-morandi-text rounded-xl border border-morandi-borderSoft shadow-xs flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50 shrink-0 self-start sm:self-auto"
       >
-        <RefreshCw class="w-4 h-4" :class="{ 'animate-spin': running }" />
+        <RefreshCw class="w-3.5 h-3.5 text-morandi-sage" :class="{ 'animate-spin': running }" />
         <span>{{ running ? '检测诊断中...' : '重新发起检测' }}</span>
       </button>
+
     </div>
 
     <!-- Progress bar -->

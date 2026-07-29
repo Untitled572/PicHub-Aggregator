@@ -5,6 +5,7 @@ services:
     volumes:
       - ./pichub_data:/app/data
       - ./pichub_cache:/app/cache
+      - ./pichub_saved:/app/data/saved
     environment:
       - PUID=1000
       - PGID=1000

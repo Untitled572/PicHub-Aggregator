@@ -82,7 +82,7 @@ const isAllTagsBound = computed(() => {
 })
 
 async function saveBoundTags(tags: string[]) {
-  const base = cachedSettings.value || { proxy_mode: false, cache_max_mb: 200, cache_ttl: 60, min_resolution: '640x480', rate_limit: 60, timeout: 3000 }
+  const base = cachedSettings.value || { proxy_mode: false, cache_max_mb: 200, cache_max_images: 60, cache_ttl: 60, min_resolution: '640x480', rate_limit: 60, timeout: 3000 }
   try {
     const updated = await updateSettings({ ...base, bound_tags: tags })
     cachedSettings.value = updated

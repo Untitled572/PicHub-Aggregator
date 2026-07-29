@@ -68,7 +68,7 @@ func (pc *ProxyCache) GetOrFetch(imageURL string) ([]byte, string, error) {
 		return nil, "", fmt.Errorf("read body: %w", err)
 	}
 
-	if settings.MinResolution != "" {
+	if settings.MinResolution != "" && settings.MinResolution != "0" {
 		ok, err := checkResolution(data, settings.MinResolution)
 		if err != nil || !ok {
 			return nil, "", fmt.Errorf("resolution below minimum: %s", settings.MinResolution)

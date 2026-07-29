@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import type { Source, Settings, DetectResult, ExportData, ImportResult, HealthResult, Tag, StatsResponse, ImageHistoryRecord } from '../types'
+import type { Source, Settings, DetectResult, ExportData, ImportResult, HealthResult, Tag, StatsResponse, ImageHistoryRecord, SavedImage } from '../types'
 
 
 const API_BASE = ''
@@ -121,6 +121,18 @@ export function useApi() {
     return request<{ history: ImageHistoryRecord[]; total: number; limit: number; offset: number }>(`/api/stats/history?limit=${limit}&offset=${offset}`)
   }
 
+  function saveImage(id: number) {
+    return request<{ message: string }>(`/api/images/${id}/save`, { method: 'POST' })
+  }
+
+  function unsaveImage(id: number) {
+    return request<{ message: string }>(`/api/images/${id}/save`, { method: 'DELETE' })
+  }
+
+  function listSavedImages(limit = 20, offset = 0) {
+    return request<{ images: SavedImage[]; total: number; limit: number; offset: number }>(`/api/images/saved?limit=${limit}&offset=${offset}`)
+  }
+
 
   return {
     loading, error,
@@ -129,6 +141,7 @@ export function useApi() {
     detectURL, healthCheck,
     exportRules, importRules,
     getStats, getImageHistory,
+    saveImage, unsaveImage, listSavedImages,
   }
 }
 

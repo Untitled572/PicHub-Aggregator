@@ -74,11 +74,41 @@ type ImageHistoryRecord struct {
 	SourceName string    `json:"source_name"`
 	Categories string    `json:"categories"`
 	CreatedAt  time.Time `json:"created_at"`
+	ImageID    int64     `json:"image_id,omitempty"`
+	FileID     string    `json:"file_id,omitempty"`
+}
+
+type CachedImage struct {
+	ID          int64  `json:"id"`
+	FileID      string `json:"file_id"`
+	OriginalURL string `json:"original_url"`
+	SourceID    int64  `json:"source_id"`
+	SourceName  string `json:"source_name"`
+	Width       int    `json:"width"`
+	Height      int    `json:"height"`
+	Format      string `json:"format"`
+	FileSize    int64  `json:"file_size"`
+	Categories  string `json:"categories"`
+	IsSaved     bool   `json:"is_saved"`
+	CreatedAt   string `json:"created_at"`
+}
+
+type SavedImage struct {
+	ID          int64     `json:"id"`
+	FileID      string    `json:"file_id"`
+	SourceName  string    `json:"source_name"`
+	Width       int       `json:"width"`
+	Height      int       `json:"height"`
+	Format      string    `json:"format"`
+	FileSize    int64     `json:"file_size"`
+	OriginalURL string    `json:"original_url"`
+	SavedAt     time.Time `json:"saved_at"`
 }
 
 type Settings struct {
 	ProxyMode           bool     `json:"proxy_mode"`
 	CacheMaxMB          int      `json:"cache_max_mb"`
+	CacheMaxImages      int      `json:"cache_max_images"`
 	CacheTTL            int      `json:"cache_ttl"`
 	MinResolution       string   `json:"min_resolution"`
 	RateLimit           int      `json:"rate_limit"`
@@ -87,6 +117,7 @@ type Settings struct {
 	MaxHistoryRecords   int      `json:"max_history_records"`
 	BoundTags           []string `json:"bound_tags"`
 	AdminToken          string   `json:"admin_token,omitempty"`
+	SavedImagesDir      string   `json:"saved_images_dir,omitempty"`
 }
 
 
