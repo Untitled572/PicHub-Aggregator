@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -17,29 +18,34 @@ import (
 )
 
 type Engine struct {
-	store      *store.Store
-	proxyCache *ProxyCache
-	imageStore *ImageStore
-	httpClient *http.Client
+	store        *store.Store
+	proxyCache   *ProxyCache
+	imageStore   *ImageStore
+	precachePool *PrecachePool
+	httpClient   *http.Client
 }
 
 func NewEngine(st *store.Store, pc *ProxyCache, imgStore *ImageStore) *Engine {
-	return &Engine{
-		store:      st,
-		proxyCache: pc,
-		imageStore: imgStore,
+	eng := &Engine{
+		store:        st,
+		proxyCache:   pc,
+		imageStore:   imgStore,
+		precachePool: NewPrecachePool(),
 		httpClient: &http.Client{
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				return http.ErrUseLastResponse
 			},
 		},
 	}
+	go eng.StartPrecacheWorker()
+	return eng
 }
 
 type Result struct {
 	URL        string   `json:"url"`
 	LocalURL   string   `json:"local_url,omitempty"`
 	SourceName string   `json:"source"`
+	SourceID   int64    `json:"source_id,omitempty"`
 	Categories []string `json:"categories"`
 	FileID     string   `json:"file_id,omitempty"`
 	Width      int      `json:"width,omitempty"`
@@ -54,12 +60,41 @@ func (e *Engine) RandomImage(category string, format string, orientation string,
 		return nil, 0, fmt.Errorf("get settings: %w", err)
 	}
 
+	queryCats := splitCategory(category)
+
+	if settings.ProxyMode && settings.PrecacheCount > 0 && e.precachePool != nil {
+		cachedResult := e.precachePool.Pop(category)
+		if cachedResult != nil {
+			if !precacheFileExists(cachedResult, e.imageStore) {
+				e.precachePool.Discard(cachedResult)
+				go e.ReplenishPrecache()
+			} else if orientation != "" && cachedResult.Width > 0 {
+				imgOrient := GetOrientation(cachedResult.Width, cachedResult.Height)
+				if imgOrient != orientation {
+					logger.System("precache orientation mismatch: got %s, wanted %s", imgOrient, orientation)
+					e.precachePool.Discard(cachedResult)
+					go e.ReplenishPrecache()
+				} else {
+					logger.System("precache hit for category %q, returning 0ms instant response", category)
+					go e.recordPrecacheStats(queryCats, cachedResult)
+					go e.ReplenishPrecache()
+					return cachedResult, http.StatusFound, nil
+				}
+			} else {
+				logger.System("precache hit for category %q, returning 0ms instant response", category)
+				go e.recordPrecacheStats(queryCats, cachedResult)
+				go e.ReplenishPrecache()
+				return cachedResult, http.StatusFound, nil
+			}
+		}
+	}
+
 	sources, err := e.store.ListSources()
 	if err != nil {
 		return nil, 0, fmt.Errorf("list sources: %w", err)
 	}
 
-	queryCats := strings.Split(category, ",")
+
 	candidates := filterSources(sources, queryCats)
 	if len(candidates) == 0 {
 		return nil, 0, fmt.Errorf("no available sources")
@@ -133,8 +168,10 @@ func (e *Engine) RandomImage(category string, format string, orientation string,
 
 		e.store.UpdateSourceStatus(selected.ID, "normal")
 
+		origURL := imageURL
+
 		if e.imageStore != nil && settings.ProxyMode {
-			cached, cacheErr := e.imageStore.DownloadAndStore(imageURL, selected.ID, selected.Name, queryCats)
+			cached, cacheErr := e.imageStore.DownloadAndStore(origURL, selected.ID, selected.Name, queryCats)
 			if cacheErr != nil {
 				logger.Error("cache download failed for %s: %v", selected.Name, cacheErr)
 				candidates = removeSource(candidates, selected.ID)
@@ -170,15 +207,16 @@ func (e *Engine) RandomImage(category string, format string, orientation string,
 			imgID = &cachedInfo.ID
 			fileID = cachedInfo.FileID
 		}
-		go e.store.RecordStats(queryCats, selected, imageURL, imgID, fileID)
+		go e.store.RecordStats(queryCats, selected, origURL, imgID, fileID)
 
 		res := &Result{
-			URL:        imageURL,
+			URL:        origURL,
 			SourceName: selected.Name,
 			Categories: selected.Categories,
 		}
 		if cachedInfo != nil {
 			res.LocalURL = imageURL
+			res.SourceID = selected.ID
 			res.FileID = cachedInfo.FileID
 			res.Width = cachedInfo.Width
 			res.Height = cachedInfo.Height
@@ -438,4 +476,132 @@ func resolveURL(baseURLStr, targetURLStr string) string {
 	resolved := base.ResolveReference(rel)
 	return resolved.String()
 }
+
+func (e *Engine) StartPrecacheWorker() {
+	time.Sleep(3 * time.Second)
+	e.ReplenishPrecache()
+
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+	for range ticker.C {
+		e.ReplenishPrecache()
+	}
+}
+
+func (e *Engine) ReplenishPrecache() {
+	settings, err := e.store.GetSettings()
+	if err != nil || !settings.ProxyMode || settings.PrecacheCount <= 0 || e.precachePool == nil {
+		return
+	}
+
+	target := settings.PrecacheCount
+	current := e.precachePool.Len()
+
+	if current > target {
+		e.precachePool.Trim(target)
+		return
+	}
+
+	if current >= target {
+		return
+	}
+
+	needed := target - current
+	for i := 0; i < needed; i++ {
+		res := e.fetchSinglePrecache()
+		if res != nil {
+			e.precachePool.Push(res)
+		} else {
+			break
+		}
+	}
+}
+
+func (e *Engine) fetchSinglePrecache() *Result {
+	sources, err := e.store.ListSources()
+	if err != nil || len(sources) == 0 {
+		return nil
+	}
+	candidates := filterSources(sources, nil)
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	selected := weightedPick(candidates)
+	req, err := http.NewRequest("GET", selected.URL, nil)
+	if err != nil {
+		return nil
+	}
+	for k, v := range selected.Headers {
+		req.Header.Set(k, v)
+	}
+
+	settings, err := e.store.GetSettings()
+	if err != nil {
+		return nil
+	}
+	e.httpClient.Timeout = time.Duration(settings.Timeout) * time.Millisecond
+	resp, err := e.httpClient.Do(req)
+	if err != nil || resp.StatusCode >= 400 {
+		if resp != nil {
+			resp.Body.Close()
+		}
+		return nil
+	}
+
+	imageURL, err := extractImageURL(resp, selected)
+	resp.Body.Close()
+	if err != nil {
+		return nil
+	}
+
+	if e.imageStore != nil {
+		srcCats := selected.Categories
+		if srcCats == nil {
+			srcCats = []string{}
+		}
+		origURL := imageURL
+		cached, cacheErr := e.imageStore.DownloadAndStore(origURL, selected.ID, selected.Name, srcCats)
+		if cacheErr != nil {
+			return nil
+		}
+		go e.store.RecordStats(srcCats, selected, origURL, &cached.ID, cached.FileID)
+
+		return &Result{
+			URL:        origURL,
+			LocalURL:   "/images/" + cached.FileID,
+			SourceName: selected.Name,
+			SourceID:   selected.ID,
+			Categories: selected.Categories,
+			FileID:     cached.FileID,
+			Width:      cached.Width,
+			Height:     cached.Height,
+			Format:     cached.Format,
+			ImageID:    cached.ID,
+		}
+	}
+	return nil
+}
+
+func precacheFileExists(res *Result, imgStore *ImageStore) bool {
+	if imgStore == nil || res.FileID == "" {
+		return false
+	}
+	pattern := filepath.Join(imgStore.cacheDir, res.FileID+".*")
+	matches, err := filepath.Glob(pattern)
+	return err == nil && len(matches) > 0
+}
+
+func (e *Engine) recordPrecacheStats(queryCats []string, res *Result) {
+	if res == nil || e.store == nil {
+		return
+	}
+	src := model.Source{
+		ID:   res.SourceID,
+		Name: res.SourceName,
+	}
+	imgID := res.ImageID
+	e.store.RecordStats(queryCats, src, res.URL, &imgID, res.FileID)
+}
+
 

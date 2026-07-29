@@ -16,8 +16,10 @@ import {
   Wrench,
   AlertCircle,
   Key,
-  History
+  History,
+  Zap
 } from 'lucide-vue-next'
+
 
 
 
@@ -92,7 +94,7 @@ const tabs = [
       <!-- Version Badge (Vertically Centered) -->
       <div class="flex items-center justify-center shrink-0 my-auto">
         <span class="px-3 py-1 bg-morandi-sage text-white text-xs font-bold rounded-xl shadow-xs font-mono leading-none flex items-center justify-center">
-          v0.4.0
+          v0.5.0
         </span>
       </div>
     </div>
@@ -123,9 +125,6 @@ const tabs = [
           <h3 class="text-xs font-bold text-morandi-sage-dark uppercase tracking-wider flex items-center gap-1.5">
             <HardDrive class="w-4 h-4" /> 代理中转与磁盘缓存策略
           </h3>
-          <span class="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-800 font-bold rounded-md flex items-center gap-1">
-            <HardDrive class="w-3 h-3" /> 本地缓存
-          </span>
         </div>
 
         <!-- Proxy Mode Toggle (Redesigned) -->
@@ -177,7 +176,7 @@ const tabs = [
               <Image class="w-3.5 h-3.5 text-morandi-light" /> 缓存图片数量上限
             </label>
             <input v-model.number="settings.cache_max_images" type="number" class="morandi-input w-full px-3 py-2 font-mono" />
-            <p class="text-[10px] text-morandi-muted mt-1">超过数量上限后自动淘汰最早的图片（默认 60 张）</p>
+            <p class="text-[10px] text-morandi-muted mt-1">超过数量上限后自动淘汰最早的图片（0 表示不自动清理）</p>
           </div>
 
           <div>
@@ -195,7 +194,15 @@ const tabs = [
             <Image class="w-3.5 h-3.5 text-morandi-light" /> 最小渲染分辨率过滤
           </label>
           <input v-model="settings.min_resolution" placeholder="例如: 1920x1080 或 0 关闭" class="morandi-input w-full px-3 py-2 font-mono text-xs" />
-          <p class="text-[10px] text-morandi-muted mt-1">代理模式下自动丢弃低于该分辨率的低清图片。输入 0 关闭分辨率过滤。</p>
+          <p class="text-[10px] text-morandi-muted mt-1">代理模式下自动丢弃低于该分辨率的低清图片。 （0 表示关闭分辨率过滤）。</p>
+        </div>
+
+        <div>
+          <label class="font-medium text-morandi-text block mb-1.5 flex items-center gap-1 text-xs">
+            <Zap class="w-3.5 h-3.5 text-morandi-sage-dark font-bold" /> 预缓存图片数量 (张)
+          </label>
+          <input v-model.number="settings.precache_count" type="number" min="0" max="50" class="morandi-input w-full px-3 py-2 font-mono text-xs font-bold text-morandi-sage-dark" />
+          <p class="text-[10px] text-morandi-muted mt-1">开启代理模式后，后台自动提前从主接口中转下载并缓存指定数量的图片。</p>
         </div>
 
         <div>
@@ -203,8 +210,9 @@ const tabs = [
             <HardDrive class="w-3.5 h-3.5 text-morandi-light" /> 保存图片目录
           </label>
           <input v-model="settings.saved_images_dir" placeholder="./data/saved" class="morandi-input w-full px-3 py-2 font-mono text-xs" />
-          <p class="text-[10px] text-morandi-muted mt-1">保存图片时复制到的本地存储路径（默认 ./data/saved）。可在 docker-compose 中挂载卷持久化。</p>
+          <p class="text-[10px] text-morandi-muted mt-1">保存图片时复制到的本地存储路径。</p>
         </div>
+
 
 
         <!-- History Log Storage Limit Section -->
@@ -252,7 +260,7 @@ const tabs = [
               <Clock class="w-3.5 h-3.5 text-morandi-sage font-bold" /> 后台健康检查轮询周期 (分钟)
             </label>
             <input v-model.number="settings.health_check_interval" type="number" class="morandi-input w-full px-3 py-2 font-mono font-bold text-morandi-sage-dark" />
-            <p class="text-[10px] text-morandi-muted mt-1">后台巡检所有图源连通性的时间间隔 (默认 360 分钟 / 6 小时)</p>
+            <p class="text-[10px] text-morandi-muted mt-1">后台巡检所有图源连通性的时间间隔</p>
           </div>
         </div>
       </div>
@@ -287,7 +295,7 @@ const tabs = [
             <Key class="w-3.5 h-3.5 text-morandi-light" /> Admin Token
           </label>
           <input v-model="settings.admin_token" type="text" placeholder="留空则不启用认证" class="morandi-input w-full px-3 py-2 font-mono text-xs" />
-          <p class="text-[10px] text-morandi-muted mt-1">建议使用至少 16 位的随机字符串。设置后请保存，页面刷新后写操作将自动携带此 token。</p>
+          <p class="text-[10px] text-morandi-muted mt-1">设置后请保存，页面刷新后写操作将自动携带此 token。</p>
         </div>
       </div>
 
@@ -304,7 +312,7 @@ const tabs = [
 
         <Transition name="fade">
           <span v-if="saved" class="flex items-center gap-1.5 text-xs text-morandi-sage-dark font-medium bg-morandi-sage-light/60 px-3 py-1.5 rounded-lg border border-morandi-sage/20">
-            <CheckCircle2 class="w-4 h-4 text-morandi-sage" /> 系统设置更新已成功应用！
+            <CheckCircle2 class="w-4 h-4 text-morandi-sage" /> 系统设置已更新
           </span>
         </Transition>
       </div>

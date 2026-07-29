@@ -36,6 +36,7 @@ export interface Settings {
   cache_max_mb: number
   cache_max_images: number
   cache_ttl: number
+  precache_count?: number
   min_resolution: string
   rate_limit: number
   timeout: number
@@ -45,6 +46,7 @@ export interface Settings {
   admin_token?: string
   saved_images_dir?: string
 }
+
 
 
 

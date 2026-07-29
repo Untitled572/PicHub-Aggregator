@@ -626,7 +626,7 @@ const sourceTrendLines = computed(() => {
           </span>
         </div>
 
-        <div v-if="validTags.length > 0" class="space-y-3.5">
+        <div v-if="validTags.length > 0" class="space-y-3.5 max-h-72 overflow-y-auto pr-1.5">
           <div v-for="(t, idx) in validTags" :key="t.tag_id" class="space-y-1.5">
             <div class="flex items-center justify-between text-xs">
               <span class="font-semibold text-morandi-text flex items-center gap-1.5">
@@ -664,7 +664,7 @@ const sourceTrendLines = computed(() => {
           </span>
         </div>
 
-        <div v-if="stats?.today.sources && stats.today.sources.length > 0" class="space-y-2.5">
+        <div v-if="stats?.today.sources && stats.today.sources.length > 0" class="space-y-2.5 max-h-72 overflow-y-auto pr-1.5">
           <div
             v-for="(s, idx) in stats.today.sources"
             :key="s.source_id"
@@ -691,6 +691,7 @@ const sourceTrendLines = computed(() => {
             </div>
           </div>
         </div>
+
 
         <div v-else class="text-center py-12 text-morandi-muted text-xs bg-morandi-bg/40 rounded-xl border border-dashed border-morandi-border">
           选定时间范围内尚无图源命中数据

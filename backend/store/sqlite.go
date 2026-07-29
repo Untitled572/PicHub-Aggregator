@@ -129,6 +129,7 @@ func (s *Store) seedDefaults() error {
 		"cache_max_mb":          "200",
 		"cache_max_images":      "60",
 		"cache_ttl":             "0",
+		"precache_count":        "5",
 		"min_resolution":        "1920x1080",
 		"rate_limit":            "60",
 		"timeout":               "3000",
@@ -137,6 +138,7 @@ func (s *Store) seedDefaults() error {
 		"saved_images_dir":      "./data/saved",
 		"seeded":                "true",
 	}
+
 
 	for k, v := range defaults {
 		if _, err := s.db.Exec("INSERT INTO settings (key, value) VALUES (?, ?)", k, v); err != nil {
@@ -287,7 +289,10 @@ func (s *Store) GetSettings() (*model.Settings, error) {
 			if n, err := fmt.Sscanf(v, "%d", &settings.CacheTTL); err != nil || n != 1 {
 				settings.CacheTTL = 0
 			}
-
+		case "precache_count":
+			if n, err := fmt.Sscanf(v, "%d", &settings.PrecacheCount); err != nil || n != 1 {
+				settings.PrecacheCount = 5
+			}
 		case "min_resolution":
 			settings.MinResolution = v
 		case "rate_limit":
@@ -326,6 +331,12 @@ func (s *Store) GetSettings() (*model.Settings, error) {
 	if settings.MaxHistoryRecords <= 0 {
 		settings.MaxHistoryRecords = 60
 	}
+	if settings.CacheMaxImages <= 0 {
+		settings.CacheMaxImages = 60
+	}
+	if settings.PrecacheCount < 0 {
+		settings.PrecacheCount = 5
+	}
 	return settings, nil
 }
 
@@ -335,6 +346,7 @@ func (s *Store) UpdateSettings(settings *model.Settings) error {
 		"cache_max_mb":          fmt.Sprintf("%d", settings.CacheMaxMB),
 		"cache_max_images":      fmt.Sprintf("%d", settings.CacheMaxImages),
 		"cache_ttl":             fmt.Sprintf("%d", settings.CacheTTL),
+		"precache_count":        fmt.Sprintf("%d", settings.PrecacheCount),
 		"min_resolution":        settings.MinResolution,
 		"rate_limit":            fmt.Sprintf("%d", settings.RateLimit),
 		"timeout":               fmt.Sprintf("%d", settings.Timeout),
@@ -345,6 +357,7 @@ func (s *Store) UpdateSettings(settings *model.Settings) error {
 		"admin_token":           settings.AdminToken,
 		"saved_images_dir":      settings.SavedImagesDir,
 	}
+
 
 	for k, v := range pairs {
 		_, err := s.db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", k, v)
@@ -491,6 +504,11 @@ func (s *Store) GetImageByID(id int64) (*model.CachedImage, error) {
 	img.CreatedAt = createdAt
 	_ = savedAt
 	return &img, nil
+}
+
+func (s *Store) DeleteImageByFileID(fileID string) error {
+	_, err := s.db.Exec("DELETE FROM images WHERE file_id=?", fileID)
+	return err
 }
 
 func (s *Store) UpdateImageSaved(id int64, saved bool) error {
@@ -646,5 +664,100 @@ func (s *Store) GetImageHistory(limit, offset int) ([]model.ImageHistoryRecord, 
 	}
 	return records, total, nil
 }
+
+func (s *Store) ExportStatsData() (*model.StatsExportData, error) {
+
+	data := &model.StatsExportData{}
+
+	reqRows, err := s.db.Query("SELECT date, count FROM stats_requests ORDER BY date ASC")
+	if err == nil && reqRows != nil {
+		defer reqRows.Close()
+		for reqRows.Next() {
+			var r model.StatsRequestRow
+			if reqRows.Scan(&r.Date, &r.Count) == nil {
+				data.StatsRequests = append(data.StatsRequests, r)
+			}
+		}
+	}
+
+	tagRows, err := s.db.Query("SELECT date, tag_id, count FROM stats_tag ORDER BY date ASC")
+	if err == nil && tagRows != nil {
+		defer tagRows.Close()
+		for tagRows.Next() {
+			var t model.StatsTagRow
+			if tagRows.Scan(&t.Date, &t.TagID, &t.Count) == nil {
+				data.StatsTag = append(data.StatsTag, t)
+			}
+		}
+	}
+
+	srcRows, err := s.db.Query("SELECT date, source_id, source_name, hit_count FROM stats_source ORDER BY date ASC")
+	if err == nil && srcRows != nil {
+		defer srcRows.Close()
+		for srcRows.Next() {
+			var sr model.StatsSourceRow
+			if srcRows.Scan(&sr.Date, &sr.SourceID, &sr.SourceName, &sr.HitCount) == nil {
+				data.StatsSource = append(data.StatsSource, sr)
+			}
+		}
+	}
+
+	history, _, _ := s.GetImageHistory(1000, 0)
+	data.ImageHistory = history
+
+	return data, nil
+}
+
+func (s *Store) ImportStatsData(data *model.StatsExportData) error {
+	if data == nil {
+		return nil
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	for _, r := range data.StatsRequests {
+		tx.Exec("INSERT INTO stats_requests (date, count) VALUES (?, ?) ON CONFLICT(date) DO UPDATE SET count = count + ?", r.Date, r.Count, r.Count)
+	}
+
+	for _, t := range data.StatsTag {
+		tx.Exec("INSERT INTO stats_tag (date, tag_id, count) VALUES (?, ?, ?) ON CONFLICT(date, tag_id) DO UPDATE SET count = count + ?", t.Date, t.TagID, t.Count, t.Count)
+	}
+
+	for _, sr := range data.StatsSource {
+		tx.Exec("INSERT INTO stats_source (date, source_id, source_name, hit_count) VALUES (?, ?, ?, ?) ON CONFLICT(date, source_id) DO UPDATE SET hit_count = hit_count + ?", sr.Date, sr.SourceID, sr.SourceName, sr.HitCount, sr.HitCount)
+	}
+
+	for _, h := range data.ImageHistory {
+		nowStr := h.CreatedAt.Format("2006-01-02 15:04:05")
+		tx.Exec("INSERT INTO image_history (image_url, source_id, source_name, categories, created_at, image_id, file_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+			h.ImageURL, h.SourceID, h.SourceName, h.Categories, nowStr, h.ImageID, h.FileID)
+	}
+
+	return tx.Commit()
+}
+
+func (s *Store) ExportSavedImages() ([]model.SavedImage, error) {
+	images, _, err := s.ListSavedImages(1000, 0)
+	return images, err
+}
+
+func (s *Store) ImportSavedImage(img *model.SavedImage) error {
+	var count int
+	s.db.QueryRow("SELECT COUNT(*) FROM images WHERE file_id=?", img.FileID).Scan(&count)
+	savedAtStr := img.SavedAt.Format("2006-01-02 15:04:05")
+	if count > 0 {
+		_, err := s.db.Exec("UPDATE images SET is_saved=1, saved_at=? WHERE file_id=?", savedAtStr, img.FileID)
+		return err
+	}
+	_, err := s.db.Exec(
+		"INSERT INTO images (file_id, original_url, source_id, source_name, width, height, format, file_size, categories, is_saved, created_at, saved_at) VALUES (?, ?, 0, ?, ?, ?, ?, ?, '[]', 1, ?, ?)",
+		img.FileID, img.OriginalURL, img.SourceName, img.Width, img.Height, img.Format, img.FileSize, savedAtStr, savedAtStr,
+	)
+	return err
+}
+
 
 

@@ -110,6 +110,7 @@ type Settings struct {
 	CacheMaxMB          int      `json:"cache_max_mb"`
 	CacheMaxImages      int      `json:"cache_max_images"`
 	CacheTTL            int      `json:"cache_ttl"`
+	PrecacheCount       int      `json:"precache_count"`
 	MinResolution       string   `json:"min_resolution"`
 	RateLimit           int      `json:"rate_limit"`
 	Timeout             int      `json:"timeout"`
@@ -119,6 +120,44 @@ type Settings struct {
 	AdminToken          string   `json:"admin_token,omitempty"`
 	SavedImagesDir      string   `json:"saved_images_dir,omitempty"`
 }
+
+
+type StatsRequestRow struct {
+	Date  string `json:"date"`
+	Count int    `json:"count"`
+}
+
+type StatsTagRow struct {
+	Date  string `json:"date"`
+	TagID string `json:"tag_id"`
+	Count int    `json:"count"`
+}
+
+type StatsSourceRow struct {
+	Date       string `json:"date"`
+	SourceID   int64  `json:"source_id"`
+	SourceName string `json:"source_name"`
+	HitCount   int    `json:"hit_count"`
+}
+
+type StatsExportData struct {
+	StatsRequests []StatsRequestRow    `json:"stats_requests,omitempty"`
+	StatsTag      []StatsTagRow        `json:"stats_tag,omitempty"`
+	StatsSource   []StatsSourceRow     `json:"stats_source,omitempty"`
+	ImageHistory  []ImageHistoryRecord `json:"image_history,omitempty"`
+}
+
+type ExportManifest struct {
+	Version     string           `json:"version"`
+	ExportedAt  string           `json:"exported_at"`
+	Scope       []string         `json:"scope"`
+	Settings    *Settings        `json:"settings,omitempty"`
+	Sources     []Source         `json:"sources,omitempty"`
+	Tags        []Tag            `json:"tags,omitempty"`
+	Stats       *StatsExportData `json:"stats,omitempty"`
+	SavedImages []SavedImage     `json:"saved_images,omitempty"`
+}
+
 
 
 

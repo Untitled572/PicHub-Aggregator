@@ -134,14 +134,32 @@ export function useApi() {
   }
 
 
+  function exportCustomData(scopes: string[]) {
+    const scopeParam = scopes.join(',')
+    return window.open(`/api/export?scope=${scopeParam}`, '_blank')
+  }
+
+  function importCustomData(payload: FormData | object) {
+    const isFormData = payload instanceof FormData
+    return request<{ message: string; imported_sources: number; imported_stats: number; imported_images: number }>(
+      '/api/import',
+      {
+        method: 'POST',
+        headers: isFormData ? {} : { 'Content-Type': 'application/json' },
+        body: isFormData ? payload : JSON.stringify(payload)
+      }
+    )
+  }
+
   return {
     loading, error,
     listSources, getSource, createSource, updateSource, deleteSource, toggleSource,
     getSettings, updateSettings, getTags, updateTags,
     detectURL, healthCheck,
-    exportRules, importRules,
+    exportRules, importRules, exportCustomData, importCustomData,
     getStats, getImageHistory,
     saveImage, unsaveImage, listSavedImages,
   }
 }
+
 

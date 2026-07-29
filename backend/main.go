@@ -124,8 +124,11 @@ func main() {
 		api.GET("/images/saved", h.ListSavedImages)
 		api.POST("/images/:id/save", middleware.AdminAuth(st), h.SaveImage)
 		api.DELETE("/images/:id/save", middleware.AdminAuth(st), h.UnsaveImage)
+		api.GET("/export", h.ExportData)
 		api.POST("/export", middleware.AdminAuth(st), h.ExportRules)
-		api.POST("/import", middleware.AdminAuth(st), h.ImportRules)
+		api.POST("/import", middleware.AdminAuth(st), h.ImportData)
+
+
 	}
 
 	distFS := embed.GetDistFS()

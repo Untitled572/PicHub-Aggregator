@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -87,7 +89,7 @@ func (is *ImageStore) DownloadAndStore(imageURL string, sourceID int64, sourceNa
 		}
 	}
 
-	cfg, format, err := image.DecodeConfig(strings.NewReader(string(data)))
+	cfg, format, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil {
 		cfg = image.Config{}
 		format = "unknown"
@@ -105,7 +107,13 @@ func (is *ImageStore) DownloadAndStore(imageURL string, sourceID int64, sourceNa
 	}
 	totalSize := getDirSize(is.cacheDir)
 	if settings != nil && totalSize > int64(settings.CacheMaxMB)*1024*1024 {
-		evictLRU(is.cacheDir)
+		maxIter := 100
+		for i := 0; i < maxIter; i++ {
+			if getDirSize(is.cacheDir) <= int64(settings.CacheMaxMB)*1024*1024 {
+				break
+			}
+			evictLRU(is.cacheDir, is.store)
+		}
 	}
 	is.mu.Unlock()
 
@@ -221,7 +229,7 @@ func getExtension(format, contentType string) string {
 	if strings.Contains(contentType, "gif") {
 		return ".gif"
 	}
-	return ".bin"
+	return ".jpg"
 }
 
 func detectContentType(format, path string) string {
@@ -246,7 +254,7 @@ func detectContentType(format, path string) string {
 	case ".webp":
 		return "image/webp"
 	}
-	return "application/octet-stream"
+	return "image/jpeg"
 }
 
 func copyFile(src, dst string) error {
@@ -277,22 +285,39 @@ func getDirSize(dir string) int64 {
 	return total
 }
 
-func evictLRU(dir string) {
+func fileIDFromPath(path string) string {
+	return strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+}
+
+func evictLRU(dir string, st *store.Store) {
 	entries, _ := filepath.Glob(filepath.Join(dir, "*"))
 	if len(entries) == 0 {
 		return
 	}
-	oldest := entries[0]
-	oldestTime := time.Now()
+
+	type entryInfo struct {
+		path string
+		mod  time.Time
+	}
+	var infos []entryInfo
 	for _, e := range entries {
 		info, err := os.Stat(e)
 		if err != nil {
 			continue
 		}
-		if info.ModTime().Before(oldestTime) {
-			oldest = e
-			oldestTime = info.ModTime()
-		}
+		infos = append(infos, entryInfo{e, info.ModTime()})
+	}
+	if len(infos) == 0 {
+		return
+	}
+
+	sort.Slice(infos, func(i, j int) bool {
+		return infos[i].mod.Before(infos[j].mod)
+	})
+
+	oldest := infos[0].path
+	if st != nil {
+		st.DeleteImageByFileID(fileIDFromPath(oldest))
 	}
 	os.Remove(oldest)
 }
@@ -303,21 +328,28 @@ func (is *ImageStore) evictByCount(maxImages int) {
 		return
 	}
 	over := len(entries) - maxImages
-	for i := 0; i < over; i++ {
-		oldest := entries[0]
-		oldestTime := time.Now()
-		for _, e := range entries {
-			info, err := os.Stat(e)
-			if err != nil {
-				continue
-			}
-			if info.ModTime().Before(oldestTime) {
-				oldest = e
-				oldestTime = info.ModTime()
-			}
+
+	type entryInfo struct {
+		path string
+		mod  time.Time
+	}
+	var infos []entryInfo
+	for _, e := range entries {
+		info, err := os.Stat(e)
+		if err != nil {
+			continue
 		}
-		os.Remove(oldest)
-		entries, _ = filepath.Glob(filepath.Join(is.cacheDir, "*"))
+		infos = append(infos, entryInfo{e, info.ModTime()})
+	}
+
+	sort.Slice(infos, func(i, j int) bool {
+		return infos[i].mod.Before(infos[j].mod)
+	})
+
+	for i := 0; i < over && i < len(infos); i++ {
+		fileID := fileIDFromPath(infos[i].path)
+		is.store.DeleteImageByFileID(fileID)
+		os.Remove(infos[i].path)
 	}
 }
 

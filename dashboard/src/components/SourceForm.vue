@@ -274,6 +274,23 @@ async function handleSave() {
   if (!form.value.url.trim()) return
   saving.value = true
   try {
+    // Automatically detect response type once on save if user has not manually toggled type
+    if (!userManuallySetType.value) {
+      try {
+        const res = await detectURL(form.value.url.trim())
+        if (res && res.resp_type && res.resp_type !== 'unknown') {
+          form.value.resp_type = res.resp_type as any
+          if (res.resp_type === 'json' && res.url_hints && res.url_hints.length > 0 && !form.value.json_path) {
+            form.value.json_path = res.url_hints[0]
+          }
+        } else {
+          handleUrlInput()
+        }
+      } catch {
+        handleUrlInput()
+      }
+    }
+
     syncHeaderRowsToForm()
     syncParamRowsToForm()
     const finalForm = { ...form.value }
@@ -288,9 +305,13 @@ async function handleSave() {
       await createSource(finalForm)
     }
     emit('saved')
-  } catch {}
-  saving.value = false
+  } catch (e) {
+    console.error(e)
+  } finally {
+    saving.value = false
+  }
 }
+
 </script>
 
 <template>

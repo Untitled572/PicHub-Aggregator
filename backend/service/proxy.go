@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"fmt"
 	"image"
 	_ "image/gif"
@@ -19,17 +20,28 @@ import (
 )
 
 type ProxyCache struct {
-	store    *store.Store
-	cacheDir string
-	mu       sync.Mutex
+	store      *store.Store
+	cacheDir   string
+	mu         sync.Mutex
+	httpClient *http.Client
 }
 
 func NewProxyCache(st *store.Store, cacheDir string) *ProxyCache {
 	os.MkdirAll(cacheDir, 0755)
-	return &ProxyCache{
+	pc := &ProxyCache{
 		store:    st,
 		cacheDir: cacheDir,
+		httpClient: &http.Client{
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) >= 5 {
+					return fmt.Errorf("too many redirects")
+				}
+				return nil
+			},
+		},
 	}
+	go pc.startCleanupWorker()
+	return pc
 }
 
 type CacheEntry struct {
@@ -52,12 +64,11 @@ func (pc *ProxyCache) GetOrFetch(imageURL string) ([]byte, string, error) {
 	cachePath := filepath.Join(pc.cacheDir, cacheKey)
 
 	if data, err := os.ReadFile(cachePath); err == nil {
-		pc.cleanupExpired(settings.CacheTTL)
 		return data, http.DetectContentType(data), nil
 	}
 
-	client := &http.Client{Timeout: time.Duration(settings.Timeout) * time.Millisecond}
-	resp, err := client.Get(imageURL)
+	pc.httpClient.Timeout = time.Duration(settings.Timeout) * time.Millisecond
+	resp, err := pc.httpClient.Get(imageURL)
 	if err != nil {
 		return nil, "", fmt.Errorf("fetch image: %w", err)
 	}
@@ -91,8 +102,20 @@ func (pc *ProxyCache) GetOrFetch(imageURL string) ([]byte, string, error) {
 	return data, ct, nil
 }
 
+func (pc *ProxyCache) startCleanupWorker() {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		settings, err := pc.store.GetSettings()
+		if err != nil {
+			continue
+		}
+		pc.cleanupExpired(settings.CacheTTL)
+	}
+}
+
 func checkResolution(data []byte, minRes string) (bool, error) {
-	cfg, _, err := image.DecodeConfig(strings.NewReader(string(data)))
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil {
 		return true, nil
 	}
@@ -146,6 +169,9 @@ func (pc *ProxyCache) evictLRU() {
 }
 
 func (pc *ProxyCache) cleanupExpired(ttlMinutes int) {
+	if ttlMinutes <= 0 {
+		return
+	}
 	entries, _ := filepath.Glob(filepath.Join(pc.cacheDir, "*"))
 	now := time.Now()
 	for _, e := range entries {
