@@ -7,6 +7,7 @@
 [![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat-square&logo=go)](https://golang.org)
 [![Vue3](https://img.shields.io/badge/Vue.js-v3.4-4FC08D?style=flat-square&logo=vue.js)](https://vuejs.org)
 [![Tailwind CSS](https://img.shields.io/badge/TailwindCSS-v3.4-38BDF8?style=flat-square&logo=tailwindcss)](https://tailwindcss.com)
+[![Release](https://img.shields.io/badge/Release-v0.4.0-emerald?style=flat-square)](https://github.com/untitled572/PicHub-Aggregator/releases)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=flat-square&logo=docker)](https://www.docker.com)
 [![License](https://img.shields.io/badge/License-GPL--3.0-blue.svg?style=flat-square)](LICENSE)
 
@@ -25,7 +26,7 @@
 
 **PicHub** 是一个专为开发者、博客作者与前端应用打造的图片 API 聚合与分发引擎。
 
-它可以将全网散落的各种第三方随机图片 API（包括图片直链、302 重定向、JSON 响应提取等）统一收归管理，对外提供极速、稳定且支持多维度过滤的单分发入口 `/random`。内置控制台，无需额外部署 Web 服务。
+它可以将全网散落的各种第三方随机图片 API（包括图片直链、302 重定向、JSON 响应提取等）统一收归管理，对外提供极速、稳定且支持多维度过滤的单分发入口 `/random`。内置莫兰迪色系 Dashboard 控制台，无需额外部署 Web 服务。
 
 ```
 		[前端 / Markdown / 博客 / APP]
@@ -48,7 +49,11 @@
 ## ✨ 核心特性
 
 - ⚡ **单文件极简部署**
-  Go + Gin 驱动，配合 `go:embed` 技术将Vue 3 Dashboard 嵌入至单个可执行二进制文件，无需 Node.js 运行时即可轻量运行。
+  Go + Gin 驱动，配合 `go:embed` 技术将 Vue 3 Dashboard 嵌入至单个可执行二进制文件，无需 Node.js 运行时即可轻量运行。
+- 📊 **流量统计与全屏原图灯箱流水 (v0.4.0)**
+  内置高颜值的调取历史与使用统计大盘！支持实时 Hits 统计、单 Tag 命中比例、图源排行榜，以及支持多规格分页（10/20/50/100条/页）、关键词搜索与**全屏原图灯箱 Preview 预览**。
+- 📅 **多维时间切片分析**
+  提供【今日】、【近 7 天】、【近 30 天】、【全部历史】及【自定义日期 📅】等时间段精准切片统计。
 - 🎯 **多 Tag 标签与独立分发**
   支持自定义分类 Tag（如默认 `#横屏`, `#竖屏`, `#自适应`）管理。每个 Tag 拥有独立的专属分发链接，同时支持总分发接口动态绑定 Tags 范围。
 - 🧩 **多参数与路径衍生分支 (Query Params & Path Variants)**
@@ -66,7 +71,9 @@
 * **图源管理**：一键切换简易 / 高级模式，动态设置 1 ~ 5 级抽选权重与分类标签。
 * **接口管理**：Tag 标签库与总聚合接口绑定中心，直观预览并复制独立分发 URL。
 * **健康检测**：实时连通性、HTTP 响应码及网络延迟统计看板。
-* **系统设置**：代理中转、磁盘缓存模式（研发中）、自定义域名绑定与 Rate Limit 防刷保护。
+* **使用统计**：请求分发 Hits 统计、Tag 命中占比、图源排行榜及带灯箱预览的分页流水线。
+* **系统设置**：分发历史保存上限、代理中转、磁盘缓存模式（研发中）、自定义域名绑定与 Rate Limit 防刷保护。
+
 
 ---
 

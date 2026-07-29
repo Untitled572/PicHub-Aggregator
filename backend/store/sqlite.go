@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -56,6 +57,31 @@ func (s *Store) migrate() error {
 		`CREATE TABLE IF NOT EXISTS settings (
 			key TEXT PRIMARY KEY,
 			value TEXT NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS stats_requests (
+			date TEXT PRIMARY KEY,
+			count INTEGER DEFAULT 0
+		)`,
+		`CREATE TABLE IF NOT EXISTS stats_tag (
+			date TEXT NOT NULL,
+			tag_id TEXT NOT NULL,
+			count INTEGER DEFAULT 0,
+			PRIMARY KEY (date, tag_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS stats_source (
+			date TEXT NOT NULL,
+			source_id INTEGER NOT NULL,
+			source_name TEXT NOT NULL,
+			hit_count INTEGER DEFAULT 0,
+			PRIMARY KEY (date, source_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS image_history (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			image_url TEXT NOT NULL,
+			source_id INTEGER,
+			source_name TEXT,
+			categories TEXT,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
 	}
 	for _, q := range queries {
@@ -253,6 +279,10 @@ func (s *Store) GetSettings() (*model.Settings, error) {
 			if n, err := fmt.Sscanf(v, "%d", &settings.HealthCheckInterval); err != nil || n != 1 {
 				settings.HealthCheckInterval = 360
 			}
+		case "max_history_records":
+			if n, err := fmt.Sscanf(v, "%d", &settings.MaxHistoryRecords); err != nil || n != 1 {
+				settings.MaxHistoryRecords = 60
+			}
 		case "bound_tags":
 			if v != "" {
 				json.Unmarshal([]byte(v), &settings.BoundTags)
@@ -265,6 +295,9 @@ func (s *Store) GetSettings() (*model.Settings, error) {
 	}
 	if settings.HealthCheckInterval <= 0 {
 		settings.HealthCheckInterval = 360
+	}
+	if settings.MaxHistoryRecords <= 0 {
+		settings.MaxHistoryRecords = 60
 	}
 	return settings, nil
 }
@@ -279,10 +312,10 @@ func (s *Store) UpdateSettings(settings *model.Settings) error {
 		"timeout":               fmt.Sprintf("%d", settings.Timeout),
 		"custom_domain":         "",
 		"health_check_interval": fmt.Sprintf("%d", settings.HealthCheckInterval),
+		"max_history_records":   fmt.Sprintf("%d", settings.MaxHistoryRecords),
 		"bound_tags":            encodeBoundTags(settings.BoundTags),
 		"admin_token":           settings.AdminToken,
 	}
-
 
 	for k, v := range pairs {
 		_, err := s.db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", k, v)
@@ -344,3 +377,150 @@ func (s *Store) GetEnabledSources() ([]model.Source, error) {
 	}
 	return enabled, nil
 }
+
+func (s *Store) RecordStats(queryCats []string, src model.Source, imageURL string) error {
+	today := time.Now().Format("2006-01-02")
+	nowStr := time.Now().Format("2006-01-02 15:04:05")
+
+	s.db.Exec("INSERT INTO stats_requests (date, count) VALUES (?, 1) ON CONFLICT(date) DO UPDATE SET count = count + 1", today)
+
+	if len(queryCats) == 1 {
+		cat := strings.TrimSpace(queryCats[0])
+		if cat != "" && cat != "__uncategorized__" {
+			s.db.Exec("INSERT INTO stats_tag (date, tag_id, count) VALUES (?, ?, 1) ON CONFLICT(date, tag_id) DO UPDATE SET count = count + 1", today, cat)
+		}
+	}
+
+	s.db.Exec("INSERT INTO stats_source (date, source_id, source_name, hit_count) VALUES (?, ?, ?, 1) ON CONFLICT(date, source_id) DO UPDATE SET hit_count = hit_count + 1, source_name = ?",
+		today, src.ID, src.Name, src.Name)
+
+	s.db.Exec("INSERT INTO image_history (image_url, source_id, source_name, categories, created_at) VALUES (?, ?, ?, ?, ?)",
+		imageURL, src.ID, src.Name, encodeStringSlice(queryCats), nowStr)
+
+	maxRecords := 60
+	if settings, err := s.GetSettings(); err == nil && settings.MaxHistoryRecords > 0 {
+		maxRecords = settings.MaxHistoryRecords
+	}
+
+	s.db.Exec("DELETE FROM image_history WHERE id NOT IN (SELECT id FROM image_history ORDER BY id DESC LIMIT ?)", maxRecords)
+
+	return nil
+}
+
+func encodeStringSlice(s []string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
+}
+
+func (s *Store) GetTodayStats() (*model.StatsOverview, error) {
+	today := time.Now().Format("2006-01-02")
+	return s.GetStatsRange(today, today)
+}
+
+func (s *Store) GetStatsRange(startDate, endDate string) (*model.StatsOverview, error) {
+	overview := &model.StatsOverview{}
+
+	s.db.QueryRow("SELECT COALESCE(SUM(count), 0) FROM stats_requests WHERE date BETWEEN ? AND ?", startDate, endDate).Scan(&overview.Total)
+
+	tagRows, err := s.db.Query("SELECT tag_id, SUM(count) AS total_count FROM stats_tag WHERE date BETWEEN ? AND ? AND tag_id != '__uncategorized__' GROUP BY tag_id ORDER BY total_count DESC", startDate, endDate)
+	if err == nil && tagRows != nil {
+		defer tagRows.Close()
+		for tagRows.Next() {
+			var ts model.TagStat
+			if tagRows.Scan(&ts.TagID, &ts.Count) == nil {
+				overview.Tags = append(overview.Tags, ts)
+			}
+		}
+	}
+
+	srcRows, err := s.db.Query("SELECT source_id, source_name, SUM(hit_count) AS total_hits FROM stats_source WHERE date BETWEEN ? AND ? GROUP BY source_id, source_name ORDER BY total_hits DESC", startDate, endDate)
+	if err == nil && srcRows != nil {
+		defer srcRows.Close()
+		for srcRows.Next() {
+			var ss model.SourceStat
+			if srcRows.Scan(&ss.SourceID, &ss.SourceName, &ss.HitCount) == nil {
+				overview.Sources = append(overview.Sources, ss)
+			}
+		}
+	}
+
+	if overview.Tags == nil {
+		overview.Tags = []model.TagStat{}
+	}
+	if overview.Sources == nil {
+		overview.Sources = []model.SourceStat{}
+	}
+
+	dailyRows, err := s.db.Query("SELECT date, count FROM stats_requests WHERE date BETWEEN ? AND ? ORDER BY date ASC", startDate, endDate)
+	if err == nil && dailyRows != nil {
+		defer dailyRows.Close()
+		for dailyRows.Next() {
+			var dt model.DailyTrend
+			if dailyRows.Scan(&dt.Date, &dt.Total) == nil {
+				overview.DailyTrends = append(overview.DailyTrends, dt)
+			}
+		}
+	}
+
+	srcTrendRows, err := s.db.Query("SELECT date, source_id, source_name, hit_count FROM stats_source WHERE date BETWEEN ? AND ? ORDER BY date ASC, hit_count DESC", startDate, endDate)
+	if err == nil && srcTrendRows != nil {
+		defer srcTrendRows.Close()
+		for srcTrendRows.Next() {
+			var sdt model.SourceDailyTrend
+			if srcTrendRows.Scan(&sdt.Date, &sdt.SourceID, &sdt.SourceName, &sdt.HitCount) == nil {
+				overview.SourceTrends = append(overview.SourceTrends, sdt)
+			}
+		}
+	}
+
+	if overview.DailyTrends == nil {
+		overview.DailyTrends = []model.DailyTrend{}
+	}
+	if overview.SourceTrends == nil {
+		overview.SourceTrends = []model.SourceDailyTrend{}
+	}
+
+	return overview, nil
+}
+
+
+func (s *Store) GetTotalRequests() (int, error) {
+	var total int
+	err := s.db.QueryRow("SELECT COALESCE(SUM(count), 0) FROM stats_requests").Scan(&total)
+	return total, err
+}
+
+func (s *Store) GetImageHistory(limit, offset int) ([]model.ImageHistoryRecord, int, error) {
+	var total int
+	s.db.QueryRow("SELECT COUNT(*) FROM image_history").Scan(&total)
+
+	rows, err := s.db.Query("SELECT id, image_url, source_id, source_name, categories, created_at FROM image_history ORDER BY id DESC LIMIT ? OFFSET ?", limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var records []model.ImageHistoryRecord
+	for rows.Next() {
+		var r model.ImageHistoryRecord
+		var createdAt string
+		if err := rows.Scan(&r.ID, &r.ImageURL, &r.SourceID, &r.SourceName, &r.Categories, &createdAt); err != nil {
+			return nil, 0, err
+		}
+		parsedTime, err := time.Parse("2006-01-02 15:04:05", createdAt)
+		if err != nil {
+			parsedTime, err = time.Parse(time.RFC3339, createdAt)
+		}
+		if err != nil {
+			parsedTime, _ = time.Parse("2006-01-02T15:04:05Z", createdAt)
+		}
+		r.CreatedAt = parsedTime
+		records = append(records, r)
+	}
+	if records == nil {
+		records = []model.ImageHistoryRecord{}
+	}
+	return records, total, nil
+}
+
+

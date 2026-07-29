@@ -1,5 +1,6 @@
 import { ref } from 'vue'
-import type { Source, Settings, DetectResult, ExportData, ImportResult, HealthResult, Tag } from '../types'
+import type { Source, Settings, DetectResult, ExportData, ImportResult, HealthResult, Tag, StatsResponse, ImageHistoryRecord } from '../types'
+
 
 const API_BASE = ''
 
@@ -106,11 +107,28 @@ export function useApi() {
     return request<ImportResult>('/api/import', { method: 'POST', body: JSON.stringify(data) })
   }
 
+  function getStats(range = 'today', startDate = '', endDate = '') {
+    const params = new URLSearchParams()
+    if (range) params.append('range', range)
+    if (startDate) params.append('start_date', startDate)
+    if (endDate) params.append('end_date', endDate)
+    const query = params.toString() ? `?${params.toString()}` : ''
+    return request<StatsResponse>(`/api/stats${query}`)
+  }
+
+
+  function getImageHistory(limit = 20, offset = 0) {
+    return request<{ history: ImageHistoryRecord[]; total: number; limit: number; offset: number }>(`/api/stats/history?limit=${limit}&offset=${offset}`)
+  }
+
+
   return {
     loading, error,
     listSources, getSource, createSource, updateSource, deleteSource, toggleSource,
     getSettings, updateSettings, getTags, updateTags,
     detectURL, healthCheck,
     exportRules, importRules,
+    getStats, getImageHistory,
   }
 }
+

@@ -131,6 +131,8 @@ func (e *Engine) RandomImage(category string, format string, clientUA string) (*
 			continue
 		}
 
+		go e.store.RecordStats(queryCats, selected, imageURL)
+
 		if format == "json" {
 			return &Result{
 				URL:        imageURL,

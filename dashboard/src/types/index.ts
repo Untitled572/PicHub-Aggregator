@@ -39,9 +39,11 @@ export interface Settings {
   rate_limit: number
   timeout: number
   health_check_interval?: number
+  max_history_records?: number
   bound_tags?: string[]
   admin_token?: string
 }
+
 
 
 
@@ -61,6 +63,59 @@ export interface HealthResult {
   latency_ms: number
   available: boolean
   error?: string
+}
+
+export interface TagStat {
+  tag_id: string
+  count: number
+}
+
+export interface SourceStat {
+  source_id: number
+  source_name: string
+  hit_count: number
+}
+
+export interface DailyTrend {
+  date: string
+  total: number
+}
+
+export interface SourceDailyTrend {
+  date: string
+  source_id: number
+  source_name: string
+  hit_count: number
+}
+
+export interface StatsOverview {
+  total: number
+  tags: TagStat[]
+  sources: SourceStat[]
+  daily_trends?: DailyTrend[]
+  source_trends?: SourceDailyTrend[]
+}
+
+
+export interface StatsResponse {
+  today: StatsOverview
+  stats: StatsOverview
+  start_date: string
+  end_date: string
+  range?: string
+  total: {
+    total_requests: number
+  }
+}
+
+
+export interface ImageHistoryRecord {
+  id: number
+  image_url: string
+  source_id: number
+  source_name: string
+  categories: string
+  created_at: string
 }
 
 export interface ExportData {

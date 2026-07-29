@@ -12,7 +12,8 @@ import {
   Server,
   Copy,
   Check,
-  Link2
+  Link2,
+  BarChart3
 } from 'lucide-vue-next'
 
 const route = useRoute()
@@ -24,8 +25,10 @@ const navItems = [
   { path: '/', label: '图源管理', subtitle: 'API 源配置与监听', icon: Layers },
   { path: '/endpoints', label: '接口管理', subtitle: '分类分发与总接口配置', icon: Link2 },
   { path: '/health', label: '健康检测', subtitle: '可用性与延迟评估', icon: Activity },
+  { path: '/stats', label: '使用统计', subtitle: '请求数、Tag/图源命中与记录', icon: BarChart3 },
   { path: '/settings', label: '系统设置', subtitle: '中转模式与缓存策略', icon: Sliders },
 ]
+
 
 function isActive(path: string) {
   if (path === '/') return route.path === '/'
@@ -79,8 +82,8 @@ function copyUserApiUrl() {
           <div>
             <div class="flex items-center gap-1.5">
               <span class="font-bold text-base tracking-tight text-morandi-text">PicHub</span>
-              <span class="text-[10px] px-1.5 py-0.2 bg-morandi-sage/15 text-morandi-sage-dark font-medium rounded-md">v0.3</span>
             </div>
+
             <p class="text-xs text-morandi-muted">图源聚合中转引擎</p>
           </div>
         </div>

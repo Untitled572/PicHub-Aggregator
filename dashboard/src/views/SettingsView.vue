@@ -7,14 +7,17 @@ import {
   Save,
   CheckCircle2,
   Shield,
+  ShieldCheck,
   HardDrive,
   Clock,
   Gauge,
   Image,
   Wrench,
   AlertCircle,
-  Key
+  Key,
+  History
 } from 'lucide-vue-next'
+
 
 const { getSettings, updateSettings } = useApi()
 
@@ -28,7 +31,9 @@ const settings = ref<Settings>({
   rate_limit: 60,
   timeout: 3000,
   health_check_interval: 360,
+  max_history_records: 60,
 })
+
 
 const saving = ref(false)
 const saved = ref(false)
@@ -65,7 +70,7 @@ const tabs = [
   <div class="space-y-6">
     <!-- Header -->
 
-    <div class="morandi-card p-5">
+    <div class="morandi-card p-5 flex flex-col sm:flex-row items-center justify-between gap-4">
       <div class="flex items-center gap-3">
         <div class="w-10 h-10 rounded-xl bg-morandi-ocean/15 text-morandi-ocean-dark flex items-center justify-center shrink-0">
           <Sliders class="w-5 h-5" />
@@ -75,7 +80,15 @@ const tabs = [
           <p class="text-xs text-morandi-muted mt-0.5">配置代理缓存中转模式以及 Rate Limit 防刷保护</p>
         </div>
       </div>
+
+      <!-- Version Badge (Vertically Centered) -->
+      <div class="flex items-center justify-center shrink-0 my-auto">
+        <span class="px-3 py-1 bg-morandi-sage text-white text-xs font-bold rounded-xl shadow-xs font-mono leading-none flex items-center justify-center">
+          v0.4.0
+        </span>
+      </div>
     </div>
+
 
     <!-- Tabbed Settings Form Container -->
     <div class="morandi-card p-6 space-y-6">
@@ -160,6 +173,20 @@ const tabs = [
           <input v-model="settings.min_resolution" placeholder="例如: 1920x1080 或 800x600" class="morandi-input w-full px-3 py-2 font-mono text-xs" />
           <p class="text-[10px] text-morandi-muted mt-1">代理模式下自动丢弃低于该分辨率的低清图片源。仅在代理模式开启时生效。</p>
         </div>
+
+        <!-- History Log Storage Limit Section -->
+        <div class="pt-4 border-t border-morandi-border/40 space-y-3">
+          <div class="text-xs font-bold text-morandi-text flex items-center gap-1.5">
+            <History class="w-4 h-4 text-morandi-sage" /> 分发历史流水日志保留策略
+          </div>
+          <div>
+            <label class="font-medium text-morandi-text block mb-1.5 flex items-center gap-1 text-xs">
+              <History class="w-3.5 h-3.5 text-morandi-light" /> 分发历史记录保存上限 (条)
+            </label>
+            <input v-model.number="settings.max_history_records" type="number" min="10" max="1000" class="morandi-input w-full px-3 py-2 font-mono text-xs font-bold text-morandi-text" />
+            <p class="text-[10px] text-morandi-muted mt-1">控制台调取历史流水保存的最大条数（默认 60 条，超出部分将自动滚动删除清理）。</p>
+          </div>
+        </div>
       </div>
 
       <!-- Tab Page 2: Security & Rate Limit Settings -->
@@ -195,10 +222,10 @@ const tabs = [
             <p class="text-[10px] text-morandi-muted mt-1">后台巡检所有图源连通性的时间间隔 (默认 360 分钟 / 6 小时)</p>
           </div>
         </div>
-
       </div>
 
       <!-- Tab Page 3: Admin Authentication -->
+
       <div v-if="activeTab === 'admin'" class="space-y-4 animate-in fade-in duration-200">
         <div class="flex items-center justify-between pb-2 border-b border-morandi-border/40">
           <h3 class="text-xs font-bold text-morandi-sage-dark uppercase tracking-wider flex items-center gap-1.5">
@@ -206,16 +233,21 @@ const tabs = [
           </h3>
         </div>
 
-        <div class="p-3.5 bg-blue-50/90 border border-blue-200 rounded-xl text-xs text-blue-900 flex items-start gap-2.5">
-          <Key class="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
-          <div class="space-y-0.5">
-            <p class="font-bold">🔑 可选的 Admin Token 安全认证</p>
-            <p class="text-[11px] text-blue-800 leading-relaxed">
-              设置 token 后，Dashboard 的所有 POST/PUT/DELETE 写操作都需要在请求头携带 <code class="font-mono bg-blue-100 px-1 rounded">Authorization: Bearer &lt;token&gt;</code>。
-              GET 读操作不受影响。留空表示不启用认证。
+        <div class="p-4 bg-morandi-sage-light/60 border border-morandi-sage/20 rounded-xl text-xs text-morandi-text flex items-start gap-3 shadow-xs">
+          <div class="w-8 h-8 rounded-lg bg-morandi-sage/15 text-morandi-sage-dark flex items-center justify-center shrink-0">
+            <ShieldCheck class="w-4 h-4 text-morandi-sage-dark" />
+          </div>
+          <div class="space-y-1">
+            <div class="font-bold text-morandi-sage-dark flex items-center gap-2">
+              <span>控制台接口安全鉴权 (Admin Token)</span>
+              <span class="text-[10px] px-2 py-0.2 bg-white text-morandi-sage-dark font-medium rounded-md border border-morandi-borderSoft">可选防护</span>
+            </div>
+            <p class="text-[11px] text-morandi-muted leading-relaxed">
+              配置密钥后，聚合控制台的所有修改、添加与删除操作（POST / PUT / DELETE）均需校验请求头 <code class="font-mono bg-white px-1.5 py-0.5 rounded text-morandi-sage-dark border border-morandi-borderSoft font-semibold">Authorization: Bearer &lt;Token&gt;</code>。对外分发接口（/random）不受影响，留空表示开放匿名配置。
             </p>
           </div>
         </div>
+
 
         <div>
           <label class="font-medium text-morandi-text block mb-1.5 flex items-center gap-1">

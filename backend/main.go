@@ -114,6 +114,8 @@ func main() {
 		api.GET("/tags", h.GetTags)
 		api.PUT("/tags", middleware.AdminAuth(st), h.UpdateTags)
 		api.GET("/health", h.GetHealthStatus)
+		api.GET("/stats", h.GetStats)
+		api.GET("/stats/history", h.GetImageHistory)
 		api.POST("/export", middleware.AdminAuth(st), h.ExportRules)
 		api.POST("/import", middleware.AdminAuth(st), h.ImportRules)
 	}

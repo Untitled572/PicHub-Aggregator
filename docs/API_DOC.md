@@ -114,6 +114,54 @@ GET /api/health
 
 Returns cached health check results with last run timestamp.
 
+## Statistics
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/stats` | Get today's statistics and total |
+| GET | `/api/stats/history` | Get recent image history |
+
+**GET /api/stats Response:**
+```json
+{
+  "today": {
+    "total": 428,
+    "tags": [
+      {"tag_id": "horizontal", "count": 215},
+      {"tag_id": "vertical", "count": 150}
+    ],
+    "sources": [
+      {"source_id": 1, "source_name": "Picsum", "hit_count": 150}
+    ]
+  },
+  "total": {
+    "total_requests": 28471
+  }
+}
+```
+
+**GET /api/stats/history?limit=20&offset=0**
+- `limit`: Number of records (max 200, default 20)
+- `offset`: Pagination offset (default 0)
+
+Response:
+```json
+{
+  "history": [
+    {
+      "id": 1,
+      "image_url": "https://example.com/image.jpg",
+      "source_id": 1,
+      "source_name": "Picsum",
+      "categories": "[\"horizontal\"]",
+      "created_at": "2026-07-29 14:30:22"
+    }
+  ]
+}
+```
+
+All successful `/random` requests are automatically recorded in the statistics.
+
 ## Export / Import
 
 | Method | Path | Description |
