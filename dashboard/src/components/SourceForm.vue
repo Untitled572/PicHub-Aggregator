@@ -257,10 +257,11 @@ async function handleSave() {
 </script>
 
 <template>
-  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-md transition-all" @mousedown.self="startedOnCard = false" @click="onBackdropClick">
-    <div class="bg-white rounded-2xl shadow-morandi-lg w-full max-w-lg border border-morandi-borderSoft max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200" @mousedown="startedOnCard = true" @click.stop>
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-stone-900/40 backdrop-blur-md transition-all" @mousedown.self="startedOnCard = false" @click="onBackdropClick">
+    <div class="bg-white rounded-2xl shadow-morandi-lg w-full max-w-lg sm:mx-auto border border-morandi-borderSoft max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200" @mousedown="startedOnCard = true" @click.stop>
       <!-- Modal Header -->
-      <div class="p-5 border-b border-morandi-border/60 flex justify-between items-center bg-morandi-bg/50">
+      <div class="p-4 sm:p-5 border-b border-morandi-border/60 flex justify-between items-center bg-morandi-bg/50">
+
         <div>
           <h2 class="font-bold text-base text-morandi-text">{{ source ? '编辑 API 图源' : '添加 API 图源' }}</h2>
           <p class="text-xs text-morandi-muted mt-0.5">支持简易一键添加，自动检测响应格式</p>
@@ -485,11 +486,11 @@ async function handleSave() {
       </div>
 
       <!-- Modal Footer -->
-      <div class="p-4 border-t border-morandi-border/60 bg-morandi-bg/30 flex justify-end gap-2">
+      <div class="p-3 sm:p-4 border-t border-morandi-border/60 bg-morandi-bg/30 flex flex-col-reverse sm:flex-row justify-end gap-2">
         <button
           type="button"
           @click="emit('close')"
-          class="px-4 py-2 text-xs font-medium text-morandi-muted hover:text-morandi-text hover:bg-morandi-hover rounded-xl transition-colors"
+          class="w-full sm:w-auto px-4 py-2 text-xs font-medium text-morandi-muted hover:text-morandi-text hover:bg-morandi-hover rounded-xl transition-colors cursor-pointer"
         >
           取消
         </button>
@@ -497,11 +498,12 @@ async function handleSave() {
           type="button"
           @click="handleSave"
           :disabled="saving || !form.url.trim()"
-          class="px-5 py-2 text-xs font-semibold bg-morandi-sage hover:bg-morandi-sage-dark text-white rounded-xl shadow-sm transition-all disabled:opacity-50"
+          class="w-full sm:w-auto px-5 py-2 text-xs font-semibold bg-morandi-sage hover:bg-morandi-sage-dark text-white rounded-xl shadow-sm transition-all disabled:opacity-50 cursor-pointer"
         >
           {{ saving ? '保存中...' : '确认保存图源' }}
         </button>
       </div>
+
     </div>
   </div>
 </template>

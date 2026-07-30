@@ -414,7 +414,7 @@ const sourceTrendLines = computed(() => {
           使用统计与调取历史
         </h2>
         <p class="text-xs text-morandi-muted mt-1">
-          实时监控图片分发热度、分类 Tag 命中占比、图源排行榜及分发历史流水
+          实时监控图片分发热度、分类 Tag 命中占比、图源排行榜及分发历史记录
         </p>
       </div>
 
@@ -781,7 +781,7 @@ const sourceTrendLines = computed(() => {
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-morandi-border/60 pb-3">
         <div>
           <h3 class="font-bold text-sm text-morandi-text flex items-center gap-2">
-            <History class="w-4 h-4 text-morandi-sage" /> 近期分发图片历史流水
+            <History class="w-4 h-4 text-morandi-sage" /> 近期分发图片历史
           </h3>
           <p class="text-xs text-morandi-muted mt-0.5">控制台近 {{ history.length }} 次分发的图片历史日志</p>
         </div>
@@ -946,7 +946,7 @@ const sourceTrendLines = computed(() => {
       </div>
 
       <div v-else class="text-center py-12 text-morandi-muted text-xs bg-morandi-bg/40 rounded-xl border border-dashed border-morandi-border">
-        暂无符合条件的分发历史流水记录
+        暂无符合条件的分发历史记录
       </div>
 
       <!-- Pagination Controls Bar -->
@@ -967,7 +967,7 @@ const sourceTrendLines = computed(() => {
             </select>
           </div>
           <span class="text-morandi-muted font-mono text-[11px]">
-            共 {{ totalHistoryCount }} 条流水记录
+            共 {{ totalHistoryCount }} 条记录
           </span>
         </div>
 

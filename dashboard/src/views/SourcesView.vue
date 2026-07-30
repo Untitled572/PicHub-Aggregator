@@ -123,44 +123,44 @@ function onFormSaved() {
 <template>
   <div class="space-y-6">
     <!-- Stat Overview Banner -->
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-      <div class="morandi-card p-4 flex items-center gap-3">
-        <div class="w-10 h-10 rounded-xl bg-morandi-sage/15 text-morandi-sage-dark flex items-center justify-center shrink-0">
-          <Layers class="w-5 h-5" />
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
+      <div class="morandi-card p-3.5 sm:p-4 flex items-center gap-3">
+        <div class="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-morandi-sage/15 text-morandi-sage-dark flex items-center justify-center shrink-0">
+          <Layers class="w-4 h-4 sm:w-5 sm:h-5" />
         </div>
         <div>
-          <p class="text-xs text-morandi-muted font-medium">总接入源</p>
-          <p class="text-xl font-bold text-morandi-text mt-0.5">{{ stats.total }} <span class="text-xs font-normal text-morandi-muted">个 API</span></p>
+          <p class="text-[11px] sm:text-xs text-morandi-muted font-medium">总接入源</p>
+          <p class="text-lg sm:text-xl font-bold text-morandi-text mt-0.5">{{ stats.total }} <span class="text-[10px] sm:text-xs font-normal text-morandi-muted">个 API</span></p>
         </div>
       </div>
 
-      <div class="morandi-card p-4 flex items-center gap-3">
-        <div class="w-10 h-10 rounded-xl bg-morandi-ocean/15 text-morandi-ocean-dark flex items-center justify-center shrink-0">
-          <CheckCircle2 class="w-5 h-5" />
+      <div class="morandi-card p-3.5 sm:p-4 flex items-center gap-3">
+        <div class="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-morandi-ocean/15 text-morandi-ocean-dark flex items-center justify-center shrink-0">
+          <CheckCircle2 class="w-4 h-4 sm:w-5 sm:h-5" />
         </div>
         <div>
-          <p class="text-xs text-morandi-muted font-medium">服务中源</p>
-          <p class="text-xl font-bold text-morandi-text mt-0.5">{{ stats.enabled }} <span class="text-xs font-normal text-morandi-muted">已启用</span></p>
+          <p class="text-[11px] sm:text-xs text-morandi-muted font-medium">服务中源</p>
+          <p class="text-lg sm:text-xl font-bold text-morandi-text mt-0.5">{{ stats.enabled }} <span class="text-[10px] sm:text-xs font-normal text-morandi-muted">已启用</span></p>
         </div>
       </div>
 
-      <div class="morandi-card p-4 flex items-center gap-3">
-        <div class="w-10 h-10 rounded-xl bg-morandi-sand/20 text-morandi-sand-dark flex items-center justify-center shrink-0">
-          <Zap class="w-5 h-5" />
+      <div class="morandi-card p-3.5 sm:p-4 flex items-center gap-3">
+        <div class="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-morandi-sand/20 text-morandi-sand-dark flex items-center justify-center shrink-0">
+          <Zap class="w-4 h-4 sm:w-5 sm:h-5" />
         </div>
         <div>
-          <p class="text-xs text-morandi-muted font-medium">平均延迟</p>
-          <p class="text-xl font-bold text-morandi-text mt-0.5">{{ stats.avgLatency }} <span class="text-xs font-normal text-morandi-muted">ms</span></p>
+          <p class="text-[11px] sm:text-xs text-morandi-muted font-medium">平均延迟</p>
+          <p class="text-lg sm:text-xl font-bold text-morandi-text mt-0.5">{{ stats.avgLatency }} <span class="text-[10px] sm:text-xs font-normal text-morandi-muted">ms</span></p>
         </div>
       </div>
 
-      <div class="morandi-card p-4 flex items-center gap-3">
-        <div class="w-10 h-10 rounded-xl bg-morandi-rose/15 text-morandi-rose-dark flex items-center justify-center shrink-0">
-          <Tag class="w-5 h-5" />
+      <div class="morandi-card p-3.5 sm:p-4 flex items-center gap-3">
+        <div class="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-morandi-rose/15 text-morandi-rose-dark flex items-center justify-center shrink-0">
+          <Tag class="w-4 h-4 sm:w-5 sm:h-5" />
         </div>
         <div>
-          <p class="text-xs text-morandi-muted font-medium">平均可用率</p>
-          <p class="text-xl font-bold text-morandi-text mt-0.5">{{ stats.avgSuccess }}%</p>
+          <p class="text-[11px] sm:text-xs text-morandi-muted font-medium">平均可用率</p>
+          <p class="text-lg sm:text-xl font-bold text-morandi-text mt-0.5">{{ stats.avgSuccess }}%</p>
         </div>
       </div>
     </div>
@@ -193,23 +193,24 @@ function onFormSaved() {
       </div>
 
       <!-- Action Buttons -->
-      <div class="flex items-center gap-2 w-full md:w-auto justify-end">
+      <div class="flex items-center gap-2 w-full sm:w-auto justify-end flex-wrap sm:flex-nowrap">
         <button
           @click="showExportImport = true"
-          class="flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium bg-white hover:bg-morandi-hover text-morandi-text rounded-xl border border-morandi-borderSoft transition-colors"
+          class="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-medium bg-white hover:bg-morandi-hover text-morandi-text rounded-xl border border-morandi-borderSoft transition-colors cursor-pointer"
         >
           <ArrowUpDown class="w-3.5 h-3.5 text-morandi-muted" />
           导入 / 导出规则
         </button>
         <button
           @click="addSource"
-          class="flex items-center gap-1.5 px-4 py-2 text-xs font-medium bg-morandi-sage hover:bg-morandi-sage-dark text-white rounded-xl shadow-sm transition-all duration-200 active:scale-95"
+          class="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-medium bg-morandi-sage hover:bg-morandi-sage-dark text-white rounded-xl shadow-sm transition-all duration-200 active:scale-95 cursor-pointer"
         >
           <Plus class="w-4 h-4" />
           添加新图源
         </button>
       </div>
     </div>
+
 
     <!-- Cards List -->
     <div v-if="filteredSources.length > 0" class="grid gap-4">

@@ -107,9 +107,8 @@ async function handleSave() {
           <div class="w-7 h-7 rounded-lg bg-morandi-ocean/15 text-morandi-ocean-dark flex items-center justify-center">
             <Globe class="w-4 h-4" />
           </div>
-          <h3 class="text-sm font-bold text-morandi-text">网络抓取与 HTTP 代理服务</h3>
+          <h3 class="text-sm font-bold text-morandi-text">网络抓取与 HTTP 代理</h3>
         </div>
-        <span class="text-[11px] text-morandi-muted">转发出站请求与控制超时探针</span>
       </div>
 
       <!-- Outbound Proxy Switch Card -->
@@ -179,21 +178,20 @@ async function handleSave() {
           <div class="w-7 h-7 rounded-lg bg-morandi-sage/15 text-morandi-sage-dark flex items-center justify-center">
             <HardDrive class="w-4 h-4" />
           </div>
-          <h3 class="text-sm font-bold text-morandi-text">本地缓存模式与 0ms 分发池</h3>
+          <h3 class="text-sm font-bold text-morandi-text">本地缓存模式</h3>
         </div>
-        <span class="text-[11px] text-morandi-muted">像素级分辨率过滤与磁盘 LRU 淘汰</span>
       </div>
 
       <!-- Local Proxy Mode Switch Card -->
       <div class="p-4 bg-morandi-bg/60 rounded-2xl border border-morandi-borderSoft flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div class="space-y-1">
           <div class="text-xs font-bold text-morandi-text flex items-center gap-2">
-            <span>本地缓存中转模式 (Proxy Cache Mode)</span>
+            <span>本地缓存中转模式</span>
             <span
               class="text-[10px] px-2 py-0.5 font-bold rounded-md transition-colors"
               :class="settings.proxy_mode ? 'bg-morandi-sage-light text-morandi-sage-dark border border-morandi-sage/30' : 'bg-morandi-bg text-morandi-muted border border-morandi-borderSoft'"
             >
-              {{ settings.proxy_mode ? '已开启 (本地磁盘缓存)' : '已关闭 (302 直链重定向)' }}
+              {{ settings.proxy_mode ? '本地磁盘缓存' : '302 直链重定向' }}
             </span>
           </div>
           <p class="text-[11px] text-morandi-muted leading-relaxed">
@@ -275,9 +273,8 @@ async function handleSave() {
           <div class="w-7 h-7 rounded-lg bg-morandi-sand/20 text-morandi-sand-dark flex items-center justify-center">
             <Shield class="w-4 h-4" />
           </div>
-          <h3 class="text-sm font-bold text-morandi-text">防刷限流与历史流水保留策略</h3>
+          <h3 class="text-sm font-bold text-morandi-text">防刷限流与历史保留</h3>
         </div>
-        <span class="text-[11px] text-morandi-muted">IP 滑动窗口访问频率限制与控制台流水日志</span>
       </div>
 
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
@@ -314,9 +311,8 @@ async function handleSave() {
           <div class="w-7 h-7 rounded-lg bg-morandi-rose/15 text-morandi-rose-dark flex items-center justify-center">
             <Key class="w-4 h-4" />
           </div>
-          <h3 class="text-sm font-bold text-morandi-text">控制台管理员安全鉴权 (Admin Token)</h3>
+          <h3 class="text-sm font-bold text-morandi-text">控制台管理员安全鉴权</h3>
         </div>
-        <span class="text-[11px] text-morandi-muted">保护配置写接口安全</span>
       </div>
 
       <div class="p-4 bg-morandi-sage-light/40 border border-morandi-sage/20 rounded-2xl text-xs text-morandi-text flex items-start gap-3">

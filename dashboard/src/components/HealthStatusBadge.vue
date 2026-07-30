@@ -26,8 +26,9 @@ const isNormal = computed(() => {
 
 <template>
   <span
-    class="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold rounded-full transition-colors shrink-0"
+    class="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold rounded-full transition-colors shrink-0 whitespace-nowrap"
     :class="{
+
       'bg-emerald-50 text-emerald-700 border border-emerald-300/80': isNormal,
       'bg-amber-50 text-amber-700 border border-amber-300/80': !isNormal && status === 'warning',
       'bg-rose-50 text-rose-700 border border-rose-300/80': isFailed,

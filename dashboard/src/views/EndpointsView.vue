@@ -185,18 +185,18 @@ function handleTagDelete(id: string) {
 
 
     <!-- Master Endpoint Card -->
-    <div class="morandi-card p-6 space-y-4 border-l-4 border-l-morandi-sage">
-      <div class="flex items-center justify-between">
+    <div class="morandi-card p-4 sm:p-6 space-y-4 border-l-4 border-l-morandi-sage">
+      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
         <div class="flex items-center gap-2">
-          <div class="w-8 h-8 rounded-lg bg-morandi-sage/15 text-morandi-sage-dark flex items-center justify-center">
+          <div class="w-8 h-8 rounded-lg bg-morandi-sage/15 text-morandi-sage-dark flex items-center justify-center shrink-0">
             <Sparkles class="w-4 h-4" />
           </div>
           <div>
             <h3 class="font-bold text-sm text-morandi-text">主聚合分发接口 (Master Endpoint)</h3>
-            <p class="text-[11px] text-morandi-muted">统一调用的主服务接口，支持绑定绑定特定分类 Tags</p>
+            <p class="text-[11px] text-morandi-muted">统一调用的主服务接口，支持绑定特定分类 Tags</p>
           </div>
         </div>
-        <span class="text-[10px] px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full font-semibold">
+        <span class="text-[10px] px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full font-semibold shrink-0 whitespace-nowrap">
           ● 运行正常
         </span>
       </div>
@@ -210,7 +210,7 @@ function handleTagDelete(id: string) {
           <div class="flex items-center gap-2">
             <button
               @click="copyToClipboard('master', masterUrl)"
-              class="flex items-center gap-1 text-xs font-medium text-morandi-sage-dark hover:underline"
+              class="flex items-center gap-1 text-xs font-medium text-morandi-sage-dark hover:underline cursor-pointer"
             >
               <component :is="copiedState['master'] ? Check : Copy" class="w-3.5 h-3.5" />
               <span>{{ copiedState['master'] ? '已复制!' : '一键复制' }}</span>
@@ -239,7 +239,7 @@ function handleTagDelete(id: string) {
           <div class="flex items-center gap-2">
             <button
               @click="copyToClipboard('masterJson', masterJsonUrl)"
-              class="flex items-center gap-1 text-xs font-medium text-morandi-ocean-dark hover:underline"
+              class="flex items-center gap-1 text-xs font-medium text-morandi-ocean-dark hover:underline cursor-pointer"
             >
               <component :is="copiedState['masterJson'] ? Check : Copy" class="w-3.5 h-3.5" />
               <span>{{ copiedState['masterJson'] ? '已复制!' : '一键复制' }}</span>
@@ -261,7 +261,7 @@ function handleTagDelete(id: string) {
 
       <!-- Tag Binding Filter -->
       <div class="pt-2 border-t border-morandi-border/40 space-y-2">
-        <div class="flex items-center justify-between">
+        <div class="flex items-center justify-between flex-wrap gap-1">
           <label class="text-xs font-bold text-morandi-text flex items-center gap-1.5">
             <Sliders class="w-3.5 h-3.5 text-morandi-sage" /> <span class="relative">主接口绑定的 Tag 标签范围：
             <Transition name="fade">
@@ -280,7 +280,7 @@ function handleTagDelete(id: string) {
           <button
             type="button"
             @click="toggleAllTagsBound"
-            class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all border"
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all border cursor-pointer"
             :class="isAllTagsBound
               ? 'bg-morandi-sage text-white border-morandi-sage shadow-xs'
               : 'bg-white text-morandi-muted border-morandi-borderSoft hover:bg-morandi-hover'"
@@ -295,7 +295,7 @@ function handleTagDelete(id: string) {
             :key="t.id"
             type="button"
             @click="toggleTagBound(t.id)"
-            class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all border"
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all border cursor-pointer"
             :class="isTagBound(t.id)
               ? 'bg-morandi-sage-light text-morandi-sage-dark border-morandi-sage/40 font-semibold'
               : 'bg-white text-morandi-muted border-morandi-borderSoft hover:bg-morandi-hover opacity-60'"
@@ -313,8 +313,8 @@ function handleTagDelete(id: string) {
     </div>
 
     <!-- Pure Tag Management Section -->
-    <div class="morandi-card p-6 space-y-5">
-      <div class="flex items-center justify-between">
+    <div class="morandi-card p-4 sm:p-6 space-y-5">
+      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div>
           <h3 class="font-bold text-sm text-morandi-text flex items-center gap-1.5">
             <TagIcon class="w-4 h-4 text-morandi-sage" /> Tag 标签库管理 (共 {{ tags.length }} 个)
@@ -324,16 +324,16 @@ function handleTagDelete(id: string) {
 
         <button
           @click="showAddTagModal = true"
-          class="flex items-center gap-1.5 px-3.5 py-1.5 bg-morandi-sage hover:bg-morandi-sage-dark text-white rounded-xl text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+          class="w-full sm:w-auto flex items-center justify-center gap-1.5 px-3.5 py-2 sm:py-1.5 bg-morandi-sage hover:bg-morandi-sage-dark text-white rounded-xl text-xs font-semibold shadow-xs transition-colors cursor-pointer shrink-0 whitespace-nowrap"
         >
           <Plus class="w-3.5 h-3.5" />
-          <span>添加自定义标签</span>
+          <span class="whitespace-nowrap">添加自定义标签</span>
         </button>
       </div>
 
       <!-- System Tags Unified Box (系统内置标签框) -->
       <div v-if="systemTags.length > 0" class="p-4 bg-morandi-bg/80 rounded-2xl border border-morandi-borderSoft space-y-3">
-        <div class="flex items-center justify-between">
+        <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
           <div class="flex items-center gap-2">
             <div class="w-6 h-6 rounded-lg bg-morandi-sage/15 text-morandi-sage-dark flex items-center justify-center shrink-0">
               <Lock class="w-3.5 h-3.5 text-morandi-sage-dark" />
@@ -342,6 +342,7 @@ function handleTagDelete(id: string) {
           </div>
           <span class="text-[10px] text-morandi-muted bg-white px-2 py-0.5 rounded-md border border-morandi-borderSoft">自动按图片真实宽高比例或系统规则匹配</span>
         </div>
+
 
         <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
           <div

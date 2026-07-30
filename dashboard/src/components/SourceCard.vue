@@ -87,29 +87,29 @@ function handleDeleteConfirm() {
     <!-- Right Metrics & Actions -->
     <div class="flex items-center gap-4 sm:gap-6 shrink-0 w-full sm:w-auto justify-between sm:justify-end border-t sm:border-t-0 pt-3 sm:pt-0 border-morandi-borderSoft/60">
       <!-- Latency & Success rate metrics -->
-      <div class="flex items-center gap-4 text-xs">
+      <div class="flex items-center gap-3 sm:gap-4 text-xs">
         <div class="text-right">
-          <div class="text-[10px] text-morandi-muted">权重</div>
+          <div class="text-[10px] text-morandi-muted whitespace-nowrap">权重</div>
           <div class="font-bold text-morandi-text text-sm mt-0.5 font-mono">{{ source.weight }}</div>
         </div>
 
         <div class="text-right">
-          <div class="text-[10px] text-morandi-muted">成功率</div>
+          <div class="text-[10px] text-morandi-muted whitespace-nowrap">成功率</div>
           <div class="font-bold text-morandi-text text-sm mt-0.5 font-mono">
             {{ Math.round(source.success_rate || 0) }}%
           </div>
         </div>
 
         <div class="text-right">
-          <div class="text-[10px] text-morandi-muted">平均延迟</div>
+          <div class="text-[10px] text-morandi-muted whitespace-nowrap">平均延迟</div>
           <div class="font-bold text-morandi-text text-sm mt-0.5 font-mono">{{ source.avg_latency || 0 }}<span class="text-[10px] font-normal text-morandi-muted">ms</span></div>
         </div>
       </div>
 
       <!-- Toggle Switch & Action Buttons -->
-      <div class="flex items-center gap-3">
+      <div class="flex items-center gap-2.5">
         <!-- Switch Toggle -->
-        <label class="relative inline-flex items-center cursor-pointer" title="启用/禁用图源">
+        <label class="relative inline-flex items-center cursor-pointer shrink-0" title="启用/禁用图源">
           <input
             type="checkbox"
             :checked="source.enabled"
@@ -122,12 +122,13 @@ function handleDeleteConfirm() {
         <!-- Manage Parameter Variants Button -->
         <button
           @click="$emit('openParams', source)"
-          class="flex items-center gap-1 px-2 py-1 text-xs text-morandi-ocean-dark bg-morandi-ocean-light/80 hover:bg-morandi-ocean-light rounded-lg border border-morandi-ocean/20 transition-colors font-medium cursor-pointer"
+          class="flex items-center gap-1 px-2 py-1 text-xs text-morandi-ocean-dark bg-morandi-ocean-light/80 hover:bg-morandi-ocean-light rounded-lg border border-morandi-ocean/20 transition-colors font-medium cursor-pointer shrink-0 whitespace-nowrap"
           title="管理多参数与路径分支"
         >
           <Sliders class="w-3.5 h-3.5" />
-          <span>分支 ({{ source.params?.length || 0 }})</span>
+          <span class="whitespace-nowrap">分支 ({{ source.params?.length || 0 }})</span>
         </button>
+
 
         <!-- Edit Button -->
         <button

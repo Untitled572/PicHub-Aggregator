@@ -15,7 +15,7 @@ onMounted(async () => {
 <template>
   <div class="space-y-6">
     <!-- Header & Action -->
-    <div class="morandi-card p-5 flex items-center justify-between gap-4">
+    <div class="morandi-card p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
       <div>
         <h2 class="font-bold text-base text-morandi-text flex items-center gap-2">
           <Activity class="w-5 h-5 text-morandi-sage" /> 全局图源健康度与延迟排查
@@ -26,12 +26,11 @@ onMounted(async () => {
       <button
         @click="runCheck"
         :disabled="running"
-        class="px-4 py-2 text-xs font-semibold bg-white hover:bg-morandi-hover text-morandi-text rounded-xl border border-morandi-borderSoft shadow-xs flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50 shrink-0 self-start sm:self-auto"
+        class="w-full sm:w-auto px-4 py-2 text-xs font-semibold bg-white hover:bg-morandi-hover text-morandi-text rounded-xl border border-morandi-borderSoft shadow-xs flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50 shrink-0 whitespace-nowrap"
       >
         <RefreshCw class="w-3.5 h-3.5 text-morandi-sage" :class="{ 'animate-spin': running }" />
-        <span>{{ running ? '检测诊断中...' : '重新发起检测' }}</span>
+        <span class="whitespace-nowrap">{{ running ? '检测诊断中...' : '重新发起检测' }}</span>
       </button>
-
     </div>
 
     <!-- Progress bar -->
@@ -45,85 +44,86 @@ onMounted(async () => {
       </div>
     </div>
 
-
-
     <!-- Summary KPI Cards -->
-    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
-      <div class="morandi-card p-4 flex items-center gap-3">
-        <div class="w-10 h-10 rounded-xl bg-morandi-sidebar text-morandi-muted flex items-center justify-center shrink-0">
-          <Layers class="w-5 h-5" />
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
+      <div class="morandi-card p-3.5 sm:p-4 flex items-center gap-3">
+        <div class="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-morandi-sidebar text-morandi-muted flex items-center justify-center shrink-0">
+          <Layers class="w-4 h-4 sm:w-5 sm:h-5" />
         </div>
         <div>
-          <p class="text-xs text-morandi-muted font-medium">节点总数</p>
-          <p class="text-xl font-bold text-morandi-text mt-0.5">{{ summary.total }}</p>
+          <p class="text-[11px] sm:text-xs text-morandi-muted font-medium whitespace-nowrap">节点总数</p>
+          <p class="text-lg sm:text-xl font-bold text-morandi-text mt-0.5 font-mono">{{ summary.total }}</p>
         </div>
       </div>
 
-      <div class="morandi-card p-4 flex items-center gap-3">
-        <div class="w-10 h-10 rounded-xl bg-morandi-sage-light text-morandi-sage-dark flex items-center justify-center shrink-0">
-          <CheckCircle2 class="w-5 h-5" />
+      <div class="morandi-card p-3.5 sm:p-4 flex items-center gap-3">
+        <div class="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-morandi-sage-light text-morandi-sage-dark flex items-center justify-center shrink-0">
+          <CheckCircle2 class="w-4 h-4 sm:w-5 sm:h-5" />
         </div>
         <div>
-          <p class="text-xs text-morandi-muted font-medium">健康正常</p>
-          <p class="text-xl font-bold text-morandi-sage-dark mt-0.5">{{ summary.available }}</p>
+          <p class="text-[11px] sm:text-xs text-morandi-muted font-medium whitespace-nowrap">健康正常</p>
+          <p class="text-lg sm:text-xl font-bold text-morandi-sage-dark mt-0.5 font-mono">{{ summary.available }}</p>
         </div>
       </div>
 
-      <div class="morandi-card p-4 flex items-center gap-3">
-        <div class="w-10 h-10 rounded-xl bg-morandi-rose-light text-morandi-rose-dark flex items-center justify-center shrink-0">
-          <AlertTriangle class="w-5 h-5" />
+      <div class="morandi-card p-3.5 sm:p-4 flex items-center gap-3">
+        <div class="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-morandi-rose-light text-morandi-rose-dark flex items-center justify-center shrink-0">
+          <AlertTriangle class="w-4 h-4 sm:w-5 sm:h-5" />
         </div>
         <div>
-          <p class="text-xs text-morandi-muted font-medium">异常挂起</p>
-          <p class="text-xl font-bold text-morandi-rose-dark mt-0.5">{{ summary.failed }}</p>
+          <p class="text-[11px] sm:text-xs text-morandi-muted font-medium whitespace-nowrap">异常挂起</p>
+          <p class="text-lg sm:text-xl font-bold text-morandi-rose-dark mt-0.5 font-mono">{{ summary.failed }}</p>
         </div>
       </div>
 
-      <div class="morandi-card p-4 flex items-center gap-3">
-        <div class="w-10 h-10 rounded-xl bg-morandi-sand-light text-morandi-sand-dark flex items-center justify-center shrink-0">
-          <Clock class="w-5 h-5" />
+      <div class="morandi-card p-3.5 sm:p-4 flex items-center gap-3">
+        <div class="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-morandi-sand-light text-morandi-sand-dark flex items-center justify-center shrink-0">
+          <Clock class="w-4 h-4 sm:w-5 sm:h-5" />
         </div>
         <div>
-          <p class="text-xs text-morandi-muted font-medium">平均网络延迟</p>
-          <p class="text-xl font-bold text-morandi-text mt-0.5 font-mono">{{ summary.avgLatency }} <span class="text-xs font-normal text-morandi-muted">ms</span></p>
+          <p class="text-[11px] sm:text-xs text-morandi-muted font-medium whitespace-nowrap">平均延迟</p>
+          <p class="text-lg sm:text-xl font-bold text-morandi-text mt-0.5 font-mono">{{ summary.avgLatency }} <span class="text-[10px] sm:text-xs font-normal text-morandi-muted">ms</span></p>
         </div>
       </div>
     </div>
 
     <!-- Health Results Table / Cards -->
-    <div class="morandi-card overflow-hidden">
-      <div class="p-4 border-b border-morandi-border/60 bg-morandi-bg/40 font-medium text-xs text-morandi-muted grid grid-cols-12 gap-2">
-        <div class="col-span-3">节点名称</div>
-        <div class="col-span-4">目标 API URL</div>
-        <div class="col-span-2">连通状态</div>
-        <div class="col-span-1 text-right">HTTP 状态</div>
-        <div class="col-span-2 text-right">响应延迟</div>
-      </div>
+    <div class="morandi-card overflow-x-auto">
+      <div class="min-w-[640px]">
+        <div class="p-4 border-b border-morandi-border/60 bg-morandi-bg/40 font-medium text-xs text-morandi-muted grid grid-cols-12 gap-2">
+          <div class="col-span-3">节点名称</div>
+          <div class="col-span-4">目标 API URL</div>
+          <div class="col-span-2">连通状态</div>
+          <div class="col-span-1 text-right">HTTP 状态</div>
+          <div class="col-span-2 text-right">响应延迟</div>
+        </div>
 
-      <div v-if="results.length > 0" class="divide-y divide-morandi-border/40">
-        <div
-          v-for="r in results"
-          :key="r.id"
-          class="p-4 grid grid-cols-12 gap-2 text-xs items-center hover:bg-morandi-bg/50 transition-colors"
-        >
-          <div class="col-span-3 font-semibold text-morandi-text truncate">{{ r.name }}</div>
-          <div class="col-span-4 text-morandi-muted font-mono truncate text-[11px]">{{ r.url }}</div>
-          <div class="col-span-2">
-            <HealthStatusBadge :available="r.available" />
-          </div>
-          <div class="col-span-1 text-right font-mono text-morandi-text font-medium">
-            {{ r.status_code || '-' }}
-          </div>
-          <div class="col-span-2 text-right font-mono text-morandi-text font-bold">
-            {{ r.latency_ms }} <span class="text-[10px] font-normal text-morandi-muted">ms</span>
+        <div v-if="results.length > 0" class="divide-y divide-morandi-border/40">
+          <div
+            v-for="r in results"
+            :key="r.id"
+            class="p-4 grid grid-cols-12 gap-2 text-xs items-center hover:bg-morandi-bg/50 transition-colors"
+          >
+            <div class="col-span-3 font-semibold text-morandi-text truncate">{{ r.name }}</div>
+            <div class="col-span-4 text-morandi-muted font-mono truncate text-[11px]">{{ r.url }}</div>
+            <div class="col-span-2">
+              <HealthStatusBadge :available="r.available" />
+            </div>
+            <div class="col-span-1 text-right font-mono text-morandi-text font-medium">
+              {{ r.status_code || '-' }}
+            </div>
+            <div class="col-span-2 text-right font-mono text-morandi-text font-bold">
+              {{ r.latency_ms }} <span class="text-[10px] font-normal text-morandi-muted">ms</span>
+            </div>
           </div>
         </div>
-      </div>
 
-      <div v-else class="p-12 text-center text-xs text-morandi-muted">
-        正在获取健康诊断数据或尚未配置开启的图源...
+        <div v-else class="p-12 text-center text-xs text-morandi-muted">
+          正在获取健康诊断数据或尚未配置开启的图源...
+        </div>
       </div>
     </div>
+
   </div>
 </template>
 

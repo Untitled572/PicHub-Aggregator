@@ -87,15 +87,16 @@ async function handleSave() {
 </script>
 
 <template>
-  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-md transition-all" @click.self="emit('close')">
-    <div class="bg-white rounded-2xl shadow-morandi-lg w-full max-w-xl border border-morandi-borderSoft max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-stone-900/40 backdrop-blur-md transition-all" @click.self="emit('close')">
+
+    <div class="bg-white rounded-2xl shadow-morandi-lg w-full max-w-2xl sm:mx-auto border border-morandi-borderSoft max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
       <!-- Modal Header -->
-      <div class="p-5 border-b border-morandi-border/60 flex justify-between items-center bg-morandi-bg/50">
+      <div class="p-4 sm:p-5 border-b border-morandi-border/60 flex justify-between items-center bg-morandi-bg/50">
         <div>
           <h2 class="font-bold text-base text-morandi-text flex items-center gap-2">
             <Sliders class="w-4 h-4 text-morandi-sage" /> API 图源衍生分支管理
           </h2>
-          <p class="text-xs text-morandi-muted mt-0.5 flex items-center gap-1 font-mono truncate max-w-md">
+          <p class="text-xs text-morandi-muted mt-0.5 flex items-center gap-1 font-mono truncate max-w-xs sm:max-w-md">
             <Globe class="w-3.5 h-3.5 shrink-0 text-morandi-light" />
             <span class="font-semibold text-morandi-text mr-1">{{ source.name }}:</span>
             <span class="truncate">{{ source.url }}</span>
@@ -107,7 +108,7 @@ async function handleSave() {
       </div>
 
       <!-- Modal Body -->
-      <div class="p-5 space-y-4 overflow-y-auto flex-1 text-xs">
+      <div class="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1 text-xs">
         <div class="p-3 bg-morandi-sage-light/30 rounded-xl border border-morandi-sage/20 text-morandi-sage-dark space-y-1">
           <p class="font-semibold flex items-center gap-1.5 text-xs">
             <Sliders class="w-3.5 h-3.5" /> 多参数与路径分支功能说明
@@ -121,27 +122,28 @@ async function handleSave() {
 
         <!-- Param Rows List -->
         <div class="space-y-3">
-          <div class="flex items-center justify-between">
+          <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
             <span class="font-bold text-morandi-text text-xs flex items-center gap-1">
               分支列表 (已配置 {{ paramRows.length }} 个)
             </span>
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 flex-wrap sm:flex-nowrap w-full sm:w-auto">
               <button
                 type="button"
                 @click="addParamRow"
-                class="px-2.5 py-1 bg-morandi-sage hover:bg-morandi-sage-dark text-white rounded-lg font-medium text-xs flex items-center gap-1 transition-colors cursor-pointer shadow-xs"
+                class="flex-1 sm:flex-initial px-2.5 py-1 bg-morandi-sage hover:bg-morandi-sage-dark text-white rounded-lg font-medium text-xs flex items-center justify-center gap-1 transition-colors cursor-pointer shadow-xs"
               >
                 <Plus class="w-3.5 h-3.5" /> 添加参数分支
               </button>
               <button
                 type="button"
                 @click="addSubApiRow"
-                class="px-2.5 py-1 bg-morandi-ocean hover:bg-morandi-ocean-dark text-white rounded-lg font-medium text-xs flex items-center gap-1 transition-colors cursor-pointer shadow-xs"
+                class="flex-1 sm:flex-initial px-2.5 py-1 bg-morandi-ocean hover:bg-morandi-ocean-dark text-white rounded-lg font-medium text-xs flex items-center justify-center gap-1 transition-colors cursor-pointer shadow-xs"
               >
                 <Link2 class="w-3.5 h-3.5" /> 添加子 API 链接
               </button>
             </div>
           </div>
+
 
           <div v-if="paramRows.length === 0" class="text-center py-8 text-morandi-muted bg-morandi-bg/40 rounded-xl border border-dashed border-morandi-border">
             暂未配置分支，点击右上角【添加参数分支】或【添加子 API 链接】新增

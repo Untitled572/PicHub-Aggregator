@@ -214,8 +214,8 @@ function formatDate(dateStr: string): string {
 <template>
   <div class="space-y-6">
     <!-- Top Header Bar -->
-    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white/60 p-5 rounded-2xl border border-morandi-borderSoft shadow-xs backdrop-blur-sm">
-      <div class="flex items-center gap-3.5">
+    <div class="morandi-card p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
         <div class="w-10 h-10 rounded-xl bg-rose-50 text-rose-500 flex items-center justify-center shrink-0 shadow-xs">
           <Heart class="w-5 h-5 fill-rose-500" />
         </div>
@@ -229,47 +229,47 @@ function formatDate(dateStr: string): string {
         </div>
       </div>
 
-      <div class="flex items-center gap-2 shrink-0">
+      <div class="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-between sm:justify-end">
         <!-- View Mode Switcher -->
         <div class="flex items-center p-1 bg-morandi-bg/80 rounded-xl border border-morandi-borderSoft">
           <button
             type="button"
             @click="viewMode = 'list'"
-            class="px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer select-none"
+            class="px-2 py-1 rounded-lg text-xs font-medium flex items-center gap-1 transition-all cursor-pointer select-none"
             :class="viewMode === 'list' ? 'bg-white text-morandi-text shadow-xs font-bold' : 'text-morandi-muted hover:text-morandi-text'"
             title="列表视图"
           >
             <List class="w-3.5 h-3.5" />
-            <span class="hidden sm:inline">列表</span>
+            <span class="text-[11px] sm:text-xs">列表</span>
           </button>
 
           <button
             type="button"
             @click="viewMode = 'grid_small'"
-            class="px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer select-none"
+            class="px-2 py-1 rounded-lg text-xs font-medium flex items-center gap-1 transition-all cursor-pointer select-none"
             :class="viewMode === 'grid_small' ? 'bg-white text-morandi-text shadow-xs font-bold' : 'text-morandi-muted hover:text-morandi-text'"
             title="小图图墙"
           >
             <Grid class="w-3.5 h-3.5" />
-            <span class="hidden sm:inline">小图图墙</span>
+            <span class="text-[11px] sm:text-xs">小图</span>
           </button>
 
           <button
             type="button"
             @click="viewMode = 'grid_large'"
-            class="px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer select-none"
+            class="px-2 py-1 rounded-lg text-xs font-medium flex items-center gap-1 transition-all cursor-pointer select-none"
             :class="viewMode === 'grid_large' ? 'bg-white text-morandi-text shadow-xs font-bold' : 'text-morandi-muted hover:text-morandi-text'"
             title="大图图墙"
           >
             <LayoutGrid class="w-3.5 h-3.5" />
-            <span class="hidden sm:inline">大图图墙</span>
+            <span class="text-[11px] sm:text-xs">大图</span>
           </button>
         </div>
 
         <button
           @click="refreshData"
           :disabled="refreshing || loading"
-          class="px-3.5 py-2 text-xs font-semibold bg-white hover:bg-morandi-hover text-morandi-text rounded-xl border border-morandi-borderSoft shadow-xs flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+          class="px-3 py-2 text-xs font-semibold bg-white hover:bg-morandi-hover text-morandi-text rounded-xl border border-morandi-borderSoft shadow-xs flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
         >
           <RefreshCw class="w-3.5 h-3.5 text-morandi-sage" :class="{ 'animate-spin': refreshing }" />
           <span>刷新</span>
