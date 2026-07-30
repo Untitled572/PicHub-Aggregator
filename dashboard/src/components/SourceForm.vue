@@ -34,7 +34,7 @@ const form = ref({
   url: '',
   resp_type: 'image',
   json_path: '',
-  weight: 3,
+  weight: 50,
   categories: [] as string[],
   headers: {} as Record<string, string>,
   params: [] as QueryParam[],
@@ -51,52 +51,6 @@ const categoryMap = computed(() => getCategoryMap())
 const categories = computed(() => tags.value.map(t => t.id))
 
 
-const weightLabels: Record<number, string> = {
-  1: '极低',
-  2: '较低',
-  3: '标准',
-  4: '较高',
-  5: '极高'
-}
-
-interface ParamRow {
-  key: string
-  value: string
-  weight: number
-  categories: string[]
-}
-
-const paramRows = ref<ParamRow[]>([])
-
-function addParamRow() {
-  paramRows.value.push({ key: '', value: '', weight: 3, categories: [] })
-}
-
-function removeParamRow(index: number) {
-  paramRows.value.splice(index, 1)
-}
-
-function toggleParamCategory(paramRow: ParamRow, cat: string) {
-  const idx = paramRow.categories.indexOf(cat)
-  if (idx >= 0) paramRow.categories.splice(idx, 1)
-  else paramRow.categories.push(cat)
-}
-
-function syncParamRowsToForm() {
-  const params: QueryParam[] = []
-  for (const row of paramRows.value) {
-    if (row.key.trim() && row.value.trim()) {
-      params.push({
-        key: row.key.trim(),
-        value: row.value.trim(),
-        weight: row.weight || 3,
-        categories: [...row.categories]
-      })
-    }
-  }
-  form.value.params = params
-}
-
 onMounted(() => {
   if (props.source) {
     form.value = {
@@ -106,7 +60,6 @@ onMounted(() => {
     }
     showAdvanced.value = true
   } else if (props.initialData) {
-
     Object.assign(form.value, props.initialData)
   }
 
@@ -119,20 +72,9 @@ onMounted(() => {
     }
   }
 
-  // Initialize param rows array
-  paramRows.value = []
-  if (form.value.params && form.value.params.length > 0) {
-    for (const p of form.value.params) {
-      paramRows.value.push({
-        key: p.key,
-        value: p.value,
-        weight: p.weight || 3,
-        categories: [...(p.categories || [])]
-      })
-    }
-  }
   loadExistingSources()
 })
+
 
 async function loadExistingSources() {
   try {
@@ -292,8 +234,8 @@ async function handleSave() {
     }
 
     syncHeaderRowsToForm()
-    syncParamRowsToForm()
     const finalForm = { ...form.value }
+
 
     if (!finalForm.name.trim()) {
       finalForm.name = parseFallbackName(finalForm.url)
@@ -449,116 +391,38 @@ async function handleSave() {
             </div>
           </div>
 
-          <!-- Weight Selector (Simplified to 1 - 5) -->
-          <div>
-            <div class="flex items-center justify-between mb-1.5">
-              <label class="font-medium text-morandi-text">抽选权重 (1 ~ 5 级)</label>
-              <span class="font-mono text-morandi-sage-dark font-bold">Level {{ form.weight }} ({{ weightLabels[form.weight] }})</span>
-            </div>
-            <div class="grid grid-cols-5 gap-2">
-              <button
-                v-for="w in 5"
-                :key="w"
-                type="button"
-                @click="form.weight = w"
-                class="py-1.5 rounded-lg border font-medium text-center transition-all text-xs"
-                :class="form.weight === w
-                  ? 'bg-morandi-sage text-white border-morandi-sage shadow-xs'
-                  : 'bg-morandi-bg text-morandi-muted border-morandi-borderSoft hover:bg-morandi-hover'"
-              >
-                {{ w }} ({{ weightLabels[w] }})
-              </button>
-            </div>
-          </div>
-
-          <!-- Default Query Parameters (默认请求参数) -->
-          <div>
-            <label class="font-medium text-morandi-text block mb-1">默认请求参数 <span class="text-morandi-muted font-normal">(追加到所有子分支 URL)</span></label>
-            <p class="text-[10px] text-morandi-muted mb-1.5">如 <code class="font-mono bg-morandi-bg px-1 py-0.5 rounded">num=1</code> 或 <code class="font-mono bg-morandi-bg px-1 py-0.5 rounded">num=1&size=500</code>，格式为 key=value，多个参数用 & 连接。</p>
-            <input
-              v-model="form.default_query"
-              placeholder="如 num=1 或 num=1&size=500"
-              class="morandi-input w-full px-3 py-2 font-mono text-xs"
-            />
-          </div>
-
-          <!-- Query Parameter Variants (请求参数与衍生分支) -->
-          <div class="border-t border-morandi-border/40 pt-3 space-y-2.5">
-            <div class="flex items-center justify-between">
-              <label class="font-medium text-morandi-text text-xs flex items-center gap-1.5">
-                <Sliders class="w-3.5 h-3.5 text-morandi-sage" /> 请求参数与衍生分支 (Query Params)
-              </label>
-              <button
-                type="button"
-                @click="addParamRow"
-                class="text-[11px] text-morandi-sage-dark hover:underline flex items-center gap-1 font-semibold cursor-pointer"
-              >
-                <Plus class="w-3.5 h-3.5 text-morandi-sage" /> 添加参数分支
-              </button>
-            </div>
-            <p class="text-[10px] text-morandi-muted leading-relaxed">
-              如 <code class="font-mono bg-morandi-bg px-1 py-0.5 rounded">type=pc</code> 或 <code class="font-mono bg-morandi-bg px-1 py-0.5 rounded">type=mobile</code>。每个分支可独立指定 Tags 与权重并参与分发，总体仍作为一个源统一进行健康检测。
-            </p>
-
-
-            <div v-if="paramRows.length > 0" class="space-y-2.5">
-              <div
-                v-for="(row, idx) in paramRows"
-                :key="idx"
-                class="p-3 bg-morandi-bg/60 rounded-xl border border-morandi-borderSoft space-y-2"
-              >
-                <div class="flex items-center gap-2">
-                  <input
-                    v-model="row.key"
-                    placeholder="参数键 (如 type)"
-                    class="morandi-input px-2.5 py-1.5 font-mono text-xs w-1/3"
-                  />
-                  <span class="text-morandi-muted font-bold text-xs">=</span>
-                  <input
-                    v-model="row.value"
-                    placeholder="参数值 (如 pc)"
-                    class="morandi-input px-2.5 py-1.5 font-mono text-xs flex-1"
-                  />
-                  <button
-                    type="button"
-                    @click="removeParamRow(idx)"
-                    class="p-1.5 text-morandi-muted hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors shrink-0 cursor-pointer"
-                    title="删除此分支"
-                  >
-                    <Trash2 class="w-4 h-4" />
-                  </button>
-                </div>
-
-                <!-- Branch Tag & Weight -->
-                <div class="flex items-center justify-between gap-2 pt-1 border-t border-morandi-border/30 flex-wrap">
-                  <div class="flex items-center gap-1 flex-wrap">
-                    <span class="text-[10px] text-morandi-muted mr-1">分支 Tag:</span>
-                    <button
-                      v-for="cat in categories"
-                      :key="cat"
-                      type="button"
-                      @click="toggleParamCategory(row, cat)"
-                      class="px-2 py-0.5 rounded-md text-[10px] font-semibold border transition-all cursor-pointer"
-                      :class="row.categories.includes(cat) ? 'bg-morandi-sage text-white border-morandi-sage' : 'bg-white text-morandi-muted border-morandi-borderSoft hover:bg-morandi-hover'"
-                    >
-                      #{{ categoryMap[cat] || cat }}
-                    </button>
-                  </div>
-
-                  <div class="flex items-center gap-1.5">
-                    <span class="text-[10px] text-morandi-muted">权重:</span>
-                    <input
-                      v-model.number="row.weight"
-                      type="number"
-                      min="1"
-                      max="100"
-                      class="morandi-input px-2 py-0.5 text-[11px] font-mono w-14 text-center"
-                    />
-                  </div>
-                </div>
+          <!-- Weight Selector & Default Query Parameters (Single Row) -->
+          <div class="grid grid-cols-12 gap-3 items-end">
+            <!-- Left: Weight Stepper -->
+            <div class="col-span-4 sm:col-span-3">
+              <label class="font-medium text-morandi-text block mb-1">权重</label>
+              <div class="flex items-center gap-1.5 h-[34px]">
+                <button
+                  type="button"
+                  @click="form.weight = Math.max(10, form.weight - 5)"
+                  class="w-8 h-8 flex items-center justify-center rounded-lg border border-morandi-borderSoft hover:bg-morandi-hover font-bold text-base cursor-pointer shrink-0"
+                >−</button>
+                <button
+                  type="button"
+                  @click="form.weight = Math.min(90, form.weight + 5)"
+                  class="w-8 h-8 flex items-center justify-center rounded-lg border border-morandi-borderSoft hover:bg-morandi-hover font-bold text-base cursor-pointer shrink-0"
+                >+</button>
               </div>
             </div>
+
+            <!-- Right: Default Query Parameters -->
+            <div class="col-span-8 sm:col-span-9">
+              <label class="font-medium text-morandi-text block mb-1">默认请求参数 <span class="text-morandi-muted font-normal">(追加到所有子分支 URL)</span></label>
+              <input
+                v-model="form.default_query"
+                placeholder="如 num=1 或 num=1&size=500"
+                class="morandi-input w-full px-3 py-2 font-mono text-xs"
+              />
+            </div>
           </div>
+
+
+
 
           <!-- Custom Headers (Dynamic Rows: Add row / Remove row) -->
           <div class="border-t border-morandi-border/40 pt-3">

@@ -2,10 +2,11 @@ import { ref } from 'vue'
 import type { Tag } from '../types'
 
 const DEFAULT_TAGS: Tag[] = [
-  { id: 'horizontal', name: '横屏' },
-  { id: 'vertical', name: '竖屏' },
-  { id: 'adaptive', name: '自适应' },
+  { id: 'horizontal', name: '横屏', system: true },
+  { id: 'vertical', name: '竖屏', system: true },
+  { id: 'adaptive', name: '自适应', system: true },
 ]
+
 
 const tags = ref<Tag[]>([...DEFAULT_TAGS])
 let loaded = false
@@ -58,8 +59,16 @@ export function useTags() {
 
   function deleteTag(id: string) {
     const idx = tags.value.findIndex(t => t.id === id)
-    if (idx >= 0) {
+    if (idx >= 0 && !tags.value[idx].system) {
       tags.value.splice(idx, 1)
+      saveTags()
+    }
+  }
+
+  function toggleExclusive(id: string) {
+    const target = tags.value.find(t => t.id === id)
+    if (target) {
+      target.exclusive = !target.exclusive
       saveTags()
     }
   }
@@ -78,6 +87,7 @@ export function useTags() {
     addTag,
     renameTag,
     deleteTag,
+    toggleExclusive,
     getCategoryMap
   }
 }

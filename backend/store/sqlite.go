@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"strings"
+	"sync"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -13,7 +13,11 @@ import (
 )
 
 type Store struct {
-	db *sql.DB
+	db             *sql.DB
+	batcher        *StatsBatcher
+	cachedSettings *model.Settings
+	settingsMu     sync.RWMutex
+	settingsLoaded bool
 }
 
 func New(dbPath string) (*Store, error) {
@@ -28,10 +32,14 @@ func New(dbPath string) (*Store, error) {
 	if err := s.migrate(); err != nil {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
+	s.batcher = NewStatsBatcher(db)
 	return s, nil
 }
 
 func (s *Store) Close() error {
+	if s.batcher != nil {
+		s.batcher.Close()
+	}
 	return s.db.Close()
 }
 
@@ -108,6 +116,7 @@ func (s *Store) migrate() error {
 	_, _ = s.db.Exec("ALTER TABLE sources ADD COLUMN default_query TEXT DEFAULT ''")
 	_, _ = s.db.Exec("ALTER TABLE image_history ADD COLUMN image_id INTEGER DEFAULT 0")
 	_, _ = s.db.Exec("ALTER TABLE image_history ADD COLUMN file_id TEXT DEFAULT ''")
+	_, _ = s.db.Exec("ALTER TABLE images ADD COLUMN orientation TEXT DEFAULT ''")
 	if err := s.seedDefaults(); err != nil {
 
 		return err
@@ -126,10 +135,13 @@ func (s *Store) seedDefaults() error {
 	}
 	defaults := map[string]string{
 		"proxy_mode":            "false",
+		"proxy_enabled":         "false",
+		"proxy_url":             "http://127.0.0.1:7890",
 		"cache_max_mb":          "200",
 		"cache_max_images":      "60",
 		"cache_ttl":             "0",
 		"precache_count":        "5",
+		"pool_size":             "10",
 		"min_resolution":        "1920x1080",
 		"rate_limit":            "60",
 		"timeout":               "3000",
@@ -247,6 +259,16 @@ func (s *Store) UpdateSourceStatus(id int64, status string) error {
 	return err
 }
 
+func (s *Store) ResetAllSourceErrors() error {
+	_, err := s.db.Exec("UPDATE sources SET status='normal', fail_count=0 WHERE status='error'")
+	return err
+}
+
+func (s *Store) IncrementSourceWeight(sourceID int64, delta int) error {
+	_, err := s.db.Exec("UPDATE sources SET weight = MAX(30, MIN(70, weight + ?)), updated_at = CURRENT_TIMESTAMP WHERE id = ?", delta, sourceID)
+	return err
+}
+
 func (s *Store) IncrementFailCount(id int64) (int, error) {
 	_, err := s.db.Exec("UPDATE sources SET fail_count = fail_count + 1, updated_at=CURRENT_TIMESTAMP WHERE id=?", id)
 	if err != nil {
@@ -263,6 +285,19 @@ func (s *Store) ResetFailCount(id int64) error {
 }
 
 func (s *Store) GetSettings() (*model.Settings, error) {
+	s.settingsMu.RLock()
+	if s.settingsLoaded {
+		defer s.settingsMu.RUnlock()
+		return s.cachedSettings, nil
+	}
+	s.settingsMu.RUnlock()
+
+	s.settingsMu.Lock()
+	defer s.settingsMu.Unlock()
+	if s.settingsLoaded {
+		return s.cachedSettings, nil
+	}
+
 	rows, err := s.db.Query("SELECT key, value FROM settings")
 	if err != nil {
 		return nil, err
@@ -277,6 +312,10 @@ func (s *Store) GetSettings() (*model.Settings, error) {
 		switch k {
 		case "proxy_mode":
 			settings.ProxyMode = v == "true"
+		case "proxy_enabled":
+			settings.ProxyEnabled = v == "true"
+		case "proxy_url":
+			settings.ProxyURL = v
 		case "cache_max_mb":
 			if n, err := fmt.Sscanf(v, "%d", &settings.CacheMaxMB); err != nil || n != 1 {
 				settings.CacheMaxMB = 200
@@ -293,11 +332,19 @@ func (s *Store) GetSettings() (*model.Settings, error) {
 			if n, err := fmt.Sscanf(v, "%d", &settings.PrecacheCount); err != nil || n != 1 {
 				settings.PrecacheCount = 5
 			}
+		case "pool_size":
+			if n, err := fmt.Sscanf(v, "%d", &settings.PoolSize); err != nil || n != 1 {
+				settings.PoolSize = 10
+			}
 		case "min_resolution":
 			settings.MinResolution = v
 		case "rate_limit":
 			if n, err := fmt.Sscanf(v, "%d", &settings.RateLimit); err != nil || n != 1 {
 				settings.RateLimit = 60
+			}
+		case "rate_limit_window":
+			if n, err := fmt.Sscanf(v, "%d", &settings.RateLimitWindow); err != nil || n != 1 {
+				settings.RateLimitWindow = 60
 			}
 		case "timeout":
 			if n, err := fmt.Sscanf(v, "%d", &settings.Timeout); err != nil || n != 1 {
@@ -337,18 +384,30 @@ func (s *Store) GetSettings() (*model.Settings, error) {
 	if settings.PrecacheCount < 0 {
 		settings.PrecacheCount = 5
 	}
+	if settings.PoolSize <= 0 {
+		settings.PoolSize = 10
+	}
+	if settings.RateLimitWindow <= 0 {
+		settings.RateLimitWindow = 60
+	}
+	s.cachedSettings = settings
+	s.settingsLoaded = true
 	return settings, nil
 }
 
 func (s *Store) UpdateSettings(settings *model.Settings) error {
 	pairs := map[string]string{
 		"proxy_mode":            fmt.Sprintf("%v", settings.ProxyMode),
+		"proxy_enabled":         fmt.Sprintf("%v", settings.ProxyEnabled),
+		"proxy_url":             settings.ProxyURL,
 		"cache_max_mb":          fmt.Sprintf("%d", settings.CacheMaxMB),
 		"cache_max_images":      fmt.Sprintf("%d", settings.CacheMaxImages),
 		"cache_ttl":             fmt.Sprintf("%d", settings.CacheTTL),
 		"precache_count":        fmt.Sprintf("%d", settings.PrecacheCount),
+		"pool_size":             fmt.Sprintf("%d", settings.PoolSize),
 		"min_resolution":        settings.MinResolution,
 		"rate_limit":            fmt.Sprintf("%d", settings.RateLimit),
+		"rate_limit_window":     fmt.Sprintf("%d", settings.RateLimitWindow),
 		"timeout":               fmt.Sprintf("%d", settings.Timeout),
 		"custom_domain":         "",
 		"health_check_interval": fmt.Sprintf("%d", settings.HealthCheckInterval),
@@ -365,6 +424,10 @@ func (s *Store) UpdateSettings(settings *model.Settings) error {
 			return err
 		}
 	}
+	s.settingsMu.Lock()
+	s.cachedSettings = settings
+	s.settingsLoaded = true
+	s.settingsMu.Unlock()
 	return nil
 }
 
@@ -376,34 +439,89 @@ func encodeBoundTags(tags []string) string {
 	return string(b)
 }
 
+func systemTags() []model.Tag {
+	return []model.Tag{
+		{ID: "horizontal", Name: "横屏", System: true},
+		{ID: "vertical", Name: "竖屏", System: true},
+		{ID: "adaptive", Name: "自适应", System: true},
+	}
+}
+
 func (s *Store) GetTags() ([]model.Tag, error) {
 	var v string
 	err := s.db.QueryRow("SELECT value FROM settings WHERE key='tags'").Scan(&v)
 	if err != nil {
-		return defaultTags(), nil
-	}
-	if v == "" {
-		return defaultTags(), nil
+		return systemTags(), nil
 	}
 	var tags []model.Tag
-	if err := json.Unmarshal([]byte(v), &tags); err != nil || len(tags) == 0 {
-		return defaultTags(), nil
+	if v != "" {
+		if err := json.Unmarshal([]byte(v), &tags); err != nil {
+			tags = nil
+		}
 	}
-	return tags, nil
+	merged := mergeWithSystemTags(tags)
+	for i := range merged {
+		merged[i].System = isSystemTag(merged[i].ID)
+	}
+	return merged, nil
 }
 
+
 func (s *Store) UpdateTags(tags []model.Tag) error {
-	b, _ := json.Marshal(tags)
+	var kept []model.Tag
+	for _, t := range tags {
+		if !isSystemTag(t.ID) {
+			kept = append(kept, t)
+		}
+	}
+	finalTags := mergeWithSystemTags(kept)
+	b, _ := json.Marshal(finalTags)
 	_, err := s.db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('tags', ?)", string(b))
 	return err
 }
 
+func isSystemTag(id string) bool {
+	return id == "horizontal" || id == "vertical" || id == "adaptive"
+}
+
+func mergeWithSystemTags(tags []model.Tag) []model.Tag {
+	seen := make(map[string]bool)
+	for _, t := range tags {
+		seen[t.ID] = true
+	}
+	var result []model.Tag
+	for _, st := range systemTags() {
+		result = append(result, st)
+	}
+	for _, t := range tags {
+		if !seen[t.ID] {
+			continue
+		}
+		if !isSystemTag(t.ID) {
+			result = append(result, t)
+		}
+	}
+	return result
+}
+
 func defaultTags() []model.Tag {
 	return []model.Tag{
-		{ID: "horizontal", Name: "横屏"},
-		{ID: "vertical", Name: "竖屏"},
+		{ID: "horizontal", Name: "横屏", System: true},
+		{ID: "vertical", Name: "竖屏", System: true},
 		{ID: "adaptive", Name: "自适应"},
+		{ID: "r18", Name: "R18", Exclusive: true},
 	}
+}
+
+func hasExclusiveTag(tags []model.Tag, ids []string) bool {
+	for _, id := range ids {
+		for _, t := range tags {
+			if t.ID == id && t.Exclusive {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (s *Store) GetEnabledSources() ([]model.Source, error) {
@@ -421,44 +539,22 @@ func (s *Store) GetEnabledSources() ([]model.Source, error) {
 }
 
 func (s *Store) RecordStats(queryCats []string, src model.Source, imageURL string, imageID *int64, fileID string) error {
-	today := time.Now().Format("2006-01-02")
-	nowStr := time.Now().Format("2006-01-02 15:04:05")
-
-	s.db.Exec("INSERT INTO stats_requests (date, count) VALUES (?, 1) ON CONFLICT(date) DO UPDATE SET count = count + 1", today)
-
-	if len(queryCats) == 1 {
-		cat := strings.TrimSpace(queryCats[0])
-		if cat != "" && cat != "__uncategorized__" {
-			s.db.Exec("INSERT INTO stats_tag (date, tag_id, count) VALUES (?, ?, 1) ON CONFLICT(date, tag_id) DO UPDATE SET count = count + 1", today, cat)
-		}
+	if s.batcher != nil {
+		s.batcher.Record(StatsEvent{
+			QueryCats: queryCats,
+			Source:    src,
+			ImageURL:  imageURL,
+			ImageID:   imageID,
+			FileID:    fileID,
+		})
 	}
-
-	s.db.Exec("INSERT INTO stats_source (date, source_id, source_name, hit_count) VALUES (?, ?, ?, 1) ON CONFLICT(date, source_id) DO UPDATE SET hit_count = hit_count + 1, source_name = ?",
-		today, src.ID, src.Name, src.Name)
-
-	imgIDVal := int64(0)
-	fileIDVal := ""
-	if imageID != nil {
-		imgIDVal = *imageID
-		fileIDVal = fileID
-	}
-	s.db.Exec("INSERT INTO image_history (image_url, source_id, source_name, categories, created_at, image_id, file_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
-		imageURL, src.ID, src.Name, encodeStringSlice(queryCats), nowStr, imgIDVal, fileIDVal)
-
-	maxRecords := 60
-	if settings, err := s.GetSettings(); err == nil && settings.MaxHistoryRecords > 0 {
-		maxRecords = settings.MaxHistoryRecords
-	}
-
-	s.db.Exec("DELETE FROM image_history WHERE id NOT IN (SELECT id FROM image_history ORDER BY id DESC LIMIT ?)", maxRecords)
-
 	return nil
 }
 
-func (s *Store) InsertImage(fileID, originalURL string, sourceID int64, sourceName string, width, height int, format string, fileSize int64, categories string) (int64, error) {
+func (s *Store) InsertImage(fileID, originalURL string, sourceID int64, sourceName string, width, height int, format string, fileSize int64, categories string, orientation string) (int64, error) {
 	result, err := s.db.Exec(
-		"INSERT INTO images (file_id, original_url, source_id, source_name, width, height, format, file_size, categories) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		fileID, originalURL, sourceID, sourceName, width, height, format, fileSize, categories,
+		"INSERT INTO images (file_id, original_url, source_id, source_name, width, height, format, file_size, categories, orientation) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		fileID, originalURL, sourceID, sourceName, width, height, format, fileSize, categories, orientation,
 	)
 	if err != nil {
 		return 0, err
@@ -473,9 +569,10 @@ func (s *Store) GetImageByFileID(fileID string) (*model.CachedImage, error) {
 	var isSaved int
 	var savedAt sql.NullString
 	err := s.db.QueryRow(
-		"SELECT id, file_id, original_url, source_id, source_name, width, height, format, file_size, categories, is_saved, created_at FROM images WHERE file_id=?",
-		fileID,
-	).Scan(&img.ID, &img.FileID, &img.OriginalURL, &img.SourceID, &img.SourceName, &img.Width, &img.Height, &img.Format, &img.FileSize, &categories, &isSaved, &createdAt)
+		"SELECT id, file_id, original_url, source_id, source_name, width, height, format, file_size, categories, COALESCE(orientation,''), is_saved, created_at FROM images WHERE file_id=? OR id=?",
+		fileID, fileID,
+	).Scan(&img.ID, &img.FileID, &img.OriginalURL, &img.SourceID, &img.SourceName, &img.Width, &img.Height, &img.Format, &img.FileSize, &categories, &img.Orientation, &isSaved, &createdAt)
+
 	if err != nil {
 		return nil, err
 	}
@@ -493,9 +590,9 @@ func (s *Store) GetImageByID(id int64) (*model.CachedImage, error) {
 	var isSaved int
 	var savedAt sql.NullString
 	err := s.db.QueryRow(
-		"SELECT id, file_id, original_url, source_id, source_name, width, height, format, file_size, categories, is_saved, created_at FROM images WHERE id=?",
+		"SELECT id, file_id, original_url, source_id, source_name, width, height, format, file_size, categories, COALESCE(orientation,''), is_saved, created_at FROM images WHERE id=?",
 		id,
-	).Scan(&img.ID, &img.FileID, &img.OriginalURL, &img.SourceID, &img.SourceName, &img.Width, &img.Height, &img.Format, &img.FileSize, &categories, &isSaved, &createdAt)
+	).Scan(&img.ID, &img.FileID, &img.OriginalURL, &img.SourceID, &img.SourceName, &img.Width, &img.Height, &img.Format, &img.FileSize, &categories, &img.Orientation, &isSaved, &createdAt)
 	if err != nil {
 		return nil, err
 	}
@@ -525,7 +622,7 @@ func (s *Store) ListSavedImages(limit, offset int) ([]model.SavedImage, int, err
 	s.db.QueryRow("SELECT COUNT(*) FROM images WHERE is_saved=1").Scan(&total)
 
 	rows, err := s.db.Query(
-		"SELECT id, file_id, source_name, width, height, format, file_size, original_url, COALESCE(saved_at, created_at) FROM images WHERE is_saved=1 ORDER BY saved_at DESC LIMIT ? OFFSET ?",
+		"SELECT id, file_id, source_name, width, height, format, file_size, original_url, COALESCE(orientation,''), COALESCE(saved_at, created_at) FROM images WHERE is_saved=1 ORDER BY saved_at DESC LIMIT ? OFFSET ?",
 		limit, offset,
 	)
 	if err != nil {
@@ -537,7 +634,7 @@ func (s *Store) ListSavedImages(limit, offset int) ([]model.SavedImage, int, err
 	for rows.Next() {
 		var si model.SavedImage
 		var savedAt string
-		if err := rows.Scan(&si.ID, &si.FileID, &si.SourceName, &si.Width, &si.Height, &si.Format, &si.FileSize, &si.OriginalURL, &savedAt); err != nil {
+		if err := rows.Scan(&si.ID, &si.FileID, &si.SourceName, &si.Width, &si.Height, &si.Format, &si.FileSize, &si.OriginalURL, &si.Orientation, &savedAt); err != nil {
 			return nil, 0, err
 		}
 		si.SavedAt, _ = time.Parse("2006-01-02 15:04:05", savedAt)
@@ -636,7 +733,13 @@ func (s *Store) GetImageHistory(limit, offset int) ([]model.ImageHistoryRecord, 
 	var total int
 	s.db.QueryRow("SELECT COUNT(*) FROM image_history").Scan(&total)
 
-	rows, err := s.db.Query("SELECT id, image_url, source_id, source_name, categories, created_at, COALESCE(image_id,0), COALESCE(file_id,'') FROM image_history ORDER BY id DESC LIMIT ? OFFSET ?", limit, offset)
+	query := `
+		SELECT h.id, h.image_url, h.source_id, h.source_name, h.categories, h.created_at, COALESCE(h.image_id,0), COALESCE(h.file_id,''),
+		       COALESCE(img.is_saved, 0)
+		FROM image_history h
+		LEFT JOIN images img ON (h.file_id != '' AND h.file_id = img.file_id) OR (h.image_id > 0 AND h.image_id = img.id)
+		ORDER BY h.id DESC LIMIT ? OFFSET ?`
+	rows, err := s.db.Query(query, limit, offset)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -646,9 +749,11 @@ func (s *Store) GetImageHistory(limit, offset int) ([]model.ImageHistoryRecord, 
 	for rows.Next() {
 		var r model.ImageHistoryRecord
 		var createdAt string
-		if err := rows.Scan(&r.ID, &r.ImageURL, &r.SourceID, &r.SourceName, &r.Categories, &createdAt, &r.ImageID, &r.FileID); err != nil {
+		var isSaved int
+		if err := rows.Scan(&r.ID, &r.ImageURL, &r.SourceID, &r.SourceName, &r.Categories, &createdAt, &r.ImageID, &r.FileID, &isSaved); err != nil {
 			return nil, 0, err
 		}
+		r.IsSaved = isSaved > 0
 		parsedTime, err := time.Parse("2006-01-02 15:04:05", createdAt)
 		if err != nil {
 			parsedTime, err = time.Parse(time.RFC3339, createdAt)
@@ -664,6 +769,7 @@ func (s *Store) GetImageHistory(limit, offset int) ([]model.ImageHistoryRecord, 
 	}
 	return records, total, nil
 }
+
 
 func (s *Store) ExportStatsData() (*model.StatsExportData, error) {
 
@@ -753,8 +859,8 @@ func (s *Store) ImportSavedImage(img *model.SavedImage) error {
 		return err
 	}
 	_, err := s.db.Exec(
-		"INSERT INTO images (file_id, original_url, source_id, source_name, width, height, format, file_size, categories, is_saved, created_at, saved_at) VALUES (?, ?, 0, ?, ?, ?, ?, ?, '[]', 1, ?, ?)",
-		img.FileID, img.OriginalURL, img.SourceName, img.Width, img.Height, img.Format, img.FileSize, savedAtStr, savedAtStr,
+		"INSERT INTO images (file_id, original_url, source_id, source_name, width, height, format, file_size, categories, orientation, is_saved, created_at, saved_at) VALUES (?, ?, 0, ?, ?, ?, ?, ?, '[]', ?, 1, ?, ?)",
+		img.FileID, img.OriginalURL, img.SourceName, img.Width, img.Height, img.Format, img.FileSize, img.Orientation, savedAtStr, savedAtStr,
 	)
 	return err
 }

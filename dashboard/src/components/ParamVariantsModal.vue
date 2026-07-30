@@ -33,18 +33,22 @@ onMounted(() => {
       paramRows.value.push({
         key: p.key,
         value: p.value,
-        weight: p.weight || 3,
+        weight: p.weight || 50,
         categories: [...(p.categories || [])]
       })
     }
   } else {
     // Add default row if empty
-    paramRows.value.push({ key: '', value: '', weight: 3, categories: [] })
+    paramRows.value.push({ key: '', value: '', weight: 50, categories: [] })
   }
 })
 
 function addParamRow() {
-  paramRows.value.push({ key: '', value: '', weight: 3, categories: [] })
+  paramRows.value.push({ key: '', value: '', weight: 50, categories: [] })
+}
+
+function addSubApiRow() {
+  paramRows.value.push({ key: '/mobile.php', value: '手机专区', weight: 50, categories: [] })
 }
 
 function removeParamRow(index: number) {
@@ -62,11 +66,11 @@ async function handleSave() {
   try {
     const params: QueryParam[] = []
     for (const row of paramRows.value) {
-      if (row.key.trim() && row.value.trim()) {
+      if (row.key.trim()) {
         params.push({
           key: row.key.trim(),
           value: row.value.trim(),
-          weight: row.weight || 3,
+          weight: row.weight || 50,
           categories: [...row.categories]
         })
       }
@@ -109,10 +113,11 @@ async function handleSave() {
             <Sliders class="w-3.5 h-3.5" /> 多参数与路径分支功能说明
           </p>
           <p class="text-[11px] leading-relaxed text-morandi-text/80">
-            支持形如 <code class="font-mono bg-white px-1 py-0.5 rounded border border-morandi-sage/30">type=pc</code>、<code class="font-mono bg-white px-1 py-0.5 rounded border border-morandi-sage/30">return=302&type=mobile</code> 或路径式 <code class="font-mono bg-white px-1 py-0.5 rounded border border-morandi-sage/30">/pc</code> 分类。<br/>
-            每个分支独立绑定分类 Tag 与权重并参与分发，总体仍作为一个统一的图源进行连通性探针与健康统计。
+            支持追加 Query 参数分支（如 <code class="font-mono bg-white px-1 py-0.5 rounded border border-morandi-sage/30">type=pc</code>）、独立子 API 路径（如 <code class="font-mono bg-white px-1 py-0.5 rounded border border-morandi-sage/30">/mobile.php</code>）或完整子 URL 链接。<br/>
+            每个分支可独立指定关联 Tag 与权重并参与分发，总体统一作为一个图源进行连通性探针与健康检测。
           </p>
         </div>
+
 
         <!-- Param Rows List -->
         <div class="space-y-3">
@@ -120,17 +125,26 @@ async function handleSave() {
             <span class="font-bold text-morandi-text text-xs flex items-center gap-1">
               分支列表 (已配置 {{ paramRows.length }} 个)
             </span>
-            <button
-              type="button"
-              @click="addParamRow"
-              class="px-3 py-1 bg-morandi-sage hover:bg-morandi-sage-dark text-white rounded-lg font-medium text-xs flex items-center gap-1 transition-colors cursor-pointer shadow-xs"
-            >
-              <Plus class="w-3.5 h-3.5" /> 添加分支
-            </button>
+            <div class="flex items-center gap-2">
+              <button
+                type="button"
+                @click="addParamRow"
+                class="px-2.5 py-1 bg-morandi-sage hover:bg-morandi-sage-dark text-white rounded-lg font-medium text-xs flex items-center gap-1 transition-colors cursor-pointer shadow-xs"
+              >
+                <Plus class="w-3.5 h-3.5" /> 添加参数分支
+              </button>
+              <button
+                type="button"
+                @click="addSubApiRow"
+                class="px-2.5 py-1 bg-morandi-ocean hover:bg-morandi-ocean-dark text-white rounded-lg font-medium text-xs flex items-center gap-1 transition-colors cursor-pointer shadow-xs"
+              >
+                <Link2 class="w-3.5 h-3.5" /> 添加子 API 链接
+              </button>
+            </div>
           </div>
 
           <div v-if="paramRows.length === 0" class="text-center py-8 text-morandi-muted bg-morandi-bg/40 rounded-xl border border-dashed border-morandi-border">
-            暂未配置参数分支，点击右上角【添加分支】按钮新增
+            暂未配置分支，点击右上角【添加参数分支】或【添加子 API 链接】新增
           </div>
 
           <div
@@ -142,13 +156,13 @@ async function handleSave() {
               <span class="font-mono text-morandi-muted font-bold text-xs shrink-0">#{{ idx + 1 }}</span>
               <input
                 v-model="row.key"
-                placeholder="参数键 Key (如 type 或 return=302&type)"
+                :placeholder="row.key.startsWith('/') || row.key.startsWith('http') ? '子 API 链接/路径 (如 /mobile.php)' : '参数键 Key (如 type)'"
                 class="morandi-input px-2.5 py-1.5 font-mono text-xs flex-1"
               />
-              <span class="text-morandi-muted font-bold text-xs shrink-0">=</span>
+              <span class="text-morandi-muted font-bold text-xs shrink-0">{{ row.key.startsWith('/') || row.key.startsWith('http') ? '💬' : '=' }}</span>
               <input
                 v-model="row.value"
-                placeholder="参数值 Value (如 pc 或 mobile)"
+                :placeholder="row.key.startsWith('/') || row.key.startsWith('http') ? '备注标签 (如 手机专区)' : '参数值 Value (如 pc)'"
                 class="morandi-input px-2.5 py-1.5 font-mono text-xs flex-1"
               />
               <button
@@ -179,13 +193,16 @@ async function handleSave() {
 
               <div class="flex items-center gap-1.5">
                 <span class="text-[11px] font-medium text-morandi-muted">权重:</span>
-                <input
-                  v-model.number="row.weight"
-                  type="number"
-                  min="1"
-                  max="100"
-                  class="morandi-input px-2 py-0.5 text-xs font-mono w-14 text-center"
-                />
+                <button
+                  type="button"
+                  @click="row.weight = Math.max(10, (row.weight || 50) - 5)"
+                  class="w-6 h-6 flex items-center justify-center rounded border border-morandi-borderSoft hover:bg-morandi-hover text-xs font-bold cursor-pointer"
+                >−</button>
+                <button
+                  type="button"
+                  @click="row.weight = Math.min(90, (row.weight || 50) + 5)"
+                  class="w-6 h-6 flex items-center justify-center rounded border border-morandi-borderSoft hover:bg-morandi-hover text-xs font-bold cursor-pointer"
+                >+</button>
               </div>
             </div>
           </div>

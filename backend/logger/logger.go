@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/pichub/backend/common/ctxkey"
 )
 
 const maxLines = 200
@@ -114,6 +117,16 @@ func rotate() {
 
 	file = nf
 	count = len(lines)
+}
+
+func WithCtx(c *gin.Context, tag, format string, args ...any) {
+	rid, _ := c.Get(string(ctxkey.RequestID))
+	ridStr, _ := rid.(string)
+	if ridStr != "" {
+		write(tag, "[%s] "+format, append([]any{ridStr}, args...)...)
+	} else {
+		write(tag, format, args...)
+	}
 }
 
 func Close() {

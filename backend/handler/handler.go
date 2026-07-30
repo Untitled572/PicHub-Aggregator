@@ -10,6 +10,7 @@ type Handler struct {
 	engine        *service.Engine
 	healthChecker *service.HealthChecker
 	imageStore    *service.ImageStore
+	proxyConfig   *service.ProxyConfig
 }
 
 func NewHandler(st *store.Store, eng *service.Engine) *Handler {
@@ -20,6 +21,6 @@ func NewHandlerWithEngine(st *store.Store, eng *service.Engine, hc *service.Heal
 	return &Handler{store: st, engine: eng, healthChecker: hc}
 }
 
-func NewHandlerWithImageStore(st *store.Store, eng *service.Engine, hc *service.HealthChecker, imgStore *service.ImageStore) *Handler {
-	return &Handler{store: st, engine: eng, healthChecker: hc, imageStore: imgStore}
+func NewHandlerWithImageStore(st *store.Store, eng *service.Engine, hc *service.HealthChecker, imgStore *service.ImageStore, proxyCfg *service.ProxyConfig) *Handler {
+	return &Handler{store: st, engine: eng, healthChecker: hc, imageStore: imgStore, proxyConfig: proxyCfg}
 }

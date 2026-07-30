@@ -10,3 +10,5 @@ community/frontend/dist/
 devdocs/
 **/data/images/
 **/data/saved/
+AGENTS.md
+temp/

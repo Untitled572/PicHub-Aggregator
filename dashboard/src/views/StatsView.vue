@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useApi } from '../composables/useApi'
 import { useTags } from '../composables/useTags'
-import type { StatsResponse, ImageHistoryRecord } from '../types'
+import type { StatsResponse, ImageHistoryRecord, Settings } from '../types'
 import {
   TrendingUp,
   Activity,
@@ -21,21 +21,29 @@ import {
   Calendar,
   ChevronLeft,
   ChevronRight,
-  LineChart
+  LineChart,
+  ThumbsUp,
+  ThumbsDown
 } from 'lucide-vue-next'
 
-const { getStats, getImageHistory, saveImage, unsaveImage } = useApi()
+const { getStats, getImageHistory, getSettings, saveImage, unsaveImage, likeImage, dislikeImage } = useApi()
 const { getCategoryMap } = useTags()
 const categoryMap = computed(() => getCategoryMap())
 
 const loading = ref(false)
 const refreshing = ref(false)
 const stats = ref<StatsResponse | null>(null)
+const settings = ref<Settings | null>(null)
 
 // History Pagination State
 const history = ref<ImageHistoryRecord[]>([])
 const savedImageIds = ref(new Set<number>())
 const savingImageId = ref<number | null>(null)
+const likedIds = ref(new Set<number>())
+const likingId = ref<number | null>(null)
+const dislikedIds = ref(new Set<number>())
+const dislikingId = ref<number | null>(null)
+
 const historyLoadingMore = ref(false)
 const historySearch = ref('')
 const currentPage = ref(1)
@@ -88,19 +96,33 @@ async function loadAllData() {
     const sDate = activeRange.value === 'custom' ? customStartDate.value : ''
     const eDate = activeRange.value === 'custom' ? customEndDate.value : ''
 
-    const [statsRes, historyRes] = await Promise.all([
+    const [statsRes, historyRes, settingsRes] = await Promise.all([
       getStats(range, sDate, eDate),
-      getImageHistory(pageSize.value, (currentPage.value - 1) * pageSize.value)
+      getImageHistory(pageSize.value, (currentPage.value - 1) * pageSize.value),
+      getSettings().catch(() => null)
     ])
     stats.value = statsRes
     history.value = historyRes?.history || []
     totalHistoryCount.value = historyRes?.total || 0
+    if (settingsRes) settings.value = settingsRes
+
+    for (const item of history.value) {
+      if (item.is_saved) {
+        if (item.image_id) savedKeys.value.add(item.image_id)
+        if (item.file_id) savedKeys.value.add(item.file_id)
+        if (item.id) savedKeys.value.add(item.id)
+      }
+    }
+    savedKeys.value = new Set(savedKeys.value)
+
+
   } catch (e) {
     console.error('Failed to load stats:', e)
   } finally {
     loading.value = false
   }
 }
+
 
 async function fetchHistoryPage(page = 1) {
   currentPage.value = page
@@ -186,24 +208,79 @@ function parseCategories(catStr: string): string[] {
 
 function thumbnailUrl(item: ImageHistoryRecord): string {
   if (item.file_id) return `/images/${item.file_id}`
+  if (item.image_id && item.image_id > 0) return `/images/${item.image_id}`
   return item.image_url
 }
 
+const savedKeys = ref(new Set<string | number>())
+
+function isItemSaved(item: ImageHistoryRecord): boolean {
+  if (!item) return false
+  if (item.is_saved) return true
+  if (item.image_id && savedKeys.value.has(item.image_id)) return true
+  if (item.file_id && savedKeys.value.has(item.file_id)) return true
+  if (item.id && savedKeys.value.has(item.id)) return true
+  return false
+}
+
 async function toggleSaveImage(item: ImageHistoryRecord) {
-  if (!item.image_id) return
-  savingImageId.value = item.image_id
+  const targetId = item.file_id || item.image_id || item.id
+  if (!targetId) return
+  savingImageId.value = typeof targetId === 'number' ? targetId : 9999
   try {
-    if (savedImageIds.value.has(item.image_id)) {
-      await unsaveImage(item.image_id)
-      savedImageIds.value.delete(item.image_id)
+    const currentlySaved = isItemSaved(item)
+    if (currentlySaved) {
+      await unsaveImage(targetId)
+      if (item.image_id) savedKeys.value.delete(item.image_id)
+      if (item.file_id) savedKeys.value.delete(item.file_id)
+      if (item.id) savedKeys.value.delete(item.id)
+      item.is_saved = false
     } else {
-      await saveImage(item.image_id)
-      savedImageIds.value.add(item.image_id)
+      await saveImage(targetId)
+      if (item.image_id) savedKeys.value.add(item.image_id)
+      if (item.file_id) savedKeys.value.add(item.file_id)
+      if (item.id) savedKeys.value.add(item.id)
+      item.is_saved = true
     }
-    savedImageIds.value = new Set(savedImageIds.value)
-  } catch {}
+    savedKeys.value = new Set(savedKeys.value)
+  } catch (e) {
+    console.error('Failed to toggle save image:', e)
+  }
   savingImageId.value = null
 }
+
+
+
+async function handleLike(item: ImageHistoryRecord) {
+  const targetId = item.image_id || item.source_id
+  if (!targetId || likingId.value === targetId) return
+  likingId.value = targetId
+  try {
+    await likeImage(targetId)
+    likedIds.value.add(targetId)
+    likedIds.value = new Set(likedIds.value)
+    dislikedIds.value.delete(targetId)
+    dislikedIds.value = new Set(dislikedIds.value)
+  } catch {}
+  likingId.value = null
+}
+
+async function handleDislike(item: ImageHistoryRecord) {
+  const targetId = item.image_id || item.source_id
+  if (!targetId || dislikingId.value === targetId) return
+  dislikingId.value = targetId
+  try {
+    await dislikeImage(targetId)
+    dislikedIds.value.add(targetId)
+    dislikedIds.value = new Set(dislikedIds.value)
+    likedIds.value.delete(targetId)
+    likedIds.value = new Set(likedIds.value)
+  } catch {}
+  dislikingId.value = null
+}
+
+
+
 
 function formatDate(isoStr: string): string {
   if (!isoStr) return '-'
@@ -626,7 +703,7 @@ const sourceTrendLines = computed(() => {
           </span>
         </div>
 
-        <div v-if="validTags.length > 0" class="space-y-3.5 max-h-72 overflow-y-auto pr-1.5">
+        <div v-if="validTags.length > 0" class="space-y-3.5 max-h-96 overflow-y-auto pr-1.5">
           <div v-for="(t, idx) in validTags" :key="t.tag_id" class="space-y-1.5">
             <div class="flex items-center justify-between text-xs">
               <span class="font-semibold text-morandi-text flex items-center gap-1.5">
@@ -664,7 +741,7 @@ const sourceTrendLines = computed(() => {
           </span>
         </div>
 
-        <div v-if="stats?.today.sources && stats.today.sources.length > 0" class="space-y-2.5 max-h-72 overflow-y-auto pr-1.5">
+        <div v-if="stats?.today.sources && stats.today.sources.length > 0" class="space-y-2.5 max-h-36 overflow-y-auto pr-1.5">
           <div
             v-for="(s, idx) in stats.today.sources"
             :key="s.source_id"
@@ -702,43 +779,55 @@ const sourceTrendLines = computed(() => {
     <!-- 4. Image History Log Feed -->
     <div class="morandi-card p-5 space-y-4">
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-morandi-border/60 pb-3">
-        <div class="flex items-center gap-2">
-          <Clock class="w-4 h-4 text-morandi-sage" />
-          <h3 class="font-bold text-sm text-morandi-text">近期分发图片历史流水</h3>
-          <span class="text-xs text-morandi-muted font-mono font-medium">({{ history.length }} / {{ totalHistoryCount }} 条记录)</span>
+        <div>
+          <h3 class="font-bold text-sm text-morandi-text flex items-center gap-2">
+            <History class="w-4 h-4 text-morandi-sage" /> 近期分发图片历史流水
+          </h3>
+          <p class="text-xs text-morandi-muted mt-0.5">控制台近 {{ history.length }} 次分发的图片历史日志</p>
         </div>
 
-        <!-- History Search Box -->
-        <div class="relative w-full sm:w-64">
-          <Search class="w-3.5 h-3.5 text-morandi-muted absolute left-3 top-2.5" />
-          <input
-            v-model="historySearch"
-            placeholder="搜索图源名称或 URL..."
-            class="morandi-input w-full pl-8 pr-3 py-1.5 text-xs"
-          />
+        <div class="flex items-center gap-2">
+          <!-- History Search Input -->
+          <div class="relative w-full sm:w-60">
+            <Search class="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-morandi-light" />
+            <input
+              v-model="historySearch"
+              placeholder="搜索图源名称或图片 URL..."
+              class="morandi-input w-full pl-8 pr-3 py-1.5 text-xs font-mono"
+            />
+          </div>
         </div>
       </div>
 
       <!-- History Table / Feed -->
       <div v-if="filteredHistory.length > 0" class="overflow-x-auto">
-        <table class="w-full text-left text-xs border-collapse">
+        <table class="w-full text-left text-xs">
           <thead>
             <tr class="border-b border-morandi-border/60 text-morandi-muted font-medium text-[11px]">
-              <th class="pb-2 pl-2">预览</th>
-              <th class="pb-2">分发时间</th>
-              <th class="pb-2">命中图源</th>
-              <th class="pb-2">请求 Tag</th>
-              <th class="pb-2">返回图片地址 (Image URL)</th>
-              <th class="pb-2 pr-2 text-right">操作</th>
+              <th class="py-2 font-medium w-12">#</th>
+              <th class="py-2 font-medium w-24">预览</th>
+              <th class="py-2 font-medium">调取时间</th>
+              <th class="py-2 font-medium">命中图源</th>
+              <th class="py-2 font-medium">请求 Tag</th>
+              <th class="py-2 font-medium text-right pr-2">操作</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-morandi-border/30">
-            <tr v-for="item in filteredHistory" :key="item.id" class="hover:bg-morandi-bg/50 transition-colors group">
-              <!-- Thumbnail / Lightbox preview -->
-              <td class="py-2.5 pl-2">
+            <tr
+              v-for="(item, idx) in filteredHistory"
+              :key="item.id || idx"
+              class="hover:bg-morandi-bg/40 transition-colors"
+            >
+              <td class="py-2.5 font-mono text-morandi-muted text-[11px]">
+                {{ idx + 1 }}
+              </td>
+
+              <!-- Preview Thumbnail -->
+              <td class="py-2.5">
                 <div
-                  @click="previewImage = { url: item.image_url, sourceName: item.source_name, time: formatDate(item.created_at) }"
-                  class="w-10 h-10 rounded-lg bg-morandi-bg overflow-hidden border border-morandi-borderSoft relative cursor-pointer group/thumb shadow-xs shrink-0"
+                  v-if="item.file_id || (item.image_id && item.image_id > 0)"
+                  class="w-10 h-10 rounded-lg overflow-hidden bg-morandi-bg border border-morandi-borderSoft relative cursor-pointer group/thumb shadow-xs"
+                  @click="previewImage = { url: thumbnailUrl(item), sourceName: item.source_name, time: formatDate(item.created_at) }"
                 >
                   <img
                     :src="thumbnailUrl(item)"
@@ -750,6 +839,13 @@ const sourceTrendLines = computed(() => {
                     <Eye class="w-3.5 h-3.5" />
                   </div>
                 </div>
+                <span
+                  v-else
+                  class="inline-flex items-center gap-1 px-2 py-1 bg-morandi-bg text-morandi-muted rounded-md text-[10px] font-mono border border-morandi-borderSoft/60 select-none"
+                  title="未开启代理中转模式，直链不加载外部缩略图"
+                >
+                  🔗 302 直链
+                </span>
               </td>
 
               <!-- Created At -->
@@ -778,28 +874,51 @@ const sourceTrendLines = computed(() => {
                 </div>
               </td>
 
-              <!-- Image URL -->
-              <td class="py-2.5 max-w-xs md:max-w-md truncate font-mono text-[11px] text-morandi-muted">
-                <span class="truncate block hover:text-morandi-text transition-colors" :title="item.image_url">
-                  {{ item.image_url }}
-                </span>
-              </td>
-
               <!-- Actions -->
               <td class="py-2.5 pr-2 text-right whitespace-nowrap">
                 <div class="flex items-center justify-end gap-1.5">
+                  <!-- Save File Button (Only when local cached image exists) -->
                   <button
-                    v-if="item.image_id"
+                    v-if="item.file_id || (item.image_id && item.image_id > 0)"
                     @click="toggleSaveImage(item)"
-                    :disabled="savingImageId === item.image_id"
+                    :disabled="savingImageId === (item.image_id || 9999)"
                     class="p-1.5 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
-                    :class="savedImageIds.has(item.image_id) ? 'text-rose-500 hover:bg-rose-50' : 'text-morandi-muted hover:text-rose-400 hover:bg-rose-50/60'"
-                    :title="savedImageIds.has(item.image_id) ? '取消保存' : '保存'"
+                    :class="isItemSaved(item) ? 'text-rose-500 hover:bg-rose-50' : 'text-morandi-muted hover:text-rose-400 hover:bg-rose-50/60'"
+                    :title="isItemSaved(item) ? '取消收藏保存' : '收藏保存图片到本地'"
                   >
-                    <svg class="w-3.5 h-3.5" :class="savedImageIds.has(item.image_id) ? 'fill-rose-500' : 'fill-none'" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <svg class="w-3.5 h-3.5" :class="isItemSaved(item) ? 'fill-rose-500' : 'fill-none'" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                       <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
                     </svg>
                   </button>
+
+
+
+                  <!-- Like / Increase Weight Button (+1) -->
+                  <button
+                    v-if="item.source_id || item.image_id"
+                    @click="handleLike(item)"
+                    :disabled="likingId === (item.image_id || item.source_id) || likedIds.has(item.image_id || item.source_id)"
+                    class="p-1.5 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                    :class="likedIds.has(item.image_id || item.source_id) ? 'text-emerald-600 bg-emerald-50 font-bold' : 'text-morandi-muted hover:text-emerald-600 hover:bg-emerald-50'"
+                    :title="likedIds.has(item.image_id || item.source_id) ? '已点赞 (图源权重 +1)' : '喜欢（图源权重 +1）'"
+                  >
+                    <ThumbsUp class="w-3.5 h-3.5" :class="{ 'fill-emerald-600': likedIds.has(item.image_id || item.source_id) }" />
+                  </button>
+
+                  <!-- Dislike / Decrease Weight Button (-1) -->
+                  <button
+                    v-if="item.source_id || item.image_id"
+                    @click="handleDislike(item)"
+                    :disabled="dislikingId === (item.image_id || item.source_id) || dislikedIds.has(item.image_id || item.source_id)"
+                    class="p-1.5 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                    :class="dislikedIds.has(item.image_id || item.source_id) ? 'text-orange-500 bg-orange-50 font-bold' : 'text-morandi-muted hover:text-orange-500 hover:bg-orange-50'"
+                    :title="dislikedIds.has(item.image_id || item.source_id) ? '已点不喜欢 (图源权重 -1)' : '不喜欢（图源权重 -1）'"
+                  >
+                    <ThumbsDown class="w-3.5 h-3.5" :class="{ 'fill-orange-500': dislikedIds.has(item.image_id || item.source_id) }" />
+                  </button>
+
+
+
 
                   <button
                     @click="copyToClipboard(item.image_url)"

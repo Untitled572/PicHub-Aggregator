@@ -19,11 +19,16 @@ import {
   CheckSquare,
   Square,
   X,
-  CheckCircle2
+  CheckCircle2,
+  Lock
 } from 'lucide-vue-next'
 
-const { tags, addTag, renameTag, deleteTag } = useTags()
+const { tags, addTag, renameTag, deleteTag, toggleExclusive } = useTags()
 const { listSources, getSettings, updateSettings } = useApi()
+
+const systemTags = computed(() => tags.value.filter(t => t.system))
+const customTags = computed(() => tags.value.filter(t => !t.system))
+
 
 const sources = ref<Source[]>([])
 const copiedState = ref<Record<string, boolean>>({})
@@ -308,33 +313,42 @@ function handleTagDelete(id: string) {
     </div>
 
     <!-- Pure Tag Management Section -->
-    <div class="morandi-card p-6 space-y-4">
+    <div class="morandi-card p-6 space-y-5">
       <div class="flex items-center justify-between">
         <div>
           <h3 class="font-bold text-sm text-morandi-text flex items-center gap-1.5">
             <TagIcon class="w-4 h-4 text-morandi-sage" /> Tag 标签库管理 (共 {{ tags.length }} 个)
           </h3>
-          <p class="text-xs text-morandi-muted mt-0.5">可在此增加、修改或删除系统 Tag 标签，关联到对应的图源或主分发范围</p>
+          <p class="text-xs text-morandi-muted mt-0.5">系统的内置只读标签与自定义分发标签管理</p>
         </div>
 
         <button
           @click="showAddTagModal = true"
-          class="flex items-center gap-1.5 px-3.5 py-1.5 bg-morandi-sidebar hover:bg-morandi-hover border border-morandi-borderSoft text-morandi-text rounded-xl text-xs font-medium transition-colors"
+          class="flex items-center gap-1.5 px-3.5 py-1.5 bg-morandi-sage hover:bg-morandi-sage-dark text-white rounded-xl text-xs font-semibold shadow-xs transition-colors cursor-pointer"
         >
-          <Plus class="w-3.5 h-3.5 text-morandi-sage" />
-          <span>添加标签</span>
+          <Plus class="w-3.5 h-3.5" />
+          <span>添加自定义标签</span>
         </button>
       </div>
 
-      <!-- Tag Grid Cards -->
-      <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 pt-2">
-        <div
-          v-for="tag in tags"
-          :key="tag.id"
-          class="p-3.5 bg-morandi-bg/60 hover:bg-white rounded-xl border border-morandi-borderSoft flex flex-col justify-between space-y-2.5 transition-all hover:shadow-sm"
-        >
-          <!-- Top Tag Identifier & Count -->
-          <div class="flex items-center justify-between">
+      <!-- System Tags Unified Box (系统内置标签框) -->
+      <div v-if="systemTags.length > 0" class="p-4 bg-morandi-bg/80 rounded-2xl border border-morandi-borderSoft space-y-3">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <div class="w-6 h-6 rounded-lg bg-morandi-sage/15 text-morandi-sage-dark flex items-center justify-center shrink-0">
+              <Lock class="w-3.5 h-3.5 text-morandi-sage-dark" />
+            </div>
+            <h4 class="text-xs font-bold text-morandi-text">系统内置标签 (只读 / 规则判定)</h4>
+          </div>
+          <span class="text-[10px] text-morandi-muted bg-white px-2 py-0.5 rounded-md border border-morandi-borderSoft">自动按图片真实宽高比例或系统规则匹配</span>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+          <div
+            v-for="tag in systemTags"
+            :key="tag.id"
+            class="p-3 bg-white rounded-xl border border-morandi-borderSoft/80 flex items-center justify-between shadow-2xs"
+          >
             <div class="flex items-center gap-2">
               <span class="px-2.5 py-0.5 bg-morandi-sage-light text-morandi-sage-dark rounded-lg font-bold text-xs border border-morandi-sage/20">
                 #{{ tag.name }}
@@ -342,71 +356,120 @@ function handleTagDelete(id: string) {
               <span class="font-mono text-xs text-morandi-muted">({{ tag.id }})</span>
             </div>
 
-            <span class="text-[10px] px-2 py-0.5 bg-morandi-sidebar text-morandi-muted rounded-md font-medium">
-              {{ tagSourceCounts[tag.id] || 0 }} 源关联
-            </span>
+            <div class="flex items-center gap-1.5">
+              <span class="text-[10px] px-2 py-0.5 bg-morandi-bg text-morandi-muted rounded-md font-medium">
+                {{ tagSourceCounts[tag.id] || 0 }} 源关联
+              </span>
+              <span class="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded font-mono">系统</span>
+            </div>
           </div>
+        </div>
+      </div>
 
-          <!-- Edit Mode / Normal Action Buttons -->
-          <div v-if="editingTagId === tag.id" class="flex gap-2 pt-1">
-            <input
-              v-model="editingTagName"
-              placeholder="新名称"
-              class="morandi-input px-2 py-1 text-xs flex-1"
-              @keyup.enter="saveRename(tag.id)"
-            />
-            <button
-              @click="saveRename(tag.id)"
-              class="px-2.5 py-1 bg-morandi-sage text-white rounded-lg text-xs font-semibold"
-            >
-              保存
-            </button>
-            <button
-              @click="editingTagId = null"
-              class="px-2 py-1 text-morandi-muted hover:bg-morandi-hover rounded-lg text-xs"
-            >
-              取消
-            </button>
-          </div>
+      <!-- Custom Tag Grid Cards -->
+      <div class="space-y-2.5">
+        <h4 class="text-xs font-bold text-morandi-text flex items-center gap-1.5">
+          <Sliders class="w-3.5 h-3.5 text-morandi-sage" /> 自定义分类 Tag 标签 (共 {{ customTags.length }} 个)
+        </h4>
 
-          <div v-else class="flex items-center justify-end gap-2 pt-1 border-t border-morandi-border/30 text-xs">
-            <button
-              @click="startRename(tag)"
-              class="flex items-center gap-1 px-2 py-1 text-morandi-muted hover:text-morandi-sage-dark hover:bg-morandi-sage-light/50 rounded-lg transition-colors"
-            >
-              <Edit3 class="w-3.5 h-3.5" />
-              <span>重命名</span>
-            </button>
-            <!-- Inline Tag Delete Confirmation -->
-            <div v-if="confirmingTagId === tag.id" class="flex items-center gap-1.5 bg-rose-50 px-2.5 py-1 rounded-xl border border-rose-200 animate-in fade-in zoom-in-95 duration-150">
-              <span class="text-[11px] font-bold text-rose-700">确认删除?</span>
+        <div v-if="customTags.length === 0" class="text-center py-6 text-morandi-muted bg-morandi-bg/40 rounded-xl border border-dashed border-morandi-border text-xs">
+          暂无自定义标签，点击右上角【添加自定义标签】新增
+        </div>
+
+        <div v-else class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 pt-1">
+          <div
+            v-for="tag in customTags"
+            :key="tag.id"
+            class="p-3.5 bg-morandi-bg/60 hover:bg-white rounded-xl border border-morandi-borderSoft flex flex-col justify-between space-y-2.5 transition-all hover:shadow-sm"
+          >
+            <!-- Top Tag Identifier & Count -->
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="px-2.5 py-0.5 bg-morandi-sage-light text-morandi-sage-dark rounded-lg font-bold text-xs border border-morandi-sage/20">
+                  #{{ tag.name }}
+                </span>
+                <span class="font-mono text-xs text-morandi-muted">({{ tag.id }})</span>
+              </div>
+
+              <span class="text-[10px] px-2 py-0.5 bg-morandi-sidebar text-morandi-muted rounded-md font-medium">
+                {{ tagSourceCounts[tag.id] || 0 }} 源关联
+              </span>
+            </div>
+
+            <!-- Edit Mode / Normal Action Buttons -->
+            <div v-if="editingTagId === tag.id" class="flex gap-2 pt-1">
+              <input
+                v-model="editingTagName"
+                placeholder="新名称"
+                class="morandi-input px-2 py-1 text-xs flex-1"
+                @keyup.enter="saveRename(tag.id)"
+              />
               <button
-                @click="handleTagDelete(tag.id)"
-                class="px-2 py-0.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-[11px] rounded-lg transition-colors cursor-pointer"
+                @click="saveRename(tag.id)"
+                class="px-2.5 py-1 bg-morandi-sage text-white rounded-lg text-xs font-semibold cursor-pointer"
               >
-                删除
+                保存
               </button>
               <button
-                @click="confirmingTagId = null"
-                class="px-2 py-0.5 bg-white hover:bg-slate-100 text-slate-600 font-medium text-[11px] rounded-lg border border-slate-200 transition-colors cursor-pointer"
+                @click="editingTagId = null"
+                class="px-2 py-1 text-morandi-muted hover:bg-morandi-hover rounded-lg text-xs cursor-pointer"
               >
                 取消
               </button>
             </div>
 
+            <div v-else class="flex items-center justify-end gap-2 pt-1 border-t border-morandi-border/30 text-xs">
+              <button
+                type="button"
+                @click="toggleExclusive(tag.id)"
+                class="px-2 py-0.5 rounded-md text-[10px] font-medium border transition-all cursor-pointer select-none"
+                :class="tag.exclusive
+                  ? 'bg-morandi-sand-light/60 text-morandi-sand-dark border-morandi-sand/30 font-semibold'
+                  : 'bg-morandi-bg text-morandi-muted/80 border-morandi-borderSoft/60 hover:text-morandi-text'"
+                title="Exclusive 独占标签"
+              >
+                Exclusive {{ tag.exclusive ? '✓' : '' }}
+              </button>
 
-            <button
-              v-else
-              @click="confirmingTagId = tag.id"
-              class="flex items-center gap-1 px-2 py-1 text-morandi-muted hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-            >
-              <Trash2 class="w-3.5 h-3.5" />
-              <span>删除</span>
-            </button>
+              <button
+                @click="startRename(tag)"
+                class="flex items-center gap-1 px-2 py-1 text-morandi-muted hover:text-morandi-sage-dark hover:bg-morandi-sage-light/50 rounded-lg transition-colors cursor-pointer"
+              >
+                <Edit3 class="w-3.5 h-3.5" />
+                <span>重命名</span>
+              </button>
+
+              <!-- Inline Tag Delete Confirmation -->
+              <div v-if="confirmingTagId === tag.id" class="flex items-center gap-1.5 bg-rose-50 px-2.5 py-1 rounded-xl border border-rose-200 animate-in fade-in zoom-in-95 duration-150">
+                <span class="text-[11px] font-bold text-rose-700">确认删除?</span>
+                <button
+                  @click="handleTagDelete(tag.id)"
+                  class="px-2 py-0.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-[11px] rounded-lg transition-colors cursor-pointer"
+                >
+                  删除
+                </button>
+                <button
+                  @click="confirmingTagId = null"
+                  class="px-2 py-0.5 bg-white hover:bg-slate-100 text-slate-600 font-medium text-[11px] rounded-lg border border-slate-200 transition-colors cursor-pointer"
+                >
+                  取消
+                </button>
+              </div>
+
+              <button
+                v-else
+                @click="confirmingTagId = tag.id"
+                class="flex items-center gap-1 px-2 py-1 text-morandi-muted hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+              >
+                <Trash2 class="w-3.5 h-3.5" />
+                <span>删除</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
     </div>
+
 
     <!-- Add Tag Modal -->
     <div

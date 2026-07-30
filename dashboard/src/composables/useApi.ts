@@ -121,13 +121,22 @@ export function useApi() {
     return request<{ history: ImageHistoryRecord[]; total: number; limit: number; offset: number }>(`/api/stats/history?limit=${limit}&offset=${offset}`)
   }
 
-  function saveImage(id: number) {
+  function saveImage(id: number | string) {
     return request<{ message: string }>(`/api/images/${id}/save`, { method: 'POST' })
   }
 
-  function unsaveImage(id: number) {
+  function unsaveImage(id: number | string) {
     return request<{ message: string }>(`/api/images/${id}/save`, { method: 'DELETE' })
   }
+
+  function likeImage(id: number | string) {
+    return request<{ message: string }>(`/api/images/${id}/like`, { method: 'POST' })
+  }
+
+  function dislikeImage(id: number | string) {
+    return request<{ message: string }>(`/api/images/${id}/dislike`, { method: 'POST' })
+  }
+
 
   function listSavedImages(limit = 20, offset = 0) {
     return request<{ images: SavedImage[]; total: number; limit: number; offset: number }>(`/api/images/saved?limit=${limit}&offset=${offset}`)
@@ -158,8 +167,6 @@ export function useApi() {
     detectURL, healthCheck,
     exportRules, importRules, exportCustomData, importCustomData,
     getStats, getImageHistory,
-    saveImage, unsaveImage, listSavedImages,
+    saveImage, unsaveImage, likeImage, dislikeImage, listSavedImages,
   }
 }
-
-

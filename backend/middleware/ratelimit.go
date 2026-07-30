@@ -45,10 +45,22 @@ func RateLimit(st *store.Store) gin.HandlerFunc {
 	}()
 
 	return func(c *gin.Context) {
+		settings, _ := rl.store.GetSettings()
+		limit := 60
+		windowSecs := 60
+		if settings != nil {
+			if settings.RateLimit > 0 {
+				limit = settings.RateLimit
+			}
+			if settings.RateLimitWindow > 0 {
+				windowSecs = settings.RateLimitWindow
+			}
+		}
+
 		ip := c.ClientIP()
 		rl.mu.Lock()
 		now := time.Now()
-		window := now.Add(-1 * time.Minute)
+		window := now.Add(-time.Duration(windowSecs) * time.Second)
 		var recent []time.Time
 		for _, t := range rl.visits[ip] {
 			if t.After(window) {
@@ -56,12 +68,6 @@ func RateLimit(st *store.Store) gin.HandlerFunc {
 			}
 		}
 		rl.visits[ip] = append(recent, now)
-		limit := 60
-		if st := rl.store; st != nil {
-			if s, err := st.GetSettings(); err == nil && s.RateLimit > 0 {
-				limit = s.RateLimit
-			}
-		}
 		rl.mu.Unlock()
 		if len(recent) >= limit {
 			logger.Error("rate limit exceeded: %s (%d/%d)", ip, len(recent)+1, limit)

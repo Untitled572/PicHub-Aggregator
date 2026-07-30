@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useApi } from '../composables/useApi'
 import type { SavedImage } from '../types'
 import {
@@ -17,8 +17,13 @@ import {
   Eye,
   X,
   HardDrive,
-  FileCode
+  FileCode,
+  List,
+  Grid,
+  LayoutGrid,
+  Download
 } from 'lucide-vue-next'
+
 
 const { listSavedImages, unsaveImage } = useApi()
 
@@ -29,9 +34,15 @@ const pageSize = ref(20)
 const loading = ref(false)
 const refreshing = ref(false)
 const copiedUrl = ref<string | null>(null)
+const viewMode = ref<'list' | 'grid_small' | 'grid_large'>('grid_small')
+const loadingMore = ref(false)
+const sentinelRef = ref<HTMLElement | null>(null)
+let observer: IntersectionObserver | null = null
 
 // Lightbox Preview Modal State
 const previewImage = ref<SavedImage | null>(null)
+
+const hasMore = computed(() => images.value.length < total.value)
 
 const totalPages = computed(() => {
   if (total.value === 0) return 1
@@ -40,7 +51,66 @@ const totalPages = computed(() => {
 
 onMounted(async () => {
   await loadPage(1)
+  if (viewMode.value === 'grid_large') {
+    nextTick(() => setupObserver())
+  }
 })
+
+onUnmounted(() => {
+  cleanupObserver()
+})
+
+watch(viewMode, async (newMode) => {
+  cleanupObserver()
+  if (newMode === 'grid_large') {
+    images.value = []
+    await loadPage(1)
+    nextTick(() => setupObserver())
+  } else {
+    await loadPage(1)
+  }
+})
+
+async function loadNextBatch() {
+  if (loadingMore.value || !hasMore.value || loading.value) return
+  loadingMore.value = true
+  try {
+    const res = await listSavedImages(pageSize.value, images.value.length)
+    if (res?.images && res.images.length > 0) {
+      images.value.push(...res.images)
+    }
+    total.value = res?.total || total.value
+  } catch (e) {
+    console.error('Failed to load next batch of saved images:', e)
+  } finally {
+    loadingMore.value = false
+  }
+}
+
+function setupObserver() {
+  cleanupObserver()
+  if (viewMode.value !== 'grid_large') return
+  observer = new IntersectionObserver(
+    (entries) => {
+      const entry = entries[0]
+      if (entry && entry.isIntersecting) {
+        loadNextBatch()
+      }
+    },
+    { rootMargin: '300px' }
+  )
+
+  if (sentinelRef.value) {
+    observer.observe(sentinelRef.value)
+  }
+}
+
+function cleanupObserver() {
+  if (observer) {
+    observer.disconnect()
+    observer = null
+  }
+}
 
 async function loadPage(page: number) {
   currentPage.value = page
@@ -58,7 +128,13 @@ async function loadPage(page: number) {
 
 async function refreshData() {
   refreshing.value = true
-  await loadPage(currentPage.value)
+  if (viewMode.value === 'grid_large') {
+    images.value = []
+    await loadPage(1)
+    nextTick(() => setupObserver())
+  } else {
+    await loadPage(currentPage.value)
+  }
   setTimeout(() => refreshing.value = false, 500)
 }
 
@@ -74,7 +150,12 @@ async function handleUnsave(id: number) {
     if (previewImage.value?.id === id) {
       previewImage.value = null
     }
-    await loadPage(currentPage.value)
+    if (viewMode.value === 'grid_large') {
+      images.value = images.value.filter(img => img.id !== id)
+      total.value = Math.max(0, total.value - 1)
+    } else {
+      await loadPage(currentPage.value)
+    }
   } catch (e) {
     console.error('Failed to unsave image:', e)
   }
@@ -88,11 +169,23 @@ function getFullLocalImageUrl(fileId: string): string {
   return `${window.location.origin}/images/${fileId}`
 }
 
+function downloadImage(img: SavedImage) {
+  const url = getLocalImageUrl(img.file_id)
+  const a = document.createElement('a')
+  a.href = url
+  const ext = img.format ? `.${img.format.toLowerCase()}` : '.jpg'
+  a.download = `pichub_${img.file_id}${ext}`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+}
+
 function copyUrl(text: string) {
   navigator.clipboard.writeText(text)
   copiedUrl.value = text
   setTimeout(() => copiedUrl.value = null, 2000)
 }
+
 
 function formatSize(bytes: number): string {
   if (!bytes || bytes <= 0) return '-'
@@ -136,14 +229,52 @@ function formatDate(dateStr: string): string {
         </div>
       </div>
 
-      <button
-        @click="refreshData"
-        :disabled="refreshing || loading"
-        class="px-4 py-2 text-xs font-semibold bg-white hover:bg-morandi-hover text-morandi-text rounded-xl border border-morandi-borderSoft shadow-xs flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50 shrink-0 self-start sm:self-auto"
-      >
-        <RefreshCw class="w-3.5 h-3.5 text-morandi-sage" :class="{ 'animate-spin': refreshing }" />
-        <span>刷新保存图库</span>
-      </button>
+      <div class="flex items-center gap-2 shrink-0">
+        <!-- View Mode Switcher -->
+        <div class="flex items-center p-1 bg-morandi-bg/80 rounded-xl border border-morandi-borderSoft">
+          <button
+            type="button"
+            @click="viewMode = 'list'"
+            class="px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer select-none"
+            :class="viewMode === 'list' ? 'bg-white text-morandi-text shadow-xs font-bold' : 'text-morandi-muted hover:text-morandi-text'"
+            title="列表视图"
+          >
+            <List class="w-3.5 h-3.5" />
+            <span class="hidden sm:inline">列表</span>
+          </button>
+
+          <button
+            type="button"
+            @click="viewMode = 'grid_small'"
+            class="px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer select-none"
+            :class="viewMode === 'grid_small' ? 'bg-white text-morandi-text shadow-xs font-bold' : 'text-morandi-muted hover:text-morandi-text'"
+            title="小图图墙"
+          >
+            <Grid class="w-3.5 h-3.5" />
+            <span class="hidden sm:inline">小图图墙</span>
+          </button>
+
+          <button
+            type="button"
+            @click="viewMode = 'grid_large'"
+            class="px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer select-none"
+            :class="viewMode === 'grid_large' ? 'bg-white text-morandi-text shadow-xs font-bold' : 'text-morandi-muted hover:text-morandi-text'"
+            title="大图图墙"
+          >
+            <LayoutGrid class="w-3.5 h-3.5" />
+            <span class="hidden sm:inline">大图图墙</span>
+          </button>
+        </div>
+
+        <button
+          @click="refreshData"
+          :disabled="refreshing || loading"
+          class="px-3.5 py-2 text-xs font-semibold bg-white hover:bg-morandi-hover text-morandi-text rounded-xl border border-morandi-borderSoft shadow-xs flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+        >
+          <RefreshCw class="w-3.5 h-3.5 text-morandi-sage" :class="{ 'animate-spin': refreshing }" />
+          <span>刷新</span>
+        </button>
+      </div>
     </div>
 
     <!-- Loading Skeleton State -->
@@ -163,8 +294,85 @@ function formatDate(dateStr: string): string {
       </p>
     </div>
 
-    <!-- Image Grid Gallery -->
-    <div v-else class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+    <!-- View Mode 1: 📋 List Table View -->
+    <div v-else-if="viewMode === 'list'" class="morandi-card overflow-x-auto">
+      <table class="w-full text-left text-xs">
+        <thead>
+          <tr class="border-b border-morandi-border/60 text-morandi-muted font-medium text-[11px]">
+            <th class="py-3 px-4 w-12">#</th>
+            <th class="py-3 px-4 w-16">预览</th>
+            <th class="py-3 px-4">图源名称</th>
+            <th class="py-3 px-4">分辨率 / 格式</th>
+            <th class="py-3 px-4">文件大小</th>
+            <th class="py-3 px-4">保存时间</th>
+            <th class="py-3 px-4 text-right">操作</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-morandi-border/30">
+          <tr v-for="(img, idx) in images" :key="img.id" class="hover:bg-morandi-bg/40 transition-colors">
+            <td class="py-3 px-4 font-mono text-morandi-muted text-[11px]">
+              {{ (currentPage - 1) * pageSize + idx + 1 }}
+            </td>
+            <td class="py-3 px-4">
+              <div
+                @click="previewImage = img"
+                class="w-10 h-10 rounded-lg overflow-hidden bg-morandi-bg border border-morandi-borderSoft relative cursor-pointer group/thumb shadow-xs"
+              >
+                <img
+                  :src="getLocalImageUrl(img.file_id)"
+                  loading="lazy"
+                  class="w-full h-full object-cover transition-transform duration-300 group-hover/thumb:scale-110"
+                />
+                <div class="absolute inset-0 bg-black/30 opacity-0 group-hover/thumb:opacity-100 transition-opacity flex items-center justify-center text-white">
+                  <Eye class="w-3.5 h-3.5" />
+                </div>
+              </div>
+            </td>
+            <td class="py-3 px-4 font-semibold text-morandi-text">
+              {{ img.source_name || '离线缓存图片' }}
+            </td>
+            <td class="py-3 px-4 font-mono text-morandi-muted">
+              <span v-if="img.width && img.height">{{ img.width }}×{{ img.height }}</span>
+              <span v-if="img.format" class="ml-1.5 uppercase text-[10px] bg-morandi-bg px-1.5 py-0.5 rounded font-bold border border-morandi-borderSoft">{{ img.format }}</span>
+            </td>
+            <td class="py-3 px-4 font-mono font-bold text-morandi-sage-dark">
+              {{ formatSize(img.file_size) }}
+            </td>
+            <td class="py-3 px-4 font-mono text-[11px] text-morandi-muted whitespace-nowrap">
+              {{ formatDate(img.saved_at) }}
+            </td>
+            <td class="py-3 px-4 text-right whitespace-nowrap">
+              <div class="flex items-center justify-end gap-1.5">
+                <button
+                  @click="downloadImage(img)"
+                  class="p-1.5 text-morandi-muted hover:text-morandi-sage-dark hover:bg-morandi-sage-light/60 rounded-lg transition-colors cursor-pointer"
+                  title="下载图片到本地"
+                >
+                  <Download class="w-3.5 h-3.5 text-morandi-sage" />
+                </button>
+                <button
+                  @click="previewImage = img"
+                  class="p-1.5 text-morandi-muted hover:text-morandi-sage-dark hover:bg-morandi-sage-light/60 rounded-lg transition-colors cursor-pointer"
+                  title="大图预览"
+                >
+                  <Eye class="w-3.5 h-3.5" />
+                </button>
+                <button
+                  @click="handleUnsave(img.id)"
+                  class="p-1.5 text-morandi-muted hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                  title="移除/取消保存"
+                >
+                  <Trash2 class="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- View Mode 2: 🖼️ Small Grid View (With Full Meta Info) -->
+    <div v-else-if="viewMode === 'grid_small'" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
       <div
         v-for="img in images"
         :key="img.id"
@@ -230,21 +438,91 @@ function formatDate(dateStr: string): string {
             </div>
 
             <button
-              @click="copyUrl(getFullLocalImageUrl(img.file_id))"
+              @click="downloadImage(img)"
               class="flex items-center gap-1 text-morandi-muted hover:text-morandi-sage-dark hover:bg-morandi-sage-light/60 px-1.5 py-0.5 rounded transition-colors cursor-pointer"
-              title="复制本地缓存 URL"
+              title="下载图片到本地"
             >
-              <Check v-if="copiedUrl === getFullLocalImageUrl(img.file_id)" class="w-3 h-3 text-emerald-600" />
-              <Copy v-else class="w-3 h-3" />
-              <span>{{ copiedUrl === getFullLocalImageUrl(img.file_id) ? '已复制' : '复制' }}</span>
+              <Download class="w-3 h-3 text-morandi-sage" />
+              <span>下载</span>
             </button>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Pagination Controls Bar -->
-    <div v-if="total > 0" class="morandi-card p-4 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+    <!-- View Mode 3: 🏙️ Large Grid View (Borderless Natural Aspect Photo Wall Mosaic - Extra Large with Infinite Scroll) -->
+    <div v-else-if="viewMode === 'grid_large'" class="space-y-4">
+      <div class="columns-1 md:columns-2 xl:columns-3 gap-2.5 space-y-2.5">
+        <div
+          v-for="img in images"
+          :key="img.id"
+          class="break-inside-avoid block relative overflow-hidden group cursor-pointer bg-stone-950 border-0 rounded-none shadow-none transition-all duration-300"
+          @click="previewImage = img"
+        >
+          <!-- Natural Aspect Full Image Without Borders or Rounded Corners -->
+          <img
+            :src="getLocalImageUrl(img.file_id)"
+            loading="lazy"
+            class="w-full h-auto block object-cover rounded-none transition-transform duration-500 group-hover:scale-105"
+          />
+
+          <!-- Full Bottom Gradient Hover Overlay -->
+
+          <div class="absolute inset-0 bg-gradient-to-t from-stone-950/90 via-stone-950/40 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-300 p-5 flex flex-col justify-end gap-2 text-white">
+            <div class="flex items-center justify-between gap-2">
+              <h4 class="font-bold text-base truncate text-white" :title="img.source_name">{{ img.source_name || '离线缓存图片' }}</h4>
+              <span class="text-xs font-mono font-bold bg-white/20 backdrop-blur-md px-2.5 py-0.5 rounded-none text-white shrink-0">
+                {{ formatSize(img.file_size) }}
+              </span>
+            </div>
+
+            <div class="flex items-center justify-between text-xs text-stone-300 font-mono pt-1.5 border-t border-white/20">
+              <div class="flex items-center gap-1.5">
+                <Clock class="w-3.5 h-3.5 text-stone-400" />
+                <span>{{ formatDate(img.saved_at) }}</span>
+              </div>
+
+              <div class="flex items-center gap-2">
+                <button
+                  @click.stop="downloadImage(img)"
+                  class="px-3 py-1 bg-white/20 hover:bg-white/40 backdrop-blur-md text-white rounded-none transition-colors flex items-center gap-1.5 cursor-pointer font-semibold"
+                  title="下载图片到本地"
+                >
+                  <Download class="w-3.5 h-3.5" />
+                  <span>下载本地</span>
+                </button>
+
+                <button
+                  @click.stop="handleUnsave(img.id)"
+                  class="p-1.5 bg-rose-500/80 hover:bg-rose-600 backdrop-blur-md text-white rounded-none transition-colors cursor-pointer"
+                  title="移除"
+                >
+                  <Trash2 class="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Infinite Scroll Sentinel & Loading Indicator -->
+      <div
+        ref="sentinelRef"
+        class="py-6 text-center flex flex-col items-center justify-center gap-2 text-xs text-morandi-muted select-none"
+      >
+        <div v-if="loadingMore" class="flex items-center gap-2 px-4 py-2 bg-white/80 rounded-xl border border-morandi-borderSoft shadow-xs backdrop-blur-sm">
+          <RefreshCw class="w-4 h-4 animate-spin text-morandi-sage" />
+          <span>正在加载更多离线图片...</span>
+        </div>
+        <div v-else-if="!hasMore && images.length > 0" class="px-4 py-2 bg-morandi-bg/80 rounded-xl border border-morandi-borderSoft/60 text-[11px] font-mono text-morandi-muted">
+          ✨ 已加载全部 {{ total }} 张离线保存图片
+        </div>
+      </div>
+    </div>
+
+    <!-- Pagination Controls Bar (Hidden in Large View Mode with Infinite Scroll) -->
+    <div v-if="total > 0 && viewMode !== 'grid_large'" class="morandi-card p-4 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+
       <div class="flex items-center gap-3">
         <div class="flex items-center gap-1.5 text-morandi-muted font-medium">
           <span>每页显示:</span>

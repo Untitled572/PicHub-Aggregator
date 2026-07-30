@@ -1,6 +1,8 @@
 export interface Tag {
   id: string
   name: string
+  system?: boolean
+  exclusive?: boolean
 }
 
 export interface QueryParam {
@@ -33,12 +35,16 @@ export interface Source {
 
 export interface Settings {
   proxy_mode: boolean
+  proxy_enabled?: boolean
+  proxy_url?: string
   cache_max_mb: number
   cache_max_images: number
   cache_ttl: number
   precache_count?: number
+  pool_size?: number
   min_resolution: string
   rate_limit: number
+  rate_limit_window?: number
   timeout: number
   health_check_interval?: number
   max_history_records?: number
@@ -122,7 +128,9 @@ export interface ImageHistoryRecord {
   created_at: string
   image_id?: number
   file_id?: string
+  is_saved?: boolean
 }
+
 
 export interface SavedImage {
   id: number

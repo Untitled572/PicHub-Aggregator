@@ -7,16 +7,16 @@
 [![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat-square&logo=go)](https://golang.org)
 [![Vue3](https://img.shields.io/badge/Vue.js-v3.4-4FC08D?style=flat-square&logo=vue.js)](https://vuejs.org)
 [![Tailwind CSS](https://img.shields.io/badge/TailwindCSS-v3.4-38BDF8?style=flat-square&logo=tailwindcss)](https://tailwindcss.com)
-[![Release](https://img.shields.io/badge/Release-v0.4.0-emerald?style=flat-square)](https://github.com/untitled572/PicHub-Aggregator/releases)
+[![Release](https://img.shields.io/badge/Release-v0.5.0-emerald?style=flat-square)](https://github.com/untitled572/PicHub-Aggregator/releases)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=flat-square&logo=docker)](https://www.docker.com)
 [![License](https://img.shields.io/badge/License-GPL--3.0-blue.svg?style=flat-square)](LICENSE)
 
 
 [快速开始](#-快速开始) •
 [核心特性](#-核心特性) •
+[控制台预览](#-控制台预览) •
 [API 使用指南](#-api-使用指南) •
-[架构设计](#-架构设计) •
-[社区与扩展](#-社区规则广场)
+[项目结构](#-项目结构)
 
 </div>
 
@@ -26,7 +26,7 @@
 
 **PicHub** 是一个专为开发者、博客作者与前端应用打造的图片 API 聚合与分发引擎。
 
-它可以将全网散落的各种第三方随机图片 API（包括图片直链、302 重定向、JSON 响应提取等）统一收归管理，对外提供极速、稳定且支持多维度过滤的单分发入口 `/random`。内置控制台，无需额外部署 Web 服务。
+它可以将全网散落的各种第三方随机图片 API（包括图片直链、302 重定向、JSON 响应提取等）统一收归管理，对外提供极速、稳定且支持多维度过滤的单分发入口 `/random`。内置现代化 Morandi 风格管理控制台，无需额外部署 Web 服务。
 
 ```
 		[前端 / Markdown / 博客 / APP]
@@ -48,32 +48,46 @@
 
 ## ✨ 核心特性
 
-- ⚡ **单文件极简部署**
-  Go + Gin 驱动，配合 `go:embed` 技术将 Vue 3 Dashboard 嵌入至单个可执行二进制文件，无需 Node.js 运行时即可轻量运行。
-- 📅 **多维时间切片分析**
-  提供【今日】、【近 7 天】、【近 30 天】、【全部历史】及【自定义日期 】等时间段精准切片统计。
-- 🎯 **多 Tag 标签与独立分发**
-  支持自定义分类 Tag（如默认 `#横屏`, `#竖屏`, `#自适应`）管理。每个 Tag 拥有独立的专属分发链接，同时支持总分发接口动态绑定 Tags 范围。
-- 🧩 **多参数与路径衍生分支 (Query Params & Path Variants)**
-  支持为单个 API 图源添加多个参数分支（如 `type=pc` / `type=mobile` 或 `return=302&type=pc` 以及路径式 `/pc`），每个分支可独立绑定分类 Tag（如 `#横屏`, `#竖屏`）与权重。分发时各分支作为独立加权源参与抽选，总体统一进行巡检与统计。
-- ⚡ **智能 URL 类型检测**
-  输入或粘贴第三方 API 地址即可自动推导解析类型（`image` 图片直链、`redirect` 302重定向、`json` 数据节点提取），并支持自动补全相对 302 路径与在线报文测试。
-- 🛡️ **健康检测与容错降级**
-  内置加权随机算法与 3 次请求重试降级。配合默认 360 分钟（可调）后台批量健康检测，连续故障的图源节点自动挂起，确保对外服务始终高可用。
+- ⚡ **单文件极简部署 (Embed Single Binary)**
+  Go + Gin 驱动，将打包后的前端页面嵌入至单个可执行二进制文件。无需 Node.js、Nginx 或外部前端环境，单文件/单镜像即开即用。
 
+- 🎯 **多维分类 Tag 与专属分发 (Category Tags & Master Routing)**
+  支持自定义分类 Tag（如默认 `#横屏`, `#竖屏`, `#自适应`）管理。支持为客户端绑定专属 Tag 分发链接，或在 `GET /random?category=tag1,tag2` 中动态多选过滤分发。
+
+- 🏷️ **系统硬编程标签与独占 Tag 隔离 (System Tags & Exclusive Isolation)**
+  内置规则硬编程标签（`#横屏`, `#竖屏`, `#自适应`）独立于【系统内置标签框】中展示；支持 `exclusive: true` 独占隔离标记，仅在客户端显式指定时触发分发。
+
+- 🧩 **多参数与路径衍生分支 (Sub-API Links & Query Param Variants)**
+  支持为单个主图源配置参数分支（如 `type=pc`）或独立子 API 链接（如 `/pe.php`）。分支继承主源属性，可单独绑定 Tag 与权重，分发历史流水精确记录轨迹。
+
+- 💾 **本地缓存代理模式 (Local Cache Mode & Proxy Serving)**
+  支持开启 `proxy_mode` 本地代理缓存。开启后，引擎自动抓取第三方图片并转存至本地磁盘缓存目录 (`./cache`)，对外提供本地 `/images/:file_id` 极速直发与长效 HTTP 缓存。有效解决第三方图源防盗链、跨域限制与源站宕机风险，同时解锁物理宽高检测与离线转存功能。
+
+- 📐 **真图片物理比例动态过滤 (Real Aspect Ratio Orientation Filter)**
+  基于 Go `image.DecodeConfig` 对图片流/缓存文件的真实宽高进行解码检测。在 `proxy_mode=true` 本地代理中转模式下，支持通过 `?orientation=horizontal|vertical` 强制过滤物理真横屏或竖屏图片（非标签推断，物理匹配）。
+
+- 👍 **历史流水与权重动态微调 (History Log & Weight Stepper)**
+  提供带图片灯箱预览的分发流水日志，支持对已分发图片一键执行【👍 喜欢 (+1 权重)】或【👎 不喜欢 (-1 权重)】实时调优，可即时优化图源偏好。
+
+- 🖼️ **离线保存图库与 3 视图巨幅图墙 (Offline Saved Gallery & Infinite Scroll)**
+  支持将喜爱的图片一键本地转存。提供 **列表视图**、**小图展示** 与 **大图图墙** 3 种模式。大图模式取消传统分页栏，采用 **`IntersectionObserver` 无限滚动** 与 **`loading="lazy"` 按需懒加载**。
+
+- ⬇️ **一键本地文件下载 (Native File Download)**
+  离线保存图库中全面支持一键本地下载文件，保留图片原始格式与高清画质。
+
+- 🛡️ **加权随机抽选与自动容错降级 (Weighted Random & Fault Tolerance)**
+  内置加权随机抽选算法，支持单次分发最多 3 次（或 8 次）重试。配合后台定期（默认 360 分钟可调）批量健康检测，连续故障图源自动熔断挂起，确保对外分发服务 100% 高可用。
 
 ---
 
 ## 📸 控制台预览
 
-| 页面 | 截图 |
-|------|------|
-| **图源管理** — 一键切换简易 / 高级模式，动态设置 1 ~ 5 级抽选权重与分类标签 | ![sources](screenshots/sources.png) |
-| **使用统计** — 请求分发 Hits 统计、Tag 命中占比、图源排行榜及带灯箱预览的分页流水线 | ![stats](screenshots/stats.png) |
-| **系统设置** — 代理中转本地缓存、预缓存、分辨率过滤、保存图片目录与 Rate Limit 防刷保护 | ![settings](screenshots/settings.png) |
-
-> 更多页面：接口管理（Tag 标签绑定与分发链接）、健康检测（连通性与延迟看板）等。
-
+| 页面 / 功能 | 控制台界面截图 |
+| :--- | :--- |
+| **大图图墙 (无限滚动与无边框拼接)**<br>• 取消传统分页栏，采用 `IntersectionObserver` 滚动加载<br>• 自然长方形比例无缝拼接，超大视觉呈现<br>• 一键【下载本地】与取消保存 | ![Saved Large](screenshots/saved_large.png) |
+| **接口与 Tag 标签管理**<br/>• 独立归集的【系统内置标签框】（横屏/竖屏/自适应）<br/>• 支持独占标签（Exclusive Tag）安全隔离 | ![Saved Small](screenshots/saved_small.png) |
+| **图源管理库**<br>• 基础信息与 10 ~ 90 权重加权配置<br>• 支持添加子 API 链接与参数分支 Variants | ![Sources](screenshots/sources.png) |
+| **使用统计与历史流水**<br/>• 今日/历史 Hits 分发趋势与排行榜<br/>• 历史流水精准缩略图预览与 👍 / 👎 权重实时调优 | ![Endpoints](screenshots/endpoints.png) |
 
 ---
 
@@ -81,12 +95,12 @@
 
 ### 方式一：Docker Compose 一键部署 (推荐)
 
-项目已提供 Docker Compose 配置文件
+项目已提供 [Docker Compose 配置文件](docs/docker-compose.yml)
 
-```bash
+```yaml
 services:
   pichub:
-    image: ghcr.nju.edu.cn/untitled572/pichub-aggregator:latest
+    image: ghcr.io/untitled572/pichub-aggregator:latest
     network_mode: host
     volumes:
       - ./data:/app/data
@@ -105,9 +119,9 @@ services:
 启动完成后，在浏览器中访问管理控制台：
 👉 **http://localhost:5721**
 
-> `docs/docker-compose.yml` 使用 `network_mode: host`，容器监听在宿主机 5721 端口。
+> [`docs/docker-compose.yml`](docs/docker-compose.yml) 使用 `network_mode: host`，容器监听在宿主机 5721 端口。
 > 如需自定义端口，可设置环境变量 `PORT` 并修改监听地址。
-> 数据持久化在 `./pichub_data/`（SQLite 数据库）和 `./pichub_cache/`（图片缓存）。
+> 数据持久化在 `./data/`（SQLite 数据库与离线保存库）和 `./cache/`（图片缓存）。
 
 ---
 
@@ -118,7 +132,7 @@ docker run -d --name pichub --network host \
   -e PUID=1000 -e PGID=1000 \
   -v ./pichub_data:/app/data \
   -v ./pichub_cache:/app/cache \
-  ghcr.nju.edu.cn/untitled572/pichub-aggregator:latest
+  ghcr.io/untitled572/pichub-aggregator:latest
 ```
 
 ---
@@ -141,11 +155,12 @@ go build -o pichub .
 ./pichub
 ```
 
+### 方式四：下载release预构建包
 ---
 
 ## 📡 API 使用指南
 
- PicHub 为用户提供统一且极简的调用方式，只需在网页、博客 Markdown 或客户端中调用单个 URL：
+PicHub 为用户提供统一且极简的调用方式，只需在网页、博客 Markdown 或客户端中调用单个 URL：
 
 ### 1. 统一随机图片直链 (Master Endpoint)
 
@@ -162,7 +177,15 @@ GET /random?category=avatar,anime
 ```
 * **说明**：仅从包含 `landscape`（风景）或 `avatar,anime`（头像/二次元）标签的可用图源中抽选。
 
-### 3. JSON 数据返回格式
+### 3. 按真图片比例过滤 (Orientation Filter)
+
+```http
+GET /random?orientation=horizontal
+GET /random?orientation=vertical
+```
+* **说明**：在 `proxy_mode=true` 模式下，基于图片真实宽高比（`image.DecodeConfig`）自动过滤横屏或竖屏图片。
+
+### 4. JSON 数据返回格式
 
 ```http
 GET /random?format=json
@@ -171,20 +194,17 @@ GET /random?category=anime&format=json
 * **返回示例**：
 ```json
 {
-  "id": 1,
-  "name": "Unsplash 高清风景源",
   "url": "https://images.unsplash.com/photo-1506744038136-46273834b3fb",
-  "resp_type": "image",
-  "latency_ms": 120
+  "local_url": "/images/a1b2c3d4",
+  "source": "Unsplash 高清风景源",
+  "categories": ["landscape", "horizontal"],
+  "file_id": "a1b2c3d4",
+  "width": 1920,
+  "height": 1080,
+  "format": "jpeg",
+  "image_id": 42
 }
 ```
-
-### 📋 查询参数详解
-
-| 参数名 | 类型 | 默认值 | 说明 | 示例 |
-| :--- | :--- | :--- | :--- | :--- |
-| `category` | `string` | *无* | 筛选 Tag 标签（支持逗号分隔多个） | `?category=landscape,anime` |
-| `format` | `string` | *无* | 设为 `json` 时返回结构化 JSON 数据 | `?format=json` |
 
 ---
 
@@ -196,6 +216,7 @@ GET /random?category=anime&format=json
 | :--- | :--- | :--- |
 | `PORT` | `5721` | HTTP 服务监听端口 |
 | `DB_PATH` | `./data/pichub.db` | SQLite 数据库文件存储路径 |
+| `CACHE_PATH` | `./cache` | 图片缓存目录路径 |
 
 ---
 
@@ -204,22 +225,23 @@ GET /random?category=anime&format=json
 ```
 PicHub/
 ├── backend/                  # Go + Gin 后端服务
-│   ├── config/               # 种子配置与默认设置
 │   ├── embed/                # 前端静态资源嵌入 (go:embed)
-│   ├── handler/              # API 路由处理函数 (Source / Settings / Health / Random)
+│   ├── handler/              # API 路由处理函数 (Source / Settings / Health / Random / Image)
 │   ├── logger/               # 文件日志支持 (200 行轮转)
-│   ├── middleware/            # Gin 中间件 (CORS / Rate Limit / Access Log)
-│   ├── model/                # 数据模型与结构体定义
-│   ├── service/              # 核心引擎 (Weighted Pick / Health Checker / Proxy)
+│   ├── middleware/           # Gin 中间件 (CORS / Rate Limit / Access Log / Admin Auth)
+│   ├── model/                # 数据模型与结构体定义 (Source, Tag, Settings, Image)
+│   ├── service/              # 核心引擎 (Weighted Pick / Health Checker / Proxy / ImageStore)
 │   ├── store/                # SQLite 持久化存储驱动
 │   └── main.go               # 主入口
 ├── dashboard/                # Vue 3 + TypeScript 现代化 Dashboard
 │   ├── src/
-│   │   ├── components/       # 视图组件 (SourceCard, SourceForm, HealthStatusBadge)
-│   │   ├── composables/      # 响应式状态管理 (useApi, useTags)
-│   │   └── views/            # 核心页面 (SourcesView, EndpointsView, HealthCheckView, SettingsView)
+│   │   ├── components/       # 视图组件 (SourceCard, SourceForm, ParamVariantsModal)
+│   │   ├── composables/      # 响应式状态管理 (useApi, useTags, useHealthCheck)
+│   │   └── views/            # 核心页面 (Sources, Endpoints, HealthCheck, Settings, Stats, Saved)
 │   └── tailwind.config.js    # Morandi 色系主题样式定义
-└── community/                # Serverless 规则共享社区 (研发中)
+├── screenshots/              # README 控制台预览截图库
+├── devdocs/                  # 架构设计与抓取数据流文档
+└── docs/                     # API 用户接口文档与 docker-compose 配置
 ```
 
 ---
@@ -240,4 +262,3 @@ PicHub/
 ## 📄 开源协议
 
 本项目采用 [GPL-3.0 License](LICENSE) 协议开源。
-

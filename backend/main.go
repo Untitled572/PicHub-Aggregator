@@ -14,6 +14,7 @@ import (
 	"github.com/pichub/backend/handler"
 	"github.com/pichub/backend/logger"
 	"github.com/pichub/backend/middleware"
+	"github.com/pichub/backend/monitor"
 	"github.com/pichub/backend/model"
 	"github.com/pichub/backend/service"
 	"github.com/pichub/backend/store"
@@ -89,13 +90,21 @@ func main() {
 	checker.Start()
 	defer checker.Stop()
 
+	proxyConfig := service.NewProxyConfig()
+	settings, _ := st.GetSettings()
+	if settings != nil {
+		proxyConfig.Update(settings.ProxyEnabled, settings.ProxyURL)
+	}
+
 	proxyCache := service.NewProxyCache(st, "./cache")
-	imageStore := service.NewImageStore(st, "./data/images")
-	engine := service.NewEngine(st, proxyCache, imageStore)
-	h := handler.NewHandlerWithImageStore(st, engine, checker, imageStore)
+	imageStore := service.NewImageStore(st, "./data/images", proxyConfig)
+	sourceMonitor := monitor.NewSourceMonitor(st)
+	engine := service.NewEngine(st, proxyCache, imageStore, proxyConfig, sourceMonitor)
+	h := handler.NewHandlerWithImageStore(st, engine, checker, imageStore, proxyConfig)
 	r := gin.New()
 	r.SetTrustedProxies(strings.Split(os.Getenv("TRUSTED_PROXIES"), ","))
-	r.Use(gin.Recovery())
+	r.Use(middleware.PanicRecover())
+	r.Use(middleware.RequestID())
 	r.Use(middleware.AccessLog())
 	r.Use(middleware.CORS())
 
@@ -123,6 +132,9 @@ func main() {
 		api.GET("/stats/history", h.GetImageHistory)
 		api.GET("/images/saved", h.ListSavedImages)
 		api.POST("/images/:id/save", middleware.AdminAuth(st), h.SaveImage)
+		api.POST("/images/:id/like", middleware.AdminAuth(st), h.LikeImage)
+		api.POST("/images/:id/dislike", middleware.AdminAuth(st), h.DislikeImage)
+
 		api.DELETE("/images/:id/save", middleware.AdminAuth(st), h.UnsaveImage)
 		api.GET("/export", h.ExportData)
 		api.POST("/export", middleware.AdminAuth(st), h.ExportRules)

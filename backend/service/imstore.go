@@ -9,6 +9,7 @@ import (
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
+	_ "golang.org/x/image/webp"
 	"io"
 	"net/http"
 	"os"
@@ -22,19 +23,26 @@ import (
 )
 
 type ImageStore struct {
-	store      *store.Store
-	cacheDir   string
-	httpClient *http.Client
-	mu         sync.Mutex
+	store       *store.Store
+	cacheDir    string
+	proxyConfig *ProxyConfig
+	httpClient  *http.Client
+	mu          sync.Mutex
 }
 
-func NewImageStore(st *store.Store, cacheDir string) *ImageStore {
+func NewImageStore(st *store.Store, cacheDir string, proxyCfg *ProxyConfig) *ImageStore {
 	os.MkdirAll(cacheDir, 0755)
+	transport := &http.Transport{}
+	if proxyCfg != nil {
+		transport.Proxy = proxyCfg.Proxy
+	}
 	return &ImageStore{
-		store:    st,
-		cacheDir: cacheDir,
+		store:       st,
+		cacheDir:    cacheDir,
+		proxyConfig: proxyCfg,
 		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
+			Transport: transport,
+			Timeout:   30 * time.Second,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				if len(via) >= 5 {
 					return fmt.Errorf("too many redirects")
@@ -46,13 +54,14 @@ func NewImageStore(st *store.Store, cacheDir string) *ImageStore {
 }
 
 type CachedImageInfo struct {
-	ID         int64
-	FileID     string
-	Width      int
-	Height     int
-	Format     string
-	SourceID   int64
-	SourceName string
+	ID          int64
+	FileID      string
+	Width       int
+	Height      int
+	Format      string
+	SourceID    int64
+	SourceName  string
+	Orientation string
 }
 
 func generateFileID() string {
@@ -117,20 +126,22 @@ func (is *ImageStore) DownloadAndStore(imageURL string, sourceID int64, sourceNa
 	}
 	is.mu.Unlock()
 
+	orientation := GetOrientation(cfg.Width, cfg.Height)
 	catsJSON := encodeStringSlice(categories)
-	imgID, err := is.store.InsertImage(fileID, imageURL, sourceID, sourceName, cfg.Width, cfg.Height, format, int64(len(data)), catsJSON)
+	imgID, err := is.store.InsertImage(fileID, imageURL, sourceID, sourceName, cfg.Width, cfg.Height, format, int64(len(data)), catsJSON, orientation)
 	if err != nil {
 		return nil, fmt.Errorf("store metadata: %w", err)
 	}
 
 	return &CachedImageInfo{
-		ID:         imgID,
-		FileID:     fileID,
-		Width:      cfg.Width,
-		Height:     cfg.Height,
-		Format:     format,
-		SourceID:   sourceID,
-		SourceName: sourceName,
+		ID:          imgID,
+		FileID:      fileID,
+		Width:       cfg.Width,
+		Height:      cfg.Height,
+		Format:      format,
+		SourceID:    sourceID,
+		SourceName:  sourceName,
+		Orientation: orientation,
 	}, nil
 }
 
@@ -182,8 +193,12 @@ func (is *ImageStore) SaveImage(imageID int64) error {
 		return err
 	}
 
-	return is.store.UpdateImageSaved(imageID, true)
+	if err := is.store.UpdateImageSaved(imageID, true); err != nil {
+		return err
+	}
+	return nil
 }
+
 
 func (is *ImageStore) UnsaveImage(imageID int64) error {
 	img, err := is.store.GetImageByID(imageID)

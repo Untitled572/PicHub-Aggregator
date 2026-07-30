@@ -26,5 +26,8 @@ func (h *Handler) UpdateSettings(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	if h.proxyConfig != nil {
+		h.proxyConfig.Update(settings.ProxyEnabled, settings.ProxyURL)
+	}
 	c.JSON(http.StatusOK, settings)
 }

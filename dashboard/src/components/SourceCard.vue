@@ -65,15 +65,21 @@ function handleDeleteConfirm() {
         </span>
 
         <span v-if="source.params && source.params.length > 0" class="text-[10px] px-2 py-0.5 bg-morandi-ocean-light/80 text-morandi-ocean-dark rounded-md font-bold border border-morandi-ocean/20">
-          ⚡ {{ source.params.length }} 个参数分支
+          ⚡ {{ source.params.length }} 个子分支/API 链接
         </span>
         <span
-          v-for="p in (source.params || []).slice(0, 3)"
+          v-for="p in (source.params || []).slice(0, 4)"
           :key="p.key + '=' + p.value"
           class="text-[10px] font-mono bg-morandi-bg px-1.5 py-0.5 rounded border border-morandi-borderSoft/60 text-morandi-muted"
         >
-          {{ p.key }}={{ p.value }}
+          <template v-if="p.key.startsWith('/') || p.key.startsWith('http')">
+            🔗 {{ p.value ? p.value + ' (' + p.key + ')' : p.key }}
+          </template>
+          <template v-else>
+            {{ p.key }}{{ p.value ? '=' + p.value : '' }}
+          </template>
         </span>
+
       </div>
     </div>
 
@@ -82,6 +88,11 @@ function handleDeleteConfirm() {
     <div class="flex items-center gap-4 sm:gap-6 shrink-0 w-full sm:w-auto justify-between sm:justify-end border-t sm:border-t-0 pt-3 sm:pt-0 border-morandi-borderSoft/60">
       <!-- Latency & Success rate metrics -->
       <div class="flex items-center gap-4 text-xs">
+        <div class="text-right">
+          <div class="text-[10px] text-morandi-muted">权重</div>
+          <div class="font-bold text-morandi-text text-sm mt-0.5 font-mono">{{ source.weight }}</div>
+        </div>
+
         <div class="text-right">
           <div class="text-[10px] text-morandi-muted">成功率</div>
           <div class="font-bold text-morandi-text text-sm mt-0.5 font-mono">

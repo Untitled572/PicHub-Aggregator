@@ -26,18 +26,64 @@ func (h *Handler) ServeImage(c *gin.Context) {
 }
 
 func (h *Handler) SaveImage(c *gin.Context) {
+	idParam := c.Param("id")
+	id, err := strconv.ParseInt(idParam, 10, 64)
+	if err == nil && id > 0 {
+		if err := h.imageStore.SaveImage(id); err == nil {
+			c.JSON(http.StatusOK, gin.H{"message": "image saved"})
+			return
+		}
+	}
+
+	img, err := h.store.GetImageByFileID(idParam)
+	if err == nil && img != nil {
+		if err := h.imageStore.SaveImage(img.ID); err == nil {
+			c.JSON(http.StatusOK, gin.H{"message": "image saved"})
+			return
+		}
+	}
+
+	c.JSON(http.StatusBadRequest, gin.H{"error": "image not found or unable to save"})
+}
+
+
+func (h *Handler) LikeImage(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 		return
 	}
 
-	if err := h.imageStore.SaveImage(id); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	img, err := h.store.GetImageByID(id)
+	if err == nil && img != nil && img.SourceID > 0 {
+		h.store.IncrementSourceWeight(img.SourceID, 1)
+		c.JSON(http.StatusOK, gin.H{"message": "liked"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "image saved"})
+
+	h.store.IncrementSourceWeight(id, 1)
+	c.JSON(http.StatusOK, gin.H{"message": "liked"})
 }
+
+func (h *Handler) DislikeImage(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	img, err := h.store.GetImageByID(id)
+	if err == nil && img != nil && img.SourceID > 0 {
+		h.store.IncrementSourceWeight(img.SourceID, -1)
+		c.JSON(http.StatusOK, gin.H{"message": "disliked"})
+		return
+	}
+
+	h.store.IncrementSourceWeight(id, -1)
+	c.JSON(http.StatusOK, gin.H{"message": "disliked"})
+}
+
+
 
 func (h *Handler) UnsaveImage(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)

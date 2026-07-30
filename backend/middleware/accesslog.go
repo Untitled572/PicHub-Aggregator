@@ -12,7 +12,7 @@ func AccessLog() gin.HandlerFunc {
 		start := time.Now()
 		c.Next()
 		latency := time.Since(start).Milliseconds()
-		logger.Access("%d %s %s %dms %s",
+		logger.WithCtx(c, "ACCESS", "%d %s %s %dms %s",
 			c.Writer.Status(),
 			c.Request.Method,
 			c.Request.URL.Path,

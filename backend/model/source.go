@@ -3,8 +3,10 @@ package model
 import "time"
 
 type Tag struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	System    bool   `json:"system"`
+	Exclusive bool   `json:"exclusive"`
 }
 
 type QueryParam struct {
@@ -76,7 +78,9 @@ type ImageHistoryRecord struct {
 	CreatedAt  time.Time `json:"created_at"`
 	ImageID    int64     `json:"image_id,omitempty"`
 	FileID     string    `json:"file_id,omitempty"`
+	IsSaved    bool      `json:"is_saved"`
 }
+
 
 type CachedImage struct {
 	ID          int64  `json:"id"`
@@ -89,6 +93,7 @@ type CachedImage struct {
 	Format      string `json:"format"`
 	FileSize    int64  `json:"file_size"`
 	Categories  string `json:"categories"`
+	Orientation string `json:"orientation"`
 	IsSaved     bool   `json:"is_saved"`
 	CreatedAt   string `json:"created_at"`
 }
@@ -102,17 +107,22 @@ type SavedImage struct {
 	Format      string    `json:"format"`
 	FileSize    int64     `json:"file_size"`
 	OriginalURL string    `json:"original_url"`
+	Orientation string    `json:"orientation"`
 	SavedAt     time.Time `json:"saved_at"`
 }
 
 type Settings struct {
 	ProxyMode           bool     `json:"proxy_mode"`
+	ProxyEnabled        bool     `json:"proxy_enabled"`
+	ProxyURL            string   `json:"proxy_url"`
 	CacheMaxMB          int      `json:"cache_max_mb"`
 	CacheMaxImages      int      `json:"cache_max_images"`
 	CacheTTL            int      `json:"cache_ttl"`
 	PrecacheCount       int      `json:"precache_count"`
+	PoolSize            int      `json:"pool_size"`
 	MinResolution       string   `json:"min_resolution"`
 	RateLimit           int      `json:"rate_limit"`
+	RateLimitWindow     int      `json:"rate_limit_window"`
 	Timeout             int      `json:"timeout"`
 	HealthCheckInterval int      `json:"health_check_interval"`
 	MaxHistoryRecords   int      `json:"max_history_records"`

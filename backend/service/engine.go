@@ -6,7 +6,6 @@ import (
 	"math/rand"
 	"net/http"
 	"net/url"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -14,44 +13,82 @@ import (
 
 	"github.com/pichub/backend/logger"
 	"github.com/pichub/backend/model"
+	"github.com/pichub/backend/monitor"
 	"github.com/pichub/backend/store"
 )
 
 type Engine struct {
-	store        *store.Store
-	proxyCache   *ProxyCache
-	imageStore   *ImageStore
-	precachePool *PrecachePool
-	httpClient   *http.Client
+	store         *store.Store
+	proxyCache    *ProxyCache
+	imageStore    *ImageStore
+	proxyConfig   *ProxyConfig
+	distPool      *DistributionPool
+	demandTracker *DemandTracker
+	httpClient    *http.Client
+	monitor       *monitor.SourceMonitor
 }
 
-func NewEngine(st *store.Store, pc *ProxyCache, imgStore *ImageStore) *Engine {
+func NewEngine(st *store.Store, pc *ProxyCache, imgStore *ImageStore, proxyCfg *ProxyConfig, mon *monitor.SourceMonitor) *Engine {
+	transport := &http.Transport{}
+	if proxyCfg != nil {
+		transport.Proxy = proxyCfg.Proxy
+	}
 	eng := &Engine{
-		store:        st,
-		proxyCache:   pc,
-		imageStore:   imgStore,
-		precachePool: NewPrecachePool(),
+		store:         st,
+		proxyCache:    pc,
+		imageStore:    imgStore,
+		proxyConfig:   proxyCfg,
+		distPool:      NewDistributionPool(),
+		demandTracker: NewDemandTracker(),
+		monitor:       mon,
 		httpClient: &http.Client{
+			Transport: transport,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				return http.ErrUseLastResponse
 			},
 		},
 	}
-	go eng.StartPrecacheWorker()
+	go eng.StartDistributionWorker()
 	return eng
 }
 
 type Result struct {
-	URL        string   `json:"url"`
-	LocalURL   string   `json:"local_url,omitempty"`
-	SourceName string   `json:"source"`
-	SourceID   int64    `json:"source_id,omitempty"`
-	Categories []string `json:"categories"`
-	FileID     string   `json:"file_id,omitempty"`
-	Width      int      `json:"width,omitempty"`
-	Height     int      `json:"height,omitempty"`
-	Format     string   `json:"format,omitempty"`
-	ImageID    int64    `json:"image_id,omitempty"`
+	URL         string   `json:"url"`
+	LocalURL    string   `json:"local_url,omitempty"`
+	SourceName  string   `json:"source"`
+	SourceID    int64    `json:"source_id,omitempty"`
+	Categories  []string `json:"categories"`
+	Orientation string   `json:"orientation,omitempty"`
+	FileID      string   `json:"file_id,omitempty"`
+	Width       int      `json:"width,omitempty"`
+	Height      int      `json:"height,omitempty"`
+	Format      string   `json:"format,omitempty"`
+	ImageID     int64    `json:"image_id,omitempty"`
+}
+
+func detectOrientationFromUA(ua string) string {
+	if ua == "" {
+		return ""
+	}
+	uaLower := strings.ToLower(ua)
+	isMobile := strings.Contains(uaLower, "mobile") ||
+		strings.Contains(uaLower, "iphone") ||
+		strings.Contains(uaLower, "ipad") ||
+		strings.Contains(uaLower, "ipod") ||
+		strings.Contains(uaLower, "android")
+	isDesktop := strings.Contains(uaLower, "windows") ||
+		strings.Contains(uaLower, "macintosh") ||
+		strings.Contains(uaLower, "linux") ||
+		strings.Contains(uaLower, "cros") ||
+		strings.Contains(uaLower, "x11")
+
+	if isMobile {
+		return "vertical"
+	}
+	if isDesktop {
+		return "horizontal"
+	}
+	return ""
 }
 
 func (e *Engine) RandomImage(category string, format string, orientation string, clientUA string) (*Result, int, error) {
@@ -62,30 +99,39 @@ func (e *Engine) RandomImage(category string, format string, orientation string,
 
 	queryCats := splitCategory(category)
 
-	if settings.ProxyMode && settings.PrecacheCount > 0 && e.precachePool != nil {
-		cachedResult := e.precachePool.Pop(category)
-		if cachedResult != nil {
-			if !precacheFileExists(cachedResult, e.imageStore) {
-				e.precachePool.Discard(cachedResult)
-				go e.ReplenishPrecache()
-			} else if orientation != "" && cachedResult.Width > 0 {
-				imgOrient := GetOrientation(cachedResult.Width, cachedResult.Height)
-				if imgOrient != orientation {
-					logger.System("precache orientation mismatch: got %s, wanted %s", imgOrient, orientation)
-					e.precachePool.Discard(cachedResult)
-					go e.ReplenishPrecache()
-				} else {
-					logger.System("precache hit for category %q, returning 0ms instant response", category)
-					go e.recordPrecacheStats(queryCats, cachedResult)
-					go e.ReplenishPrecache()
-					return cachedResult, http.StatusFound, nil
-				}
-			} else {
-				logger.System("precache hit for category %q, returning 0ms instant response", category)
-				go e.recordPrecacheStats(queryCats, cachedResult)
-				go e.ReplenishPrecache()
-				return cachedResult, http.StatusFound, nil
+	if orientation == "" {
+		uaOri := detectOrientationFromUA(clientUA)
+		if uaOri != "" {
+			if len(queryCats) == 0 {
+				queryCats = []string{uaOri}
+			} else if hasCategory(queryCats, "adaptive") && !hasCategory(queryCats, uaOri) {
+				queryCats = append(queryCats, uaOri)
 			}
+		}
+	}
+
+	if settings.ProxyMode && settings.PoolSize > 0 && e.distPool != nil {
+		var poolResult *Result
+		if len(queryCats) > 0 {
+			poolResult = e.distPool.Pop(queryCats[0])
+		} else {
+			poolResult = e.distPool.PopAny()
+		}
+
+		if poolResult != nil {
+			e.demandTracker.RecordRequest(queryCats, true)
+			src := model.Source{
+				ID:   poolResult.SourceID,
+				Name: poolResult.SourceName,
+			}
+			imgID := poolResult.ImageID
+			go e.store.RecordStats(queryCats, src, poolResult.LocalURL, &imgID, poolResult.FileID)
+			logger.System("pool hit for category %q, instant response", category)
+
+			if format == "json" {
+				return poolResult, http.StatusOK, nil
+			}
+			return poolResult, http.StatusFound, nil
 		}
 	}
 
@@ -95,7 +141,8 @@ func (e *Engine) RandomImage(category string, format string, orientation string,
 	}
 
 
-	candidates := filterSources(sources, queryCats)
+	tags, _ := e.store.GetTags()
+	candidates := filterSources(sources, queryCats, tags)
 	if len(candidates) == 0 {
 		return nil, 0, fmt.Errorf("no available sources")
 	}
@@ -135,11 +182,10 @@ func (e *Engine) RandomImage(category string, format string, orientation string,
 		resp, err := e.httpClient.Do(req)
 		if err != nil {
 			logger.Error("source %q fetch failed: %v", selected.Name, err)
-			failCount, _ := e.store.IncrementFailCount(selected.ID)
-			candidates = removeSource(candidates, selected.ID)
-			if failCount >= 5 {
-				e.store.UpdateSourceStatus(selected.ID, "error")
+			if e.monitor != nil {
+				e.monitor.Emit(selected.ID, false)
 			}
+			candidates = removeSource(candidates, selected.ID)
 			continue
 		}
 
@@ -148,16 +194,17 @@ func (e *Engine) RandomImage(category string, format string, orientation string,
 
 		if resp.StatusCode >= 500 {
 			logger.Error("source %q returned %d", selected.Name, resp.StatusCode)
-			failCount, _ := e.store.IncrementFailCount(selected.ID)
-			candidates = removeSource(candidates, selected.ID)
-			if failCount >= 5 {
-				e.store.UpdateSourceStatus(selected.ID, "error")
+			if e.monitor != nil {
+				e.monitor.Emit(selected.ID, false)
 			}
+			candidates = removeSource(candidates, selected.ID)
 			resp.Body.Close()
 			continue
 		}
 
-		e.store.ResetFailCount(selected.ID)
+		if e.monitor != nil {
+			e.monitor.Emit(selected.ID, true)
+		}
 
 		imageURL, err := extractImageURL(resp, selected)
 		resp.Body.Close()
@@ -174,6 +221,9 @@ func (e *Engine) RandomImage(category string, format string, orientation string,
 			cached, cacheErr := e.imageStore.DownloadAndStore(origURL, selected.ID, selected.Name, queryCats)
 			if cacheErr != nil {
 				logger.Error("cache download failed for %s: %v", selected.Name, cacheErr)
+				if e.monitor != nil {
+					e.monitor.Emit(selected.ID, false)
+				}
 				candidates = removeSource(candidates, selected.ID)
 				continue
 			}
@@ -207,7 +257,8 @@ func (e *Engine) RandomImage(category string, format string, orientation string,
 			imgID = &cachedInfo.ID
 			fileID = cachedInfo.FileID
 		}
-		go e.store.RecordStats(queryCats, selected, origURL, imgID, fileID)
+		e.demandTracker.RecordRequest(queryCats, cachedInfo != nil)
+		go e.store.RecordStats(queryCats, selected, imageURL, imgID, fileID)
 
 		res := &Result{
 			URL:        origURL,
@@ -222,6 +273,7 @@ func (e *Engine) RandomImage(category string, format string, orientation string,
 			res.Height = cachedInfo.Height
 			res.Format = cachedInfo.Format
 			res.ImageID = cachedInfo.ID
+			res.Orientation = cachedInfo.Orientation
 		}
 
 		if format == "json" {
@@ -233,9 +285,67 @@ func (e *Engine) RandomImage(category string, format string, orientation string,
 	return nil, 0, fmt.Errorf("all sources failed")
 }
 
-func filterSources(sources []model.Source, queryCats []string) []model.Source {
+func hasExclusiveTag(tags []model.Tag, ids []string) bool {
+	for _, id := range ids {
+		for _, t := range tags {
+			if t.ID == id && t.Exclusive {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func isExclusiveTag(id string, tags []model.Tag) bool {
+	for _, t := range tags {
+		if t.ID == id && t.Exclusive {
+			return true
+		}
+	}
+	return false
+}
+
+func isUncategorized(cats []string) bool {
+	return len(cats) == 1 && cats[0] == "__uncategorized__"
+}
+
+func matchCategories(srcCats []string, queryCats []string, tags []model.Tag, single, hasExcl bool) bool {
+	if len(queryCats) == 0 || queryCats[0] == "" {
+		return true
+	}
+
+	if isUncategorized(srcCats) {
+		if single {
+			return false
+		}
+		return !hasExcl
+	}
+
+	// 源含有未选中的 exclusive tag → 排除
+	for _, cat := range srcCats {
+		if isExclusiveTag(cat, tags) {
+			found := false
+			for _, qc := range queryCats {
+				if qc == cat {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return false
+			}
+		}
+	}
+
+	return hasAnyCategory(srcCats, queryCats)
+}
+
+func filterSources(sources []model.Source, queryCats []string, tags []model.Tag) []model.Source {
 	var result []model.Source
 	hasQueryCat := len(queryCats) > 0 && queryCats[0] != ""
+	single := hasQueryCat && len(queryCats) == 1
+	hasExcl := hasExclusiveTag(tags, queryCats)
+
 	for _, src := range sources {
 		if !src.Enabled || src.Status == "error" {
 			continue
@@ -251,7 +361,8 @@ func filterSources(sources []model.Source, queryCats []string) []model.Source {
 				if key == "" {
 					continue
 				}
-				paramURL := appendDefaultQuery(buildURL(src.URL, key, val), src.DefaultQuery)
+				paramURL, subLabel := resolveSubEndpoint(src.URL, key, val)
+				paramURL = appendDefaultQuery(paramURL, src.DefaultQuery)
 				paramWeight := param.Weight
 				if paramWeight <= 0 {
 					paramWeight = src.Weight
@@ -262,21 +373,23 @@ func filterSources(sources []model.Source, queryCats []string) []model.Source {
 				}
 
 				if len(param.Categories) > 0 && hasQueryCat {
-					if !hasAnyCategory(param.Categories, queryCats) {
+					if !matchCategories(param.Categories, queryCats, tags, single, hasExcl) {
 						continue
 					}
 				}
 
 				variant := src
+				variant.Name = src.Name + " › " + subLabel
 				variant.URL = paramURL
 				variant.Weight = paramWeight
 				variant.Categories = paramCats
 				result = append(result, variant)
 			}
 
+
 			baseURL := appendDefaultQuery(src.URL, src.DefaultQuery)
 			if len(src.Categories) > 0 && hasQueryCat {
-				if hasAnyCategory(src.Categories, queryCats) {
+				if matchCategories(src.Categories, queryCats, tags, single, hasExcl) {
 					variant := src
 					variant.URL = baseURL
 					result = append(result, variant)
@@ -288,7 +401,7 @@ func filterSources(sources []model.Source, queryCats []string) []model.Source {
 			}
 		} else {
 			if len(src.Categories) > 0 && hasQueryCat {
-				if !hasAnyCategory(src.Categories, queryCats) {
+				if !matchCategories(src.Categories, queryCats, tags, single, hasExcl) {
 					continue
 				}
 			}
@@ -350,7 +463,73 @@ func buildURL(baseURL, key, value string) string {
 	return u.String()
 }
 
+func resolveSubEndpoint(mainURL, key, val string) (string, string) {
+	key = strings.TrimSpace(key)
+	val = strings.TrimSpace(val)
 
+	// Case 1: Full Sub-API URL
+	if strings.HasPrefix(key, "http://") || strings.HasPrefix(key, "https://") {
+		label := key
+		if val != "" {
+			label = fmt.Sprintf("%s (%s)", val, getRelativePathOrHost(key))
+		}
+		return key, label
+	}
+
+	// Case 2: Sub-API Path / Relative Link
+	if strings.HasPrefix(key, "/") || (strings.Contains(key, ".") && !strings.Contains(key, "=") && !strings.Contains(key, "?")) {
+		path := key
+		if !strings.HasPrefix(path, "/") {
+			path = "/" + path
+		}
+		var targetURL string
+		if u, err := url.Parse(mainURL); err == nil {
+			relURL, err := url.Parse(path)
+			if err == nil {
+				targetURL = u.ResolveReference(relURL).String()
+			} else {
+				targetURL = strings.TrimRight(mainURL, "/") + path
+			}
+		} else {
+			targetURL = strings.TrimRight(mainURL, "/") + path
+		}
+		label := path
+		if val != "" {
+			label = fmt.Sprintf("%s (%s)", val, path)
+		}
+		return targetURL, label
+	}
+
+	// Case 3: Query Parameter
+	targetURL := buildURL(mainURL, key, val)
+	label := key
+	if val != "" {
+		label = fmt.Sprintf("%s=%s", key, val)
+	}
+	return targetURL, label
+}
+
+func getRelativePathOrHost(rawURL string) string {
+	if u, err := url.Parse(rawURL); err == nil {
+		if u.Path != "" && u.Path != "/" {
+			return u.Path
+		}
+		return u.Host
+	}
+	return rawURL
+}
+
+
+
+
+func hasCategory(cats []string, target string) bool {
+	for _, c := range cats {
+		if strings.EqualFold(c, target) {
+			return true
+		}
+	}
+	return false
+}
 
 func hasAnyCategory(srcCats, queryCats []string) bool {
 	for _, qc := range queryCats {
@@ -477,52 +656,84 @@ func resolveURL(baseURLStr, targetURLStr string) string {
 	return resolved.String()
 }
 
-func (e *Engine) StartPrecacheWorker() {
+func (e *Engine) StartDistributionWorker() {
 	time.Sleep(3 * time.Second)
-	e.ReplenishPrecache()
 
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 	for range ticker.C {
-		e.ReplenishPrecache()
+		e.replenishPool()
 	}
 }
 
-func (e *Engine) ReplenishPrecache() {
+func (e *Engine) replenishPool() {
 	settings, err := e.store.GetSettings()
-	if err != nil || !settings.ProxyMode || settings.PrecacheCount <= 0 || e.precachePool == nil {
+	if err != nil || !settings.ProxyMode || settings.PoolSize <= 0 || e.distPool == nil {
 		return
 	}
 
-	target := settings.PrecacheCount
-	current := e.precachePool.Len()
+	// 淘汰超轮次项
+	maxRounds := settings.PoolSize - 1
+	e.distPool.Trim(settings.PoolSize, maxRounds)
 
-	if current > target {
-		e.precachePool.Trim(target)
+	currentSize := e.distPool.Size()
+	if currentSize >= settings.PoolSize {
 		return
 	}
 
-	if current >= target {
+	stock := e.distPool.CategorySnapshot()
+	plan := e.demandTracker.GetAllocationPlan(settings.PoolSize, stock)
+
+	if len(plan) == 0 {
+		// 窗口无数据：为每个有源的 tag 各拉一张
+		tags, _ := e.store.GetTags()
+		for _, t := range tags {
+			if e.distPool.Size() >= settings.PoolSize {
+				break
+			}
+			res := e.fetchSingleForTag(t.ID)
+			if res != nil {
+				e.distPool.Push(poolEntryFromResult(res))
+			}
+		}
+		// 剩余 slot 填无 tag 源
+		for e.distPool.Size() < settings.PoolSize {
+			res := e.fetchSingleForTag("")
+			if res == nil {
+				break
+			}
+			e.distPool.Push(poolEntryFromResult(res))
+		}
 		return
 	}
 
-	needed := target - current
-	for i := 0; i < needed; i++ {
-		res := e.fetchSinglePrecache()
-		if res != nil {
-			e.precachePool.Push(res)
-		} else {
-			break
+	for tag, count := range plan {
+		if count <= 0 {
+			continue
+		}
+		for i := 0; i < count && e.distPool.Size() < settings.PoolSize; i++ {
+			res := e.fetchSingleForTag(tag)
+			if res == nil {
+				break
+			}
+			e.distPool.Push(poolEntryFromResult(res))
 		}
 	}
 }
 
-func (e *Engine) fetchSinglePrecache() *Result {
+func (e *Engine) fetchSingleForTag(tag string) *Result {
 	sources, err := e.store.ListSources()
 	if err != nil || len(sources) == 0 {
 		return nil
 	}
-	candidates := filterSources(sources, nil)
+
+	tags, _ := e.store.GetTags()
+	var candidates []model.Source
+	if tag != "" {
+		candidates = filterSources(sources, []string{tag}, tags)
+	} else {
+		candidates = filterSources(sources, nil, tags)
+	}
 	if len(candidates) == 0 {
 		return nil
 	}
@@ -565,43 +776,38 @@ func (e *Engine) fetchSinglePrecache() *Result {
 		if cacheErr != nil {
 			return nil
 		}
-		go e.store.RecordStats(srcCats, selected, origURL, &cached.ID, cached.FileID)
-
 		return &Result{
-			URL:        origURL,
-			LocalURL:   "/images/" + cached.FileID,
-			SourceName: selected.Name,
-			SourceID:   selected.ID,
-			Categories: selected.Categories,
-			FileID:     cached.FileID,
-			Width:      cached.Width,
-			Height:     cached.Height,
-			Format:     cached.Format,
-			ImageID:    cached.ID,
+			URL:         origURL,
+			LocalURL:    "/images/" + cached.FileID,
+			SourceName:  selected.Name,
+			SourceID:    selected.ID,
+			Categories:  selected.Categories,
+			Orientation: cached.Orientation,
+			FileID:      cached.FileID,
+			Width:       cached.Width,
+			Height:      cached.Height,
+			Format:      cached.Format,
+			ImageID:     cached.ID,
 		}
 	}
 	return nil
 }
 
-func precacheFileExists(res *Result, imgStore *ImageStore) bool {
-	if imgStore == nil || res.FileID == "" {
-		return false
+func poolEntryFromResult(res *Result) *PoolEntry {
+	if res == nil {
+		return nil
 	}
-	pattern := filepath.Join(imgStore.cacheDir, res.FileID+".*")
-	matches, err := filepath.Glob(pattern)
-	return err == nil && len(matches) > 0
-}
-
-func (e *Engine) recordPrecacheStats(queryCats []string, res *Result) {
-	if res == nil || e.store == nil {
-		return
+	return &PoolEntry{
+		FileID:      res.FileID,
+		SourceName:  res.SourceName,
+		SourceID:    res.SourceID,
+		Categories:  res.Categories,
+		Orientation: res.Orientation,
+		Width:       res.Width,
+		Height:      res.Height,
+		Format:      res.Format,
+		RoundCount:  0,
 	}
-	src := model.Source{
-		ID:   res.SourceID,
-		Name: res.SourceName,
-	}
-	imgID := res.ImageID
-	e.store.RecordStats(queryCats, src, res.URL, &imgID, res.FileID)
 }
 
 
