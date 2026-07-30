@@ -159,6 +159,16 @@ func (p *DistributionPool) CategorySnapshot() map[string]int {
 	return snap
 }
 
+func (p *DistributionPool) SourceSnapshot() map[int64]int {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	snap := make(map[int64]int)
+	for _, entry := range p.items {
+		snap[entry.SourceID]++
+	}
+	return snap
+}
+
 func (p *DistributionPool) OrientationSnapshot() map[string]int {
 	p.mu.RLock()
 	defer p.mu.RUnlock()

@@ -86,17 +86,24 @@ func (h *Handler) DislikeImage(c *gin.Context) {
 
 
 func (h *Handler) UnsaveImage(c *gin.Context) {
-	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
-		return
+	idParam := c.Param("id")
+	id, err := strconv.ParseInt(idParam, 10, 64)
+	if err == nil && id > 0 {
+		if err := h.imageStore.UnsaveImage(id); err == nil {
+			c.JSON(http.StatusOK, gin.H{"message": "image unsaved"})
+			return
+		}
 	}
 
-	if err := h.imageStore.UnsaveImage(id); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+	img, err := h.store.GetImageByFileID(idParam)
+	if err == nil && img != nil {
+		if err := h.imageStore.UnsaveImage(img.ID); err == nil {
+			c.JSON(http.StatusOK, gin.H{"message": "image unsaved"})
+			return
+		}
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "image unsaved"})
+
+	c.JSON(http.StatusBadRequest, gin.H{"error": "image not found or unable to unsave"})
 }
 
 func (h *Handler) ListSavedImages(c *gin.Context) {

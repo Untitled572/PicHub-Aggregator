@@ -117,6 +117,7 @@ func (s *Store) migrate() error {
 	_, _ = s.db.Exec("ALTER TABLE image_history ADD COLUMN image_id INTEGER DEFAULT 0")
 	_, _ = s.db.Exec("ALTER TABLE image_history ADD COLUMN file_id TEXT DEFAULT ''")
 	_, _ = s.db.Exec("ALTER TABLE images ADD COLUMN orientation TEXT DEFAULT ''")
+	_, _ = s.db.Exec("ALTER TABLE images ADD COLUMN fail_count INTEGER NOT NULL DEFAULT 0")
 	if err := s.seedDefaults(); err != nil {
 
 		return err
@@ -141,7 +142,7 @@ func (s *Store) seedDefaults() error {
 		"cache_max_images":      "60",
 		"cache_ttl":             "0",
 		"precache_count":        "5",
-		"pool_size":             "10",
+		"pool_size":             "20",
 		"min_resolution":        "1920x1080",
 		"rate_limit":            "60",
 		"timeout":               "3000",
@@ -179,7 +180,7 @@ func (s *Store) SeedSources(sources []model.Source) error {
 }
 
 func (s *Store) ListSources() ([]model.Source, error) {
-	rows, err := s.db.Query("SELECT id, name, url, resp_type, json_path, weight, categories, headers, params, default_query, enabled, fail_count, success_rate, avg_latency, status, created_at, updated_at FROM sources ORDER BY id")
+	rows, err := s.db.Query("SELECT id, name, url, resp_type, json_path, weight, categories, headers, params, default_query, enabled, fail_count, success_rate, avg_latency, status, created_at, updated_at FROM sources ORDER BY id DESC")
 	if err != nil {
 		return nil, err
 	}
@@ -334,7 +335,7 @@ func (s *Store) GetSettings() (*model.Settings, error) {
 			}
 		case "pool_size":
 			if n, err := fmt.Sscanf(v, "%d", &settings.PoolSize); err != nil || n != 1 {
-				settings.PoolSize = 10
+				settings.PoolSize = 20
 			}
 		case "min_resolution":
 			settings.MinResolution = v
@@ -385,7 +386,7 @@ func (s *Store) GetSettings() (*model.Settings, error) {
 		settings.PrecacheCount = 5
 	}
 	if settings.PoolSize <= 0 {
-		settings.PoolSize = 10
+		settings.PoolSize = 20
 	}
 	if settings.RateLimitWindow <= 0 {
 		settings.RateLimitWindow = 60
@@ -604,8 +605,58 @@ func (s *Store) GetImageByID(id int64) (*model.CachedImage, error) {
 }
 
 func (s *Store) DeleteImageByFileID(fileID string) error {
-	_, err := s.db.Exec("DELETE FROM images WHERE file_id=?", fileID)
+	_, err := s.db.Exec("DELETE FROM images WHERE file_id=? AND is_saved=0", fileID)
 	return err
+}
+
+func (s *Store) GetImageFileIDsBySourceID(sourceID int64) ([]string, error) {
+	rows, err := s.db.Query("SELECT file_id FROM images WHERE source_id=? AND is_saved=0", sourceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err == nil {
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
+}
+
+func (s *Store) DeleteImagesBySourceID(sourceID int64) error {
+	_, err := s.db.Exec("DELETE FROM images WHERE source_id=? AND is_saved=0", sourceID)
+	return err
+}
+
+func (s *Store) DeleteImagesBySourceIDAll(sourceID int64) error {
+	_, err := s.db.Exec("DELETE FROM images WHERE source_id=?", sourceID)
+	return err
+}
+
+func (s *Store) CleanupInvalidImages() ([]string, int64, error) {
+	rows, err := s.db.Query("SELECT file_id FROM images WHERE width < 1 OR height < 1 OR format = 'unknown' OR format = ''")
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	var fileIDs []string
+	for rows.Next() {
+		var fid string
+		if err := rows.Scan(&fid); err == nil {
+			fileIDs = append(fileIDs, fid)
+		}
+	}
+	if len(fileIDs) == 0 {
+		return nil, 0, nil
+	}
+	result, err := s.db.Exec("DELETE FROM images WHERE width < 1 OR height < 1 OR format = 'unknown' OR format = ''")
+	if err != nil {
+		return nil, 0, err
+	}
+	affected, _ := result.RowsAffected()
+	return fileIDs, affected, nil
 }
 
 func (s *Store) UpdateImageSaved(id int64, saved bool) error {

@@ -33,6 +33,7 @@ func (h *Handler) ExportData(c *gin.Context) {
 
 	if scopeMap["config"] {
 		if settings, err := h.store.GetSettings(); err == nil {
+			settings.AdminToken = ""
 			manifest.Settings = settings
 		}
 		if sources, err := h.store.ListSources(); err == nil {
@@ -163,9 +164,16 @@ func (h *Handler) ImportData(c *gin.Context) {
 	importedStats := 0
 	importedImages := 0
 
-	// Restore Settings
+	// Restore Settings (skip admin_token)
 	if manifest.Settings != nil {
+		localSettings, _ := h.store.GetSettings()
+		var localToken string
+		if localSettings != nil {
+			localToken = localSettings.AdminToken
+		}
+		manifest.Settings.AdminToken = ""
 		_ = h.store.UpdateSettings(manifest.Settings)
+		manifest.Settings.AdminToken = localToken
 	}
 
 	// Restore Tags
@@ -176,11 +184,8 @@ func (h *Handler) ImportData(c *gin.Context) {
 	// Restore Sources
 	if len(manifest.Sources) > 0 {
 		for _, src := range manifest.Sources {
-			if src.ID > 0 {
-				_ = h.store.UpdateSource(&src)
-			} else {
-				_, _ = h.store.CreateSource(&src)
-			}
+			src.ID = 0
+			_, _ = h.store.CreateSource(&src)
 			importedSources++
 		}
 	}

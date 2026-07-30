@@ -32,6 +32,11 @@ func (h *Handler) RandomImage(c *gin.Context) {
 		redirectURL = result.LocalURL
 	}
 
+	// 分发后异步移动文件：从子目录移到根目录
+	if result.FileID != "" && result.SourceID > 0 && h.imageStore != nil {
+		go h.imageStore.MoveToRoot(result.FileID, result.SourceID)
+	}
+
 	if format == "json" {
 		c.JSON(http.StatusOK, result)
 		return

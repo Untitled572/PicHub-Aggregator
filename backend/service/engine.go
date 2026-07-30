@@ -666,6 +666,10 @@ func (e *Engine) StartDistributionWorker() {
 	}
 }
 
+func (e *Engine) ReplenishPool() {
+	e.replenishPool()
+}
+
 func (e *Engine) replenishPool() {
 	settings, err := e.store.GetSettings()
 	if err != nil || !settings.ProxyMode || settings.PoolSize <= 0 || e.distPool == nil {
@@ -681,6 +685,15 @@ func (e *Engine) replenishPool() {
 		return
 	}
 
+	// 获取各源磁盘缓存文件数，用于单源上限过滤
+	sourceCounts := make(map[int64]int)
+	if e.imageStore != nil {
+		sources, _ := e.store.ListSources()
+		for _, src := range sources {
+			sourceCounts[src.ID] = e.imageStore.CountSourceCachedFiles(src.ID)
+		}
+	}
+
 	stock := e.distPool.CategorySnapshot()
 	plan := e.demandTracker.GetAllocationPlan(settings.PoolSize, stock)
 
@@ -691,18 +704,20 @@ func (e *Engine) replenishPool() {
 			if e.distPool.Size() >= settings.PoolSize {
 				break
 			}
-			res := e.fetchSingleForTag(t.ID)
+			res := e.fetchSingleForTag(t.ID, sourceCounts)
 			if res != nil {
 				e.distPool.Push(poolEntryFromResult(res))
+				sourceCounts[res.SourceID]++
 			}
 		}
 		// 剩余 slot 填无 tag 源
 		for e.distPool.Size() < settings.PoolSize {
-			res := e.fetchSingleForTag("")
+			res := e.fetchSingleForTag("", sourceCounts)
 			if res == nil {
 				break
 			}
 			e.distPool.Push(poolEntryFromResult(res))
+			sourceCounts[res.SourceID]++
 		}
 		return
 	}
@@ -712,16 +727,17 @@ func (e *Engine) replenishPool() {
 			continue
 		}
 		for i := 0; i < count && e.distPool.Size() < settings.PoolSize; i++ {
-			res := e.fetchSingleForTag(tag)
+			res := e.fetchSingleForTag(tag, sourceCounts)
 			if res == nil {
 				break
 			}
 			e.distPool.Push(poolEntryFromResult(res))
+			sourceCounts[res.SourceID]++
 		}
 	}
 }
 
-func (e *Engine) fetchSingleForTag(tag string) *Result {
+func (e *Engine) fetchSingleForTag(tag string, sourceCounts map[int64]int) *Result {
 	sources, err := e.store.ListSources()
 	if err != nil || len(sources) == 0 {
 		return nil
@@ -738,7 +754,18 @@ func (e *Engine) fetchSingleForTag(tag string) *Result {
 		return nil
 	}
 
-	selected := weightedPick(candidates)
+	// 过滤掉已达单源缓存上限（5 张）的源
+	var filtered []model.Source
+	for _, src := range candidates {
+		if sourceCounts[src.ID] < 5 {
+			filtered = append(filtered, src)
+		}
+	}
+	if len(filtered) == 0 {
+		return nil
+	}
+
+	selected := weightedPick(filtered)
 	req, err := http.NewRequest("GET", selected.URL, nil)
 	if err != nil {
 		return nil

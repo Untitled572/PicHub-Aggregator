@@ -47,10 +47,6 @@ function addParamRow() {
   paramRows.value.push({ key: '', value: '', weight: 50, categories: [] })
 }
 
-function addSubApiRow() {
-  paramRows.value.push({ key: '/mobile.php', value: '手机专区', weight: 50, categories: [] })
-}
-
 function removeParamRow(index: number) {
   paramRows.value.splice(index, 1)
 }
@@ -132,21 +128,14 @@ async function handleSave() {
                 @click="addParamRow"
                 class="flex-1 sm:flex-initial px-2.5 py-1 bg-morandi-sage hover:bg-morandi-sage-dark text-white rounded-lg font-medium text-xs flex items-center justify-center gap-1 transition-colors cursor-pointer shadow-xs"
               >
-                <Plus class="w-3.5 h-3.5" /> 添加参数分支
-              </button>
-              <button
-                type="button"
-                @click="addSubApiRow"
-                class="flex-1 sm:flex-initial px-2.5 py-1 bg-morandi-ocean hover:bg-morandi-ocean-dark text-white rounded-lg font-medium text-xs flex items-center justify-center gap-1 transition-colors cursor-pointer shadow-xs"
-              >
-                <Link2 class="w-3.5 h-3.5" /> 添加子 API 链接
+                <Plus class="w-3.5 h-3.5" /> 添加分支
               </button>
             </div>
           </div>
 
 
           <div v-if="paramRows.length === 0" class="text-center py-8 text-morandi-muted bg-morandi-bg/40 rounded-xl border border-dashed border-morandi-border">
-            暂未配置分支，点击右上角【添加参数分支】或【添加子 API 链接】新增
+            暂未配置分支，点击右上角【添加分支】新增
           </div>
 
           <div
@@ -164,7 +153,7 @@ async function handleSave() {
               <span class="text-morandi-muted font-bold text-xs shrink-0">{{ row.key.startsWith('/') || row.key.startsWith('http') ? '💬' : '=' }}</span>
               <input
                 v-model="row.value"
-                :placeholder="row.key.startsWith('/') || row.key.startsWith('http') ? '备注标签 (如 手机专区)' : '参数值 Value (如 pc)'"
+                :placeholder="row.key.startsWith('/') || row.key.startsWith('http') ? '备注标签' : '参数值 Value (如 pc)'"
                 class="morandi-input px-2.5 py-1.5 font-mono text-xs flex-1"
               />
               <button

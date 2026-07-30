@@ -100,14 +100,21 @@ func (is *ImageStore) DownloadAndStore(imageURL string, sourceID int64, sourceNa
 
 	cfg, format, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil {
-		cfg = image.Config{}
-		format = "unknown"
+		return nil, fmt.Errorf("invalid image: %w", err)
+	}
+	if cfg.Width < 1 || cfg.Height < 1 {
+		return nil, fmt.Errorf("invalid dimensions: %dx%d", cfg.Width, cfg.Height)
+	}
+	if format == "" || format == "unknown" {
+		return nil, fmt.Errorf("unknown image format")
 	}
 
 	fileID := generateFileID()
 	ext := getExtension(format, resp.Header.Get("Content-Type"))
 	filename := fileID + ext
-	filePath := filepath.Join(is.cacheDir, filename)
+	subDir := filepath.Join(is.cacheDir, fmt.Sprintf("%d", sourceID))
+	os.MkdirAll(subDir, 0755)
+	filePath := filepath.Join(subDir, filename)
 
 	is.mu.Lock()
 	os.WriteFile(filePath, data, 0644)
@@ -151,14 +158,39 @@ func (is *ImageStore) GetImage(fileID string) (string, string, error) {
 		return "", "", err
 	}
 
-	pattern := filepath.Join(is.cacheDir, img.FileID+".*")
-	matches, err := filepath.Glob(pattern)
-	if err != nil || len(matches) == 0 {
-		return "", "", fmt.Errorf("file not found on disk")
+	// 优先新结构：cacheDir/{sourceID}/{fileID}.*
+	subDir := filepath.Join(is.cacheDir, fmt.Sprintf("%d", img.SourceID))
+	pattern := filepath.Join(subDir, img.FileID+".*")
+	matches, _ := filepath.Glob(pattern)
+	if len(matches) > 0 {
+		contentType := detectContentType(img.Format, matches[0])
+		return matches[0], contentType, nil
 	}
 
-	contentType := detectContentType(img.Format, matches[0])
-	return matches[0], contentType, nil
+	// 回退旧结构：cacheDir/{fileID}.*
+	pattern = filepath.Join(is.cacheDir, img.FileID+".*")
+	matches, _ = filepath.Glob(pattern)
+	if len(matches) > 0 {
+		contentType := detectContentType(img.Format, matches[0])
+		return matches[0], contentType, nil
+	}
+
+	settings, _ := is.store.GetSettings()
+	var savedDir string
+	if settings != nil {
+		savedDir = settings.SavedImagesDir
+	}
+	if savedDir == "" {
+		savedDir = filepath.Join(is.cacheDir, "../saved")
+	}
+	savedPattern := filepath.Join(savedDir, img.FileID+".*")
+	savedMatches, err := filepath.Glob(savedPattern)
+	if err == nil && len(savedMatches) > 0 {
+		contentType := detectContentType(img.Format, savedMatches[0])
+		return savedMatches[0], contentType, nil
+	}
+
+	return "", "", fmt.Errorf("file not found on disk")
 }
 
 func (is *ImageStore) SaveImage(imageID int64) error {
@@ -182,8 +214,12 @@ func (is *ImageStore) SaveImage(imageID int64) error {
 	}
 	os.MkdirAll(savedDir, 0755)
 
-	srcPattern := filepath.Join(is.cacheDir, img.FileID+".*")
+	srcPattern := filepath.Join(is.cacheDir, fmt.Sprintf("%d", img.SourceID), img.FileID+".*")
 	matches, _ := filepath.Glob(srcPattern)
+	if len(matches) == 0 {
+		srcPattern = filepath.Join(is.cacheDir, img.FileID+".*")
+		matches, _ = filepath.Glob(srcPattern)
+	}
 	if len(matches) == 0 {
 		return fmt.Errorf("source file not found")
 	}
@@ -218,6 +254,13 @@ func (is *ImageStore) UnsaveImage(imageID int64) error {
 	pattern := filepath.Join(savedDir, img.FileID+".*")
 	matches, _ := filepath.Glob(pattern)
 	for _, m := range matches {
+		os.Remove(m)
+	}
+
+	// 同时清理旧结构中的缓存文件（如果存在）
+	oldPattern := filepath.Join(is.cacheDir, img.FileID+".*")
+	oldMatches, _ := filepath.Glob(oldPattern)
+	for _, m := range oldMatches {
 		os.Remove(m)
 	}
 
@@ -338,7 +381,14 @@ func evictLRU(dir string, st *store.Store) {
 }
 
 func (is *ImageStore) evictByCount(maxImages int) {
-	entries, _ := filepath.Glob(filepath.Join(is.cacheDir, "*"))
+	entries, _ := filepath.Glob(filepath.Join(is.cacheDir, "*", "*"))
+	rootEntries, _ := filepath.Glob(filepath.Join(is.cacheDir, "*"))
+	for _, e := range rootEntries {
+		info, err := os.Stat(e)
+		if err == nil && !info.IsDir() {
+			entries = append(entries, e)
+		}
+	}
 	if len(entries) <= maxImages {
 		return
 	}
@@ -374,6 +424,45 @@ func encodeStringSlice(s []string) string {
 	}
 	b, _ := json.Marshal(s)
 	return string(b)
+}
+
+func (is *ImageStore) ClearSourceImages(sourceID int64) error {
+	dir := filepath.Join(is.cacheDir, fmt.Sprintf("%d", sourceID))
+	fileIDs, err := is.store.GetImageFileIDsBySourceID(sourceID)
+	if err != nil {
+		return err
+	}
+	for _, fileID := range fileIDs {
+		pattern := filepath.Join(dir, fileID+".*")
+		matches, _ := filepath.Glob(pattern)
+		for _, m := range matches {
+			os.Remove(m)
+		}
+	}
+	return is.store.DeleteImagesBySourceID(sourceID)
+}
+
+func (is *ImageStore) DeleteSourceFolder(sourceID int64) error {
+	dir := filepath.Join(is.cacheDir, fmt.Sprintf("%d", sourceID))
+	os.RemoveAll(dir)
+	return is.store.DeleteImagesBySourceIDAll(sourceID)
+}
+
+func (is *ImageStore) MoveToRoot(fileID string, sourceID int64) error {
+	srcDir := filepath.Join(is.cacheDir, fmt.Sprintf("%d", sourceID))
+	pattern := filepath.Join(srcDir, fileID+".*")
+	matches, _ := filepath.Glob(pattern)
+	if len(matches) == 0 {
+		return nil
+	}
+	dstPath := filepath.Join(is.cacheDir, filepath.Base(matches[0]))
+	return os.Rename(matches[0], dstPath)
+}
+
+func (is *ImageStore) CountSourceCachedFiles(sourceID int64) int {
+	dir := filepath.Join(is.cacheDir, fmt.Sprintf("%d", sourceID))
+	entries, _ := filepath.Glob(filepath.Join(dir, "*"))
+	return len(entries)
 }
 
 func GetOrientation(width, height int) string {

@@ -112,6 +112,9 @@ func (h *Handler) DeleteSource(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 		return
 	}
+	if h.imageStore != nil {
+		go h.imageStore.DeleteSourceFolder(id)
+	}
 	if err := h.store.DeleteSource(id); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -134,6 +137,9 @@ func (h *Handler) ToggleSource(c *gin.Context) {
 	if err := h.store.UpdateSource(src); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+	if !src.Enabled && h.imageStore != nil {
+		go h.imageStore.ClearSourceImages(src.ID)
 	}
 	c.JSON(http.StatusOK, src)
 }

@@ -26,7 +26,7 @@ import {
   ThumbsDown
 } from 'lucide-vue-next'
 
-const { getStats, getImageHistory, getSettings, saveImage, unsaveImage, likeImage, dislikeImage } = useApi()
+const { getStats, getImageHistory, getSettings, saveImage, unsaveImage, likeImage, dislikeImage, listSavedImages } = useApi()
 const { getCategoryMap } = useTags()
 const categoryMap = computed(() => getCategoryMap())
 
@@ -37,7 +37,7 @@ const settings = ref<Settings | null>(null)
 
 // History Pagination State
 const history = ref<ImageHistoryRecord[]>([])
-const savedImageIds = ref(new Set<number>())
+const savedFileIDs = ref(new Set<string>())
 const savingImageId = ref<number | null>(null)
 const likedIds = ref(new Set<number>())
 const likingId = ref<number | null>(null)
@@ -108,12 +108,21 @@ async function loadAllData() {
 
     for (const item of history.value) {
       if (item.is_saved) {
+        if (item.file_id) savedFileIDs.value.add(item.file_id)
         if (item.image_id) savedKeys.value.add(item.image_id)
-        if (item.file_id) savedKeys.value.add(item.file_id)
         if (item.id) savedKeys.value.add(item.id)
       }
     }
     savedKeys.value = new Set(savedKeys.value)
+    savedFileIDs.value = new Set(savedFileIDs.value)
+
+    const savedRes = await listSavedImages(1000, 0).catch(() => null)
+    if (savedRes?.images) {
+      for (const img of savedRes.images) {
+        if (img.file_id) savedFileIDs.value.add(img.file_id)
+      }
+      savedFileIDs.value = new Set(savedFileIDs.value)
+    }
 
 
   } catch (e) {
@@ -217,8 +226,8 @@ const savedKeys = ref(new Set<string | number>())
 function isItemSaved(item: ImageHistoryRecord): boolean {
   if (!item) return false
   if (item.is_saved) return true
+  if (item.file_id && savedFileIDs.value.has(item.file_id)) return true
   if (item.image_id && savedKeys.value.has(item.image_id)) return true
-  if (item.file_id && savedKeys.value.has(item.file_id)) return true
   if (item.id && savedKeys.value.has(item.id)) return true
   return false
 }
@@ -287,6 +296,7 @@ function formatDate(isoStr: string): string {
   try {
     const d = new Date(isoStr)
     return d.toLocaleString('zh-CN', {
+      timeZone: 'Asia/Shanghai',
       month: '2-digit',
       day: '2-digit',
       hour: '2-digit',

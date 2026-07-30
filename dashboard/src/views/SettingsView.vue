@@ -95,7 +95,7 @@ async function handleSave() {
           <span>{{ saving ? '保存中...' : '保存全局设置' }}</span>
         </button>
         <span class="px-3 py-1 bg-morandi-sage/10 text-morandi-sage-dark text-xs font-bold rounded-xl font-mono border border-morandi-sage/20">
-          v0.6.0
+          v0.6.1
         </span>
       </div>
     </div>
@@ -221,7 +221,7 @@ async function handleSave() {
             <Zap class="w-3.5 h-3.5 text-morandi-sage-dark font-bold" /> 预缓存分发池大小 (张)
           </label>
           <input v-model.number="settings.pool_size" type="number" min="0" max="50" class="morandi-input w-full px-3 py-2 font-mono text-xs font-bold text-morandi-sage-dark" />
-          <p class="text-[10px] text-morandi-muted mt-1">代理模式下后台提前拉取 N 张图片等待 0ms 秒发分发，默认 10</p>
+          <p class="text-[10px] text-morandi-muted mt-1">后台提前拉取的图片数量，建议大于图片源数量</p>
         </div>
 
         <div>
@@ -237,7 +237,7 @@ async function handleSave() {
             <HardDrive class="w-3.5 h-3.5 text-morandi-light" /> 永久归档图片保存目录
           </label>
           <input v-model="settings.saved_images_dir" placeholder="./data/saved" class="morandi-input w-full px-3 py-2 font-mono text-xs" />
-          <p class="text-[10px] text-morandi-muted mt-1">用户在控制台点收藏保存后图片复制到的本地路径</p>
+          <p class="text-[10px] text-morandi-muted mt-1">控制台点收藏保存后图片复制到的本地路径</p>
         </div>
 
         <div>
@@ -245,7 +245,7 @@ async function handleSave() {
             <HardDrive class="w-3.5 h-3.5 text-morandi-light" /> 最大磁盘缓存容量 (MB)
           </label>
           <input v-model.number="settings.cache_max_mb" type="number" class="morandi-input w-full px-3 py-2 font-mono text-xs" />
-          <p class="text-[10px] text-morandi-muted mt-1">超出限制后按 LRU 策略自动淘汰最老缓存文件</p>
+          <p class="text-[10px] text-morandi-muted mt-1">超出限制后自动淘汰最老缓存文件</p>
         </div>
 
         <div>
@@ -283,15 +283,15 @@ async function handleSave() {
             <Gauge class="w-3.5 h-3.5 text-morandi-light" /> 单 IP 允许最大请求数 (次)
           </label>
           <input v-model.number="settings.rate_limit" type="number" class="morandi-input w-full px-3 py-2 font-mono text-xs" />
-          <p class="text-[10px] text-morandi-muted mt-1">滑动窗口内允许单个客户端 IP 发起的最大分发请求数</p>
+          <p class="text-[10px] text-morandi-muted mt-1">一段时间内允许单个客户端 IP 发起的最大分发请求数</p>
         </div>
 
         <div>
           <label class="font-medium text-morandi-text block mb-1.5 flex items-center gap-1">
-            <Clock class="w-3.5 h-3.5 text-morandi-light" /> 限流滑动窗口时长 (秒)
+            <Clock class="w-3.5 h-3.5 text-morandi-light" /> 限流时长 (秒)
           </label>
           <input v-model.number="settings.rate_limit_window" type="number" class="morandi-input w-full px-3 py-2 font-mono text-xs" />
-          <p class="text-[10px] text-morandi-muted mt-1">限流计算的滑动时间范围，默认 60 秒</p>
+          <p class="text-[10px] text-morandi-muted mt-1">限流计算的滑动时间范围</p>
         </div>
 
         <div>
@@ -299,7 +299,7 @@ async function handleSave() {
             <History class="w-3.5 h-3.5 text-morandi-light" /> 分发历史流水保存上限 (条)
           </label>
           <input v-model.number="settings.max_history_records" type="number" min="10" max="1000" class="morandi-input w-full px-3 py-2 font-mono text-xs font-bold text-morandi-text" />
-          <p class="text-[10px] text-morandi-muted mt-1">【使用统计】保留的历史记录数（默认 60 条，自动滚动覆盖）</p>
+          <p class="text-[10px] text-morandi-muted mt-1">保留的历史记录数</p>
         </div>
       </div>
     </div>

@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -98,6 +99,19 @@ func main() {
 
 	proxyCache := service.NewProxyCache(st, "./cache")
 	imageStore := service.NewImageStore(st, "./data/images", proxyConfig)
+
+	// 启动时清理无效图片（宽度/高度 < 1、格式未知）
+	if fileIDs, count, err := st.CleanupInvalidImages(); err == nil && count > 0 {
+		logger.System("cleaned %d invalid cached images", count)
+		for _, fid := range fileIDs {
+			pattern := "./data/images/*/" + fid + ".*"
+			if matches, err := filepath.Glob(pattern); err == nil {
+				for _, m := range matches {
+					os.Remove(m)
+				}
+			}
+		}
+	}
 	sourceMonitor := monitor.NewSourceMonitor(st)
 	engine := service.NewEngine(st, proxyCache, imageStore, proxyConfig, sourceMonitor)
 	h := handler.NewHandlerWithImageStore(st, engine, checker, imageStore, proxyConfig)
