@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🖼️ PicHub Aggregator
+# PicHub Aggregator
 
 **超高性能、单文件部署的第三方图片 API 聚合分发引擎**
 
@@ -48,34 +48,23 @@
 
 ## ✨ 核心特性
 
-- ⚡ **单文件极简部署 (Embed Single Binary)**
+- ⚡ **单文件极简部署**
   Go + Gin 驱动，将打包后的前端页面嵌入至单个可执行二进制文件。无需 Node.js、Nginx 或外部前端环境，单文件/单镜像即开即用。
-
-- 🎯 **多维分类 Tag 与专属分发 (Category Tags & Master Routing)**
+- 🎯 **多维分类 Tag 与专属分发
   支持自定义分类 Tag（如默认 `#横屏`, `#竖屏`, `#自适应`）管理。支持为客户端绑定专属 Tag 分发链接，或在 `GET /random?category=tag1,tag2` 中动态多选过滤分发。
-
-- 🏷️ **系统硬编程标签与独占 Tag 隔离 (System Tags & Exclusive Isolation)**
+- 🏷️ **系统硬编程标签与独占 Tag 隔离**
   内置规则硬编程标签（`#横屏`, `#竖屏`, `#自适应`）独立于【系统内置标签框】中展示；支持 `exclusive: true` 独占隔离标记，仅在客户端显式指定时触发分发。
-
-- 🧩 **多参数与路径衍生分支 (Sub-API Links & Query Param Variants)**
+- 🧩 **多参数与路径衍生分支
   支持为单个主图源配置参数分支（如 `type=pc`）或独立子 API 链接（如 `/pe.php`）。分支继承主源属性，可单独绑定 Tag 与权重，分发历史流水精确记录轨迹。
-
-- 💾 **本地缓存代理模式 (Local Cache Mode & Proxy Serving)**
+- 💾 **本地缓存代理模式
   支持开启 `proxy_mode` 本地代理缓存。开启后，引擎自动抓取第三方图片并转存至本地磁盘缓存目录 (`./cache`)，对外提供本地 `/images/:file_id` 极速直发与长效 HTTP 缓存。有效解决第三方图源防盗链、跨域限制与源站宕机风险，同时解锁物理宽高检测与离线转存功能。
-
-- 📐 **真图片物理比例动态过滤 (Real Aspect Ratio Orientation Filter)**
-  基于 Go `image.DecodeConfig` 对图片流/缓存文件的真实宽高进行解码检测。在 `proxy_mode=true` 本地代理中转模式下，支持通过 `?orientation=horizontal|vertical` 强制过滤物理真横屏或竖屏图片（非标签推断，物理匹配）。
-
-- 👍 **历史流水与权重动态微调 (History Log & Weight Stepper)**
+- 📐 **真图片物理比例动态过滤**
+  基于 Go `image.DecodeConfig` 对图片流/缓存文件的真实宽高进行解码检测。在 `proxy_mode=true` 本地代理中转模式下，支持通过 `?orientation=horizontal|vertical` 强制过滤物理真横屏或竖屏图片。
+- 👍 **历史流水与权重动态微调
   提供带图片灯箱预览的分发流水日志，支持对已分发图片一键执行【👍 喜欢 (+1 权重)】或【👎 不喜欢 (-1 权重)】实时调优，可即时优化图源偏好。
-
-- 🖼️ **离线保存图库与 3 视图巨幅图墙 (Offline Saved Gallery & Infinite Scroll)**
+- 🖼️ **离线保存图库与图墙
   支持将喜爱的图片一键本地转存。提供 **列表视图**、**小图展示** 与 **大图图墙** 3 种模式。大图模式取消传统分页栏，采用 **`IntersectionObserver` 无限滚动** 与 **`loading="lazy"` 按需懒加载**。
-
-- ⬇️ **一键本地文件下载 (Native File Download)**
-  离线保存图库中全面支持一键本地下载文件，保留图片原始格式与高清画质。
-
-- 🛡️ **加权随机抽选与自动容错降级 (Weighted Random & Fault Tolerance)**
+- 🛡️ **加权随机抽选与自动容错降级**
   内置加权随机抽选算法，支持单次分发最多 3 次（或 8 次）重试。配合后台定期（默认 360 分钟可调）批量健康检测，连续故障图源自动熔断挂起，确保对外分发服务 100% 高可用。
 
 ---
@@ -84,7 +73,7 @@
 
 | 页面 / 功能 | 控制台界面截图 |
 | :--- | :--- |
-| **大图图墙 (无限滚动与无边框拼接)**<br>• 取消传统分页栏，采用 `IntersectionObserver` 滚动加载<br>• 自然长方形比例无缝拼接，超大视觉呈现<br>• 一键【下载本地】与取消保存 | ![Saved Large](screenshots/saved_large.png) |
+| **大图图墙**<br>• 取消分页栏，采用 `IntersectionObserver` 滚动加载<br>• 自然长方形比例无缝拼接，超大视觉呈现<br>• 一键【下载本地】与取消保存 | ![Saved Large](screenshots/saved_large.png) |
 | **接口与 Tag 标签管理**<br/>• 独立归集的【系统内置标签框】（横屏/竖屏/自适应）<br/>• 支持独占标签（Exclusive Tag）安全隔离 | ![Saved Small](screenshots/saved_small.png) |
 | **图源管理库**<br>• 基础信息与 10 ~ 90 权重加权配置<br>• 支持添加子 API 链接与参数分支 Variants | ![Sources](screenshots/sources.png) |
 | **使用统计与历史流水**<br/>• 今日/历史 Hits 分发趋势与排行榜<br/>• 历史流水精准缩略图预览与 👍 / 👎 权重实时调优 | ![Endpoints](screenshots/endpoints.png) |
@@ -100,7 +89,7 @@
 ```yaml
 services:
   pichub:
-    image: ghcr.io/untitled572/pichub-aggregator:latest
+    image: ghcr.nju.edu.cn/untitled572/pichub-aggregator:latest
     network_mode: host
     volumes:
       - ./data:/app/data
@@ -112,7 +101,7 @@ services:
       - PORT=5721
       - DB_PATH=/app/data/pichub.db
       - CACHE_PATH=/app/cache
-      - TRUSTED_PROXIES=127.0.0.1/32,172.16.0.0/12
+      - TRUSTED_PROXIES=127.0.0.1/32
     restart: unless-stopped
 ```
 
