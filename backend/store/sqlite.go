@@ -111,6 +111,14 @@ func (s *Store) migrate() error {
 			saved_at DATETIME DEFAULT NULL,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
+		`CREATE TABLE IF NOT EXISTS endpoints (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL UNIQUE,
+			bound_tags TEXT DEFAULT '[]',
+			enabled INTEGER DEFAULT 1,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
 	}
 	for _, q := range queries {
 		if _, err := s.db.Exec(q); err != nil {
@@ -1002,4 +1010,88 @@ func (s *Store) ImportSavedImage(img *model.SavedImage) error {
 		img.FileID, img.OriginalURL, img.SourceName, img.Width, img.Height, img.Format, img.FileSize, img.Orientation, savedAtStr, savedAtStr,
 	)
 	return err
+}
+
+func scanEndpoint(row *sql.Row) (*model.Endpoint, error) {
+	var ep model.Endpoint
+	var tagsJSON, createdAt, updatedAt string
+	err := row.Scan(&ep.ID, &ep.Name, &tagsJSON, &ep.Enabled, &createdAt, &updatedAt)
+	if err != nil {
+		return nil, err
+	}
+	json.Unmarshal([]byte(tagsJSON), &ep.BoundTags)
+	if ep.BoundTags == nil {
+		ep.BoundTags = []string{}
+	}
+	ep.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
+	ep.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAt)
+	return &ep, nil
+}
+
+func (s *Store) ListEndpoints() ([]model.Endpoint, error) {
+	rows, err := s.db.Query("SELECT id, name, bound_tags, enabled, created_at, updated_at FROM endpoints ORDER BY id ASC")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	endpoints := make([]model.Endpoint, 0)
+	for rows.Next() {
+		var ep model.Endpoint
+		var tagsJSON, createdAt, updatedAt string
+		if err := rows.Scan(&ep.ID, &ep.Name, &tagsJSON, &ep.Enabled, &createdAt, &updatedAt); err != nil {
+			return nil, err
+		}
+		json.Unmarshal([]byte(tagsJSON), &ep.BoundTags)
+		if ep.BoundTags == nil {
+			ep.BoundTags = []string{}
+		}
+		ep.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
+		ep.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAt)
+		endpoints = append(endpoints, ep)
+	}
+	return endpoints, nil
+}
+
+func (s *Store) GetEndpointByName(name string) (*model.Endpoint, error) {
+	return scanEndpoint(s.db.QueryRow(
+		"SELECT id, name, bound_tags, enabled, created_at, updated_at FROM endpoints WHERE name=?", name,
+	))
+}
+
+func (s *Store) GetEndpoint(id int64) (*model.Endpoint, error) {
+	return scanEndpoint(s.db.QueryRow(
+		"SELECT id, name, bound_tags, enabled, created_at, updated_at FROM endpoints WHERE id=?", id,
+	))
+}
+
+func (s *Store) CreateEndpoint(ep *model.Endpoint) (int64, error) {
+	tagsJSON, _ := json.Marshal(ep.BoundTags)
+	result, err := s.db.Exec(
+		"INSERT INTO endpoints (name, bound_tags, enabled) VALUES (?, ?, ?)",
+		ep.Name, string(tagsJSON), ep.Enabled,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
+func (s *Store) UpdateEndpoint(ep *model.Endpoint) error {
+	tagsJSON, _ := json.Marshal(ep.BoundTags)
+	_, err := s.db.Exec(
+		"UPDATE endpoints SET name=?, bound_tags=?, enabled=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+		ep.Name, string(tagsJSON), ep.Enabled, ep.ID,
+	)
+	return err
+}
+
+func (s *Store) DeleteEndpoint(id int64) error {
+	_, err := s.db.Exec("DELETE FROM endpoints WHERE id=?", id)
+	return err
+}
+
+func (s *Store) EndpointNameExists(name string, excludeID int64) (bool, error) {
+	var count int
+	err := s.db.QueryRow("SELECT COUNT(*) FROM endpoints WHERE name=? AND id<>?", name, excludeID).Scan(&count)
+	return count > 0, err
 }

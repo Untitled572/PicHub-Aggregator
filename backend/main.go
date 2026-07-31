@@ -1,3 +1,13 @@
+// @title PicHub Aggregator API
+// @version 0.6.5
+// @description PicHub-Aggregator 图片聚合分发服务。AdminAuth 只保护 POST/PUT/DELETE，所有 GET 端点公开。
+// @termsOfService https://github.com/untitled572/pichub-aggregator
+// @contact.name PicHub
+// @license.name MIT
+// @BasePath /
+// @securityDefinitions.apikey BearerAuth
+// @in header
+// @name Authorization
 package main
 
 import (
@@ -9,8 +19,11 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
 
 	"github.com/pichub/backend/config"
+	_ "github.com/pichub/backend/docs"
 	"github.com/pichub/backend/embed"
 	"github.com/pichub/backend/handler"
 	"github.com/pichub/backend/logger"
@@ -20,6 +33,8 @@ import (
 	"github.com/pichub/backend/service"
 	"github.com/pichub/backend/store"
 )
+
+//go:generate swag init -g main.go --parseDependency --parseInternal -o docs
 
 func main() {
 	gin.SetMode(gin.ReleaseMode)
@@ -124,8 +139,24 @@ func main() {
 	r.Use(middleware.CORS())
 	r.Use(middleware.ServerTime())
 
+	rateLimitMW := middleware.RateLimit(st)
+
+	// Swagger API 文档: SWAGGER_ENABLED=false 时关闭
+	if os.Getenv("SWAGGER_ENABLED") != "false" {
+		swaggerHandler := ginSwagger.WrapHandler(swaggerFiles.Handler)
+		r.GET("/swagger/*any", func(c *gin.Context) {
+			// gin-swagger 只匹配已知资源文件名, /swagger/ 根路径会 404, 重定向到 index.html
+			if p := strings.TrimSuffix(c.Param("any"), "/"); p == "" || p == "swagger" {
+				c.Redirect(http.StatusMovedPermanently, "/swagger/index.html")
+				return
+			}
+			swaggerHandler(c)
+		})
+	}
+
 	r.GET("/ping", h.HealthCheck)
-	r.GET("/random", middleware.RateLimit(st), h.RandomImage)
+	r.GET("/random", rateLimitMW, h.RandomImage)
+	r.GET("/e/:name", rateLimitMW, h.EndpointImage)
 	r.POST("/random/detect", h.DetectURL)
 	r.POST("/api/sources/health-check", h.BatchHealthCheck)
 	r.GET("/images/:file_id", h.ServeImage)
@@ -145,6 +176,11 @@ func main() {
 		api.PUT("/settings", middleware.AdminAuth(st), h.UpdateSettings)
 		api.GET("/tags", h.GetTags)
 		api.PUT("/tags", middleware.AdminAuth(st), h.UpdateTags)
+		api.GET("/endpoints", h.ListEndpoints)
+		api.POST("/endpoints", middleware.AdminAuth(st), h.CreateEndpoint)
+		api.PUT("/endpoints/:id", middleware.AdminAuth(st), h.UpdateEndpoint)
+		api.DELETE("/endpoints/:id", middleware.AdminAuth(st), h.DeleteEndpoint)
+		api.POST("/endpoints/:id/toggle", middleware.AdminAuth(st), h.ToggleEndpoint)
 		api.GET("/health", h.GetHealthStatus)
 		api.GET("/stats", h.GetStats)
 		api.GET("/stats/history", h.GetImageHistory)
@@ -175,7 +211,7 @@ func main() {
 			r.StaticFS("/assets", http.FS(assetsFS))
 		}
 		r.NoRoute(func(c *gin.Context) {
-			if strings.HasPrefix(c.Request.URL.Path, "/api/") || strings.HasPrefix(c.Request.URL.Path, "/random/") {
+			if strings.HasPrefix(c.Request.URL.Path, "/api/") || strings.HasPrefix(c.Request.URL.Path, "/random/") || strings.HasPrefix(c.Request.URL.Path, "/e/") || strings.HasPrefix(c.Request.URL.Path, "/swagger/") {
 				c.JSON(404, gin.H{"error": "not found"})
 				return
 			}

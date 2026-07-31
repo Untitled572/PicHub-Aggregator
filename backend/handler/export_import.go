@@ -10,6 +10,14 @@ import (
 
 var sensitiveHeaders = []string{"api-key", "authorization", "token", "secret", "cookie"}
 
+// ExportRules POST /api/export 导出规则
+// @Summary 导出规则
+// @Description 导出数据源规则，自动剔除敏感 headers
+// @Tags Export
+// @Produce json
+// @Success 200 {object} map[string]interface{}
+// @Failure 500 {object} map[string]interface{}
+// @Router /api/export [post]
 func (h *Handler) ExportRules(c *gin.Context) {
 	sources, err := h.store.ListSources()
 	if err != nil {
@@ -43,20 +51,7 @@ func (h *Handler) ExportRules(c *gin.Context) {
 }
 
 func (h *Handler) ImportRules(c *gin.Context) {
-	var body struct {
-		Sources []struct {
-			Name         string              `json:"name"`
-			URL          string              `json:"url"`
-			RespType     string              `json:"resp_type"`
-			JsonPath     string              `json:"json_path"`
-			Weight       int                 `json:"weight"`
-			Categories   []string            `json:"categories"`
-			Headers      map[string]string   `json:"headers"`
-			Enabled      bool                `json:"enabled"`
-			DefaultQuery string              `json:"default_query"`
-			Params       []model.QueryParam  `json:"params"`
-		} `json:"sources"`
-	}
+	var body ImportRequest
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return

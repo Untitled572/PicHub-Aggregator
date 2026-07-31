@@ -15,6 +15,17 @@ type loginRequest struct {
 }
 
 // Login POST /api/login 用户名+MD5密码校验, 成功后签发 session token
+// @Summary 登录
+// @Description 用户名 + MD5 后的密码摘要校验，成功后签发 session token
+// @Tags Auth
+// @Accept json
+// @Produce json
+// @Param body body loginRequest true "登录凭据"
+// @Success 200 {object} map[string]interface{} "token"
+// @Failure 400 {object} map[string]interface{} "请求体无效"
+// @Failure 403 {object} map[string]interface{} "未启用登录或未配置"
+// @Failure 401 {object} map[string]interface{} "用户名或密码错误"
+// @Router /api/login [post]
 func (h *Handler) Login(c *gin.Context) {
 	var req loginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -45,6 +56,13 @@ func (h *Handler) Login(c *gin.Context) {
 }
 
 // Logout POST /api/logout 使当前 token 失效 (幂等)
+// @Summary 登出
+// @Description 使当前 Bearer token 失效（幂等）
+// @Tags Auth
+// @Security BearerAuth
+// @Produce json
+// @Success 200 {object} map[string]interface{}
+// @Router /api/logout [post]
 func (h *Handler) Logout(c *gin.Context) {
 	auth := c.GetHeader("Authorization")
 	if strings.HasPrefix(auth, "Bearer ") {
@@ -55,6 +73,12 @@ func (h *Handler) Logout(c *gin.Context) {
 
 // CheckAuth GET /api/auth/check 公开接口: 校验当前 Bearer token 是否仍有效
 // (服务重启后内存会话清空, 前端据此将残留 token 清空并跳登录页)
+// @Summary 校验登录态
+// @Description 校验当前 Bearer token 是否仍有效
+// @Tags Auth
+// @Produce json
+// @Success 200 {object} map[string]interface{}
+// @Router /api/auth/check [get]
 func (h *Handler) CheckAuth(c *gin.Context) {
 	settings, err := h.store.GetSettings()
 	if err != nil || settings == nil || !settings.LoginEnabled {

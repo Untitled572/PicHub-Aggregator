@@ -8,6 +8,16 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// GetStats GET /api/stats 请求统计
+// @Summary 请求统计
+// @Tags Stats
+// @Produce json
+// @Param start_date query string false "开始日期 YYYY-MM-DD"
+// @Param end_date query string false "结束日期 YYYY-MM-DD"
+// @Param range query string false "快捷区间" Enums(today,7d,30d,all)
+// @Success 200 {object} map[string]interface{}
+// @Failure 500 {object} map[string]interface{}
+// @Router /api/stats [get]
 func (h *Handler) GetStats(c *gin.Context) {
 	todayStr := time.Now().Format("2006-01-02")
 	startDate := c.Query("start_date")
@@ -57,6 +67,15 @@ func (h *Handler) GetStats(c *gin.Context) {
 	})
 }
 
+// GetImageHistory GET /api/stats/history 分发历史
+// @Summary 分发历史
+// @Tags Stats
+// @Produce json
+// @Param limit query int false "每页数量(默认20,最大200)" default(20)
+// @Param offset query int false "偏移量" default(0)
+// @Success 200 {object} map[string]interface{}
+// @Failure 500 {object} map[string]interface{}
+// @Router /api/stats/history [get]
 func (h *Handler) GetImageHistory(c *gin.Context) {
 	limit := 20
 	offset := 0

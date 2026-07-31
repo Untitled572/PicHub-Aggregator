@@ -17,6 +17,15 @@ import (
 	"github.com/pichub/backend/model"
 )
 
+// ExportData GET /api/export 导出备份
+// @Summary 导出备份
+// @Description scope 含 images 时导出 ZIP (含 manifest.json + 已保存图片)，否则导出 JSON
+// @Tags Export
+// @Produce json
+// @Produce application/zip
+// @Param scope query string false "导出范围(逗号分隔)" default(config,stats,images) Enums(config,stats,images)
+// @Success 200 {object} model.ExportManifest "备份文件(JSON 或 ZIP)"
+// @Router /api/export [get]
 func (h *Handler) ExportData(c *gin.Context) {
 	scopeStr := c.DefaultQuery("scope", "config,stats,images")
 	scopes := strings.Split(scopeStr, ",")
@@ -117,6 +126,19 @@ func (h *Handler) ExportData(c *gin.Context) {
 	c.Data(http.StatusOK, "application/json", manifestBytes)
 }
 
+// ImportData POST /api/import 导入备份
+// @Summary 导入备份
+// @Description 支持 multipart 上传 ZIP/JSON 文件或直接提交 manifest JSON
+// @Tags Export
+// @Security BearerAuth
+// @Accept multipart/form-data
+// @Accept json
+// @Produce json
+// @Param file formData file false "备份文件 (multipart)"
+// @Param body body model.ExportManifest false "备份 JSON (非 multipart 时)"
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} map[string]interface{}
+// @Router /api/import [post]
 func (h *Handler) ImportData(c *gin.Context) {
 	var manifest model.ExportManifest
 	var zipFileData map[string][]byte

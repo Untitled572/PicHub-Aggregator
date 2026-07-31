@@ -66,6 +66,7 @@ export interface DetectResult {
   headers: Record<string, string>
   body_tree: unknown
   url_hints: string[]
+  final_url?: string
   error?: string
 }
 
@@ -146,6 +147,15 @@ export interface SavedImage {
   file_size: number
   original_url: string
   saved_at: string
+}
+
+export interface Endpoint {
+  id: number
+  name: string
+  bound_tags: string[]
+  enabled: boolean
+  created_at?: string
+  updated_at?: string
 }
 
 export interface ExportData {

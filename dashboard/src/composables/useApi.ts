@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 import CryptoJS from 'crypto-js'
-import type { Source, Settings, DetectResult, ExportData, ImportResult, HealthResult, Tag, StatsResponse, ImageHistoryRecord, SavedImage } from '../types'
+import type { Source, Settings, DetectResult, ExportData, ImportResult, HealthResult, Tag, StatsResponse, ImageHistoryRecord, SavedImage, Endpoint } from '../types'
 
 
 const API_BASE = ''
@@ -138,6 +138,26 @@ export function useApi() {
     return request<Tag[]>('/api/tags', { method: 'PUT', body: JSON.stringify(data) })
   }
 
+  function listEndpoints() {
+    return request<Endpoint[]>('/api/endpoints')
+  }
+
+  function createEndpoint(data: Partial<Endpoint>) {
+    return request<Endpoint>('/api/endpoints', { method: 'POST', body: JSON.stringify(data) })
+  }
+
+  function updateEndpoint(id: number, data: Partial<Endpoint>) {
+    return request<Endpoint>(`/api/endpoints/${id}`, { method: 'PUT', body: JSON.stringify(data) })
+  }
+
+  function deleteEndpoint(id: number) {
+    return request<void>(`/api/endpoints/${id}`, { method: 'DELETE' })
+  }
+
+  function toggleEndpoint(id: number) {
+    return request<Endpoint>(`/api/endpoints/${id}/toggle`, { method: 'POST' })
+  }
+
   function detectURL(url: string) {
     return request<DetectResult>('/random/detect', { method: 'POST', body: JSON.stringify({ url }) })
   }
@@ -212,6 +232,7 @@ export function useApi() {
     login, logout,
     listSources, getSource, createSource, updateSource, deleteSource, toggleSource,
     getSettings, updateSettings, getTags, updateTags,
+    listEndpoints, createEndpoint, updateEndpoint, deleteEndpoint, toggleEndpoint,
     detectURL, healthCheck,
     exportRules, importRules, exportCustomData, importCustomData,
     getStats, getImageHistory,
