@@ -1,6 +1,8 @@
 <script setup lang="ts">
 declare const __APP_VERSION__: string
 import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { useLocalStorage } from '@vueuse/core'
 import { useApi, setAuthToken } from '../composables/useApi'
 import type { Settings } from '../types'
 
@@ -22,11 +24,20 @@ import {
   Globe,
   Network,
   Cpu,
+  User,
+  LogOut,
   X
 } from 'lucide-vue-next'
 
 
-const { getSettings, updateSettings } = useApi()
+const { getSettings, updateSettings, logout } = useApi()
+const router = useRouter()
+
+async function handleLogout() {
+  try { await logout() } catch {}
+  setAuthToken('')
+  router.push('/login')
+}
 
 const settings = ref<Settings>({
   proxy_mode: false,
@@ -43,11 +54,24 @@ const settings = ref<Settings>({
   health_check_interval: 360,
   max_history_records: 60,
   saved_images_dir: './data/saved',
-  admin_token: ''
+  admin_token: '',
+  login_enabled: false,
+  admin_username: '',
+  admin_password: '',
+  session_hours: 3
 })
 
 const saving = ref(false)
 const saved = ref(false)
+
+// 标签页: 记忆上次打开的 Tab
+const activeTab = useLocalStorage('settings-active-tab', 'network')
+const tabs = [
+  { id: 'network', label: '网络与代理', icon: Globe },
+  { id: 'cache', label: '本地缓存', icon: HardDrive },
+  { id: 'limit', label: '限流与历史', icon: Shield },
+  { id: 'security', label: '安全鉴权', icon: ShieldCheck },
+]
 
 onMounted(async () => {
   try {
@@ -57,6 +81,8 @@ onMounted(async () => {
     if (s.pool_size === undefined || s.pool_size === null) s.pool_size = 10
     if (!s.saved_images_dir) s.saved_images_dir = './data/saved'
     if (s.proxy_url === undefined || s.proxy_url === null) s.proxy_url = 'http://127.0.0.1:7890'
+    if (!s.session_hours) s.session_hours = 3
+    s.admin_password = ''
     settings.value = s
   } catch {}
 })
@@ -69,6 +95,7 @@ async function handleSave() {
     if (updated && updated.admin_token) {
       setAuthToken(updated.admin_token)
     }
+    settings.value.admin_password = ''
     saved.value = true
     setTimeout(() => saved.value = false, 3000)
   } catch {}
@@ -105,6 +132,14 @@ async function handleSave() {
           <Save class="w-4 h-4" />
           <span>{{ saving ? '保存中...' : '保存全局设置' }}</span>
         </button>
+        <button
+          @click="handleLogout"
+          class="flex items-center gap-1.5 px-3.5 py-2.5 bg-white hover:bg-rose-50 text-morandi-muted hover:text-rose-600 rounded-xl text-xs font-medium border border-morandi-borderSoft transition-colors cursor-pointer"
+          title="退出登录并返回登录页"
+        >
+          <LogOut class="w-3.5 h-3.5" />
+          退出登录
+        </button>
         <span class="px-3 py-1 bg-morandi-sage/10 text-morandi-sage-dark text-xs font-bold rounded-xl font-mono border border-morandi-sage/20 shrink-0 whitespace-nowrap">
           {{ appVersion }}
         </span>
@@ -112,8 +147,25 @@ async function handleSave() {
     </div>
 
 
+    <!-- Tab 导航 -->
+    <div class="bg-morandi-card rounded-2xl border border-morandi-borderSoft shadow-2xs p-1.5 flex flex-wrap gap-1 sticky top-16 md:top-20 z-10 backdrop-blur-md bg-morandi-card/95">
+      <button
+        v-for="tab in tabs"
+        :key="tab.id"
+        type="button"
+        @click="activeTab = tab.id"
+        class="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-medium transition-all cursor-pointer"
+        :class="activeTab === tab.id
+          ? 'bg-morandi-sage text-white shadow-xs'
+          : 'text-morandi-muted hover:bg-morandi-bg hover:text-morandi-text'"
+      >
+        <component :is="tab.icon" class="w-3.5 h-3.5" />
+        {{ tab.label }}
+      </button>
+    </div>
+
     <!-- Group 1: 🌐 网络与外网代理服务 -->
-    <div class="morandi-card p-6 space-y-5">
+    <div v-show="activeTab === 'network'" class="morandi-card p-6 space-y-5">
       <div class="flex items-center justify-between pb-3 border-b border-morandi-border/60">
         <div class="flex items-center gap-2">
           <div class="w-7 h-7 rounded-lg bg-morandi-ocean/15 text-morandi-ocean-dark flex items-center justify-center">
@@ -189,7 +241,7 @@ async function handleSave() {
     </div>
 
     <!-- Group 2: 💾 本地缓存与秒级分发池 -->
-    <div class="morandi-card p-6 space-y-5">
+    <div v-show="activeTab === 'cache'" class="morandi-card p-6 space-y-5">
       <div class="flex items-center justify-between pb-3 border-b border-morandi-border/60">
         <div class="flex items-center gap-2">
           <div class="w-7 h-7 rounded-lg bg-morandi-sage/15 text-morandi-sage-dark flex items-center justify-center">
@@ -290,7 +342,7 @@ async function handleSave() {
     </div>
 
     <!-- Group 3: 🛡️ 防刷限流与历史日志 -->
-    <div class="morandi-card p-6 space-y-5">
+    <div v-show="activeTab === 'limit'" class="morandi-card p-6 space-y-5">
       <div class="flex items-center justify-between pb-3 border-b border-morandi-border/60">
         <div class="flex items-center gap-2">
           <div class="w-7 h-7 rounded-lg bg-morandi-sand/20 text-morandi-sand-dark flex items-center justify-center">
@@ -327,37 +379,89 @@ async function handleSave() {
       </div>
     </div>
 
-    <!-- Group 4: 🔑 控制台安全鉴权 -->
-    <div class="morandi-card p-6 space-y-5">
+    <!-- Group 4: 🔐 安全鉴权 (登录保护 + Admin Token) -->
+    <div v-show="activeTab === 'security'" class="morandi-card p-6 space-y-5">
       <div class="flex items-center justify-between pb-3 border-b border-morandi-border/60">
         <div class="flex items-center gap-2">
           <div class="w-7 h-7 rounded-lg bg-morandi-rose/15 text-morandi-rose-dark flex items-center justify-center">
-            <Key class="w-4 h-4" />
+            <ShieldCheck class="w-4 h-4" />
           </div>
-          <h3 class="text-sm font-bold text-morandi-text">控制台管理员安全鉴权</h3>
+          <h3 class="text-sm font-bold text-morandi-text">控制台安全鉴权</h3>
         </div>
       </div>
 
-      <div class="p-4 bg-morandi-sage-light/40 border border-morandi-sage/20 rounded-2xl text-xs text-morandi-text flex items-start gap-3">
-        <div class="w-8 h-8 rounded-xl bg-morandi-sage/15 text-morandi-sage-dark flex items-center justify-center shrink-0 mt-0.5">
-          <ShieldCheck class="w-4.5 h-4.5 text-morandi-sage-dark" />
-        </div>
+      <!-- Login Enabled Switch Card -->
+      <div class="p-4 bg-morandi-bg/60 rounded-2xl border border-morandi-borderSoft flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div class="space-y-1">
-          <div class="font-bold text-morandi-sage-dark flex items-center gap-2">
-            <span>管理员 Token 防护说明</span>
-            <span class="text-[10px] px-2 py-0.2 bg-white text-morandi-sage-dark font-medium rounded-md border border-morandi-borderSoft">安全可选项</span>
+          <div class="text-xs font-bold text-morandi-text flex items-center gap-2">
+            <span>启用登录保护（用户名 + 密码）</span>
+            <span
+              class="text-[10px] px-2 py-0.5 font-bold rounded-md transition-colors"
+              :class="settings.login_enabled ? 'bg-morandi-sage-light text-morandi-sage-dark border border-morandi-sage/30' : 'bg-morandi-bg text-morandi-muted border border-morandi-borderSoft'"
+            >
+              {{ settings.login_enabled ? '已启用' : '已关闭' }}
+            </span>
           </div>
           <p class="text-[11px] text-morandi-muted leading-relaxed">
-            配置密码后，控制台的所有修改、添加与删除写操作均必须在 Header 中携带 <code class="font-mono bg-white px-1.5 py-0.5 rounded text-morandi-sage-dark border border-morandi-borderSoft font-semibold">Authorization: Bearer &lt;Token&gt;</code>。公共 API 分发路径不受影响。留空表示开放匿名管理员操作。
+            启用后管理操作需先登录获取会话令牌，公共 API 分发（GET）不受影响。凭据变更或关闭登录会立即使所有已登录会话失效。
           </p>
+        </div>
+
+        <button
+          type="button"
+          @click="settings.login_enabled = !settings.login_enabled"
+          class="relative w-14 h-8 rounded-full p-1 transition-all duration-300 ease-in-out shrink-0 cursor-pointer focus:outline-none flex items-center select-none shadow-xs border"
+          :class="settings.login_enabled
+            ? 'bg-morandi-sage border-morandi-sage-dark/30 shadow-morandi-sage/20'
+            : 'bg-stone-200/90 hover:bg-stone-300/80 border-stone-300/80'"
+          role="switch"
+          :aria-checked="settings.login_enabled"
+          :title="settings.login_enabled ? '已启用登录保护，点击关闭' : '已关闭登录保护，点击开启'"
+        >
+          <span
+            class="w-6 h-6 bg-white rounded-full shadow-md transition-all duration-300 ease-out transform flex items-center justify-center"
+            :class="settings.login_enabled ? 'translate-x-6' : 'translate-x-0'"
+          >
+            <Check v-if="settings.login_enabled" class="w-3.5 h-3.5 text-morandi-sage-dark stroke-[3]" />
+            <X v-else class="w-3 h-3 text-stone-400 font-bold" />
+          </span>
+        </button>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+        <div>
+          <label class="font-medium text-morandi-text block mb-1.5 flex items-center gap-1">
+            <User class="w-3.5 h-3.5 text-morandi-light" /> 管理员用户名
+          </label>
+          <input v-model="settings.admin_username" type="text" placeholder="admin" class="morandi-input w-full px-3 py-2 font-mono text-xs" />
+        </div>
+
+        <div>
+          <label class="font-medium text-morandi-text block mb-1.5 flex items-center gap-1">
+            <Key class="w-3.5 h-3.5 text-morandi-light" /> 管理员密码
+          </label>
+          <input v-model="settings.admin_password" type="password" placeholder="留空表示不修改" autocomplete="new-password" class="morandi-input w-full px-3 py-2 font-mono text-xs" />
+          <p class="text-[10px] text-morandi-muted mt-1">密码经 MD5 摘要后传输存储，仅回显为空</p>
+        </div>
+
+        <div>
+          <label class="font-medium text-morandi-text block mb-1.5 flex items-center gap-1">
+            <Clock class="w-3.5 h-3.5 text-morandi-light" /> 会话有效时长 (小时)
+          </label>
+          <input v-model.number="settings.session_hours" type="number" min="1" class="morandi-input w-full px-3 py-2 font-mono text-xs" />
+          <p class="text-[10px] text-morandi-muted mt-1">每次请求自动续期；服务重启后需重新登录</p>
         </div>
       </div>
 
-      <div>
+      <!-- Admin Token (兼容通道) -->
+      <div class="p-4 bg-morandi-bg/60 border border-morandi-borderSoft rounded-2xl">
         <label class="font-medium text-morandi-text block mb-1.5 flex items-center gap-1 text-xs">
-          <Key class="w-3.5 h-3.5 text-morandi-light" /> Admin Token 密码
+          <Key class="w-3.5 h-3.5 text-morandi-light" /> Admin Token（兼容旧版静态令牌）
         </label>
-        <input v-model="settings.admin_token" type="text" placeholder="留空表示公开访问与配置" class="morandi-input w-full px-3 py-2 font-mono text-xs" />
+        <input v-model="settings.admin_token" type="text" placeholder="留空表示不启用静态令牌" class="morandi-input w-full px-3 py-2 font-mono text-xs" />
+        <p class="text-[10px] text-morandi-muted mt-1.5 leading-relaxed">
+          配置后写操作亦可通过 <code class="font-mono bg-white px-1.5 py-0.5 rounded text-morandi-sage-dark border border-morandi-borderSoft font-semibold">Authorization: Bearer &lt;Token&gt;</code> 访问，作为脚本/API 调用方无需登录的静态通道。公共 API 分发路径不受影响。
+        </p>
       </div>
     </div>
   </div>

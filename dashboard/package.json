@@ -7,20 +7,24 @@
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build && rm -rf ../backend/embed/dist/* && cp -r dist/* ../backend/embed/dist/",
     "preview": "vite preview"
-
   },
   "dependencies": {
+    "@vueuse/core": "^10.11.1",
+    "crypto-js": "^4.2.0",
     "lucide-vue-next": "^0.577.0",
     "vue": "^3.4.0",
     "vue-router": "^4.3.0"
   },
   "devDependencies": {
+    "@types/crypto-js": "^4.2.2",
     "@vitejs/plugin-vue": "^5.0.0",
     "autoprefixer": "^10.4.0",
     "postcss": "^8.4.0",
     "tailwindcss": "^3.4.0",
     "typescript": "^5.3.0",
+    "unplugin-auto-import": "^21.0.0",
     "vite": "^5.0.0",
+    "vite-plugin-compression": "^0.5.1",
     "vue-tsc": "^2.0.0"
   }
 }

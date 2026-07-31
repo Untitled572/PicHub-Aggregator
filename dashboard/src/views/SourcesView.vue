@@ -44,27 +44,26 @@ onMounted(loadSources)
 
 async function loadSources() {
   try {
-    const [srcs, healthRes] = await Promise.all([
-      listSources(),
-      fetch('/api/health').then(r => r.ok ? r.json() : null).catch(() => null)
-    ])
-    const map: Record<number, boolean> = {}
-    if (healthRes && healthRes.results) {
+    const srcs = await listSources()
+    sources.value = srcs || []
+  } catch {}
+  // 健康状态异步补充: 不影响列表立即渲染
+  fetch('/api/health')
+    .then(r => r.ok ? r.json() : null)
+    .catch(() => null)
+    .then(healthRes => {
+      if (!healthRes || !healthRes.results) return
+      const map: Record<number, boolean> = {}
       for (const r of healthRes.results) {
         map[r.id] = r.available
       }
-    }
-    if (srcs) {
-      for (const s of srcs) {
+      for (const s of sources.value) {
         if (map[s.id] === undefined) {
           map[s.id] = s.status !== 'error'
         }
       }
-    }
-    healthStatusMap.value = map
-    sources.value = srcs || []
-  } catch {}
-
+      healthStatusMap.value = map
+    })
 }
 
 

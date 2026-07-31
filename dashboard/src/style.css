@@ -24,6 +24,12 @@
   ::-webkit-scrollbar-thumb:hover {
     background: #98A8B7;
   }
+
+  /* 复选框/单选勾选色与 morandi 主题统一 */
+  input[type="checkbox"],
+  input[type="radio"] {
+    accent-color: #4A6B82;
+  }
 }
 
 @layer utilities {
