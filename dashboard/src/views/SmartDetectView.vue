@@ -23,7 +23,7 @@ async function handleDetect() {
     result.value = await detectURL(url.value)
     detectedData.value = {
       name: new URL(url.value).hostname,
-      url: url.value,
+      url: result.value.final_url || url.value,
       resp_type: result.value.resp_type,
       json_path: result.value.url_hints?.[0] || '',
     }

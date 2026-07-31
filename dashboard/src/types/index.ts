@@ -66,6 +66,7 @@ export interface DetectResult {
   headers: Record<string, string>
   body_tree: unknown
   url_hints: string[]
+  final_url?: string
   error?: string
 }
 
