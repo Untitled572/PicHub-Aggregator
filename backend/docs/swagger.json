@@ -10,7 +10,7 @@
         "license": {
             "name": "MIT"
         },
-        "version": "0.6.4"
+        "version": "0.6.5"
     },
     "basePath": "/",
     "paths": {
@@ -1923,6 +1923,9 @@
             "properties": {
                 "body_tree": {},
                 "error": {
+                    "type": "string"
+                },
+                "final_url": {
                     "type": "string"
                 },
                 "headers": {

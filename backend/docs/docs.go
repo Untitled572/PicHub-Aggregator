@@ -1932,6 +1932,9 @@ const docTemplate = `{
                 "error": {
                     "type": "string"
                 },
+                "final_url": {
+                    "type": "string"
+                },
                 "headers": {
                     "type": "object",
                     "additionalProperties": {
@@ -2028,7 +2031,7 @@ const docTemplate = `{
 
 // SwaggerInfo holds exported Swagger Info so clients can modify it
 var SwaggerInfo = &swag.Spec{
-	Version:          "0.6.4",
+	Version:          "0.6.5",
 	Host:             "",
 	BasePath:         "/",
 	Schemes:          []string{},

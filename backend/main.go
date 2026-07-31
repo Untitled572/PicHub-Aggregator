@@ -1,5 +1,5 @@
 // @title PicHub Aggregator API
-// @version 0.6.4
+// @version 0.6.5
 // @description PicHub-Aggregator 图片聚合分发服务。AdminAuth 只保护 POST/PUT/DELETE，所有 GET 端点公开。
 // @termsOfService https://github.com/untitled572/pichub-aggregator
 // @contact.name PicHub

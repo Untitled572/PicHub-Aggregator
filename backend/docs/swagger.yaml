@@ -284,6 +284,8 @@ definitions:
       body_tree: {}
       error:
         type: string
+      final_url:
+        type: string
       headers:
         additionalProperties:
           type: string
@@ -347,7 +349,7 @@ info:
     name: MIT
   termsOfService: https://github.com/untitled572/pichub-aggregator
   title: PicHub Aggregator API
-  version: 0.6.4
+  version: 0.6.5
 paths:
   /api/auth/check:
     get:
