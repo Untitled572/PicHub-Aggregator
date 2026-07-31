@@ -82,17 +82,29 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/download-artifact@v4
         with:
           name: release-binaries
           path: release/
-      - name: Get tag commit message
+      - name: Generate release body
         id: tag_msg
         run: |
-          msg=$(git log --format=%s -1 ${{ github.ref_name }})
-          echo "body<<EOF" >> $GITHUB_OUTPUT
-          echo "$msg" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          title=$(git log --format=%s -1 ${{ github.ref_name }})
+          prev=$(git describe --tags --abbrev=0 --match 'v*' "${{ github.ref_name }}^" 2>/dev/null || true)
+          {
+            echo "body<<EOF"
+            echo "$title"
+            echo ""
+            echo "## 更新内容"
+            if [ -n "$prev" ]; then
+              git log --format='- %s' "$prev..${{ github.ref_name }}"
+            else
+              echo "- Initial release"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:

@@ -70,8 +70,17 @@ func generateFileID() string {
 	return fmt.Sprintf("%x", b)
 }
 
-func (is *ImageStore) DownloadAndStore(imageURL string, sourceID int64, sourceName string, categories []string) (*CachedImageInfo, error) {
-	resp, err := is.httpClient.Get(imageURL)
+func (is *ImageStore) DownloadAndStore(imageURL, sourceURL string, sourceID int64, sourceName string, categories []string, headers map[string]string) (*CachedImageInfo, error) {
+	req, err := http.NewRequest("GET", imageURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	for k, vs := range buildImageRequestHeaders(sourceURL, headers) {
+		if len(vs) > 0 {
+			req.Header.Set(k, vs[0])
+		}
+	}
+	resp, err := is.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("fetch image: %w", err)
 	}
@@ -118,8 +127,13 @@ func (is *ImageStore) DownloadAndStore(imageURL string, sourceID int64, sourceNa
 
 	is.mu.Lock()
 	os.WriteFile(filePath, data, 0644)
+	protectedLimit := 60
+	if settings != nil && settings.MaxHistoryRecords > 0 {
+		protectedLimit = settings.MaxHistoryRecords
+	}
+	protected, _ := is.store.GetProtectedFileIDs(protectedLimit)
 	if settings != nil && settings.CacheMaxImages > 0 {
-		is.evictByCount(settings.CacheMaxImages)
+		is.evictByCount(settings.CacheMaxImages, protected)
 	}
 	totalSize := getDirSize(is.cacheDir)
 	if settings != nil && totalSize > int64(settings.CacheMaxMB)*1024*1024 {
@@ -128,7 +142,9 @@ func (is *ImageStore) DownloadAndStore(imageURL string, sourceID int64, sourceNa
 			if getDirSize(is.cacheDir) <= int64(settings.CacheMaxMB)*1024*1024 {
 				break
 			}
-			evictLRU(is.cacheDir, is.store)
+			if !evictLRU(is.cacheDir, is.store, protected) {
+				break
+			}
 		}
 	}
 	is.mu.Unlock()
@@ -347,10 +363,10 @@ func fileIDFromPath(path string) string {
 	return strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 }
 
-func evictLRU(dir string, st *store.Store) {
+func evictLRU(dir string, st *store.Store, protected map[string]bool) bool {
 	entries, _ := filepath.Glob(filepath.Join(dir, "*"))
 	if len(entries) == 0 {
-		return
+		return false
 	}
 
 	type entryInfo struct {
@@ -363,10 +379,13 @@ func evictLRU(dir string, st *store.Store) {
 		if err != nil {
 			continue
 		}
+		if protected != nil && protected[fileIDFromPath(e)] {
+			continue
+		}
 		infos = append(infos, entryInfo{e, info.ModTime()})
 	}
 	if len(infos) == 0 {
-		return
+		return false
 	}
 
 	sort.Slice(infos, func(i, j int) bool {
@@ -378,9 +397,10 @@ func evictLRU(dir string, st *store.Store) {
 		st.DeleteImageByFileID(fileIDFromPath(oldest))
 	}
 	os.Remove(oldest)
+	return true
 }
 
-func (is *ImageStore) evictByCount(maxImages int) {
+func (is *ImageStore) evictByCount(maxImages int, protected map[string]bool) {
 	entries, _ := filepath.Glob(filepath.Join(is.cacheDir, "*", "*"))
 	rootEntries, _ := filepath.Glob(filepath.Join(is.cacheDir, "*"))
 	for _, e := range rootEntries {
@@ -402,6 +422,9 @@ func (is *ImageStore) evictByCount(maxImages int) {
 	for _, e := range entries {
 		info, err := os.Stat(e)
 		if err != nil {
+			continue
+		}
+		if protected != nil && protected[fileIDFromPath(e)] {
 			continue
 		}
 		infos = append(infos, entryInfo{e, info.ModTime()})

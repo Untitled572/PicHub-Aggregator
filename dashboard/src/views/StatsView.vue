@@ -38,7 +38,7 @@ const settings = ref<Settings | null>(null)
 // History Pagination State
 const history = ref<ImageHistoryRecord[]>([])
 const savedFileIDs = ref(new Set<string>())
-const savingImageId = ref<number | null>(null)
+const savingImageId = ref<string | number | null>(null)
 const likedIds = ref(new Set<number>())
 const likingId = ref<number | null>(null)
 const dislikedIds = ref(new Set<number>())
@@ -233,24 +233,23 @@ function isItemSaved(item: ImageHistoryRecord): boolean {
 }
 
 async function toggleSaveImage(item: ImageHistoryRecord) {
-  const targetId = item.file_id || item.image_id || item.id
+  const targetId = item.file_id || item.image_id
   if (!targetId) return
-  savingImageId.value = typeof targetId === 'number' ? targetId : 9999
+  savingImageId.value = targetId
   try {
     const currentlySaved = isItemSaved(item)
     if (currentlySaved) {
       await unsaveImage(targetId)
+      if (item.file_id) savedFileIDs.value.delete(item.file_id)
       if (item.image_id) savedKeys.value.delete(item.image_id)
-      if (item.file_id) savedKeys.value.delete(item.file_id)
-      if (item.id) savedKeys.value.delete(item.id)
       item.is_saved = false
     } else {
       await saveImage(targetId)
+      if (item.file_id) savedFileIDs.value.add(item.file_id)
       if (item.image_id) savedKeys.value.add(item.image_id)
-      if (item.file_id) savedKeys.value.add(item.file_id)
-      if (item.id) savedKeys.value.add(item.id)
       item.is_saved = true
     }
+    savedFileIDs.value = new Set(savedFileIDs.value)
     savedKeys.value = new Set(savedKeys.value)
   } catch (e) {
     console.error('Failed to toggle save image:', e)
@@ -891,7 +890,7 @@ const sourceTrendLines = computed(() => {
                   <button
                     v-if="item.file_id || (item.image_id && item.image_id > 0)"
                     @click="toggleSaveImage(item)"
-                    :disabled="savingImageId === (item.image_id || 9999)"
+                    :disabled="savingImageId !== null && savingImageId === (item.file_id || item.image_id || null)"
                     class="p-1.5 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
                     :class="isItemSaved(item) ? 'text-rose-500 hover:bg-rose-50' : 'text-morandi-muted hover:text-rose-400 hover:bg-rose-50/60'"
                     :title="isItemSaved(item) ? '取消收藏保存' : '收藏保存图片到本地'"
