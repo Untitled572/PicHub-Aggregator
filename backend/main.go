@@ -143,7 +143,15 @@ func main() {
 
 	// Swagger API 文档: SWAGGER_ENABLED=false 时关闭
 	if os.Getenv("SWAGGER_ENABLED") != "false" {
-		r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+		swaggerHandler := ginSwagger.WrapHandler(swaggerFiles.Handler)
+		r.GET("/swagger/*any", func(c *gin.Context) {
+			// gin-swagger 只匹配已知资源文件名, /swagger/ 根路径会 404, 重定向到 index.html
+			if p := strings.TrimSuffix(c.Param("any"), "/"); p == "" || p == "swagger" {
+				c.Redirect(http.StatusMovedPermanently, "/swagger/index.html")
+				return
+			}
+			swaggerHandler(c)
+		})
 	}
 
 	r.GET("/ping", h.HealthCheck)
