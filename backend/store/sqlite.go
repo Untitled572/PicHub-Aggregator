@@ -138,8 +138,8 @@ func (s *Store) seedDefaults() error {
 		"proxy_mode":            "false",
 		"proxy_enabled":         "false",
 		"proxy_url":             "http://127.0.0.1:7890",
-		"cache_max_mb":          "200",
-		"cache_max_images":      "60",
+		"cache_max_mb":          "500",
+		"cache_max_images":      "120",
 		"cache_ttl":             "0",
 		"precache_count":        "5",
 		"pool_size":             "20",
@@ -319,11 +319,11 @@ func (s *Store) GetSettings() (*model.Settings, error) {
 			settings.ProxyURL = v
 		case "cache_max_mb":
 			if n, err := fmt.Sscanf(v, "%d", &settings.CacheMaxMB); err != nil || n != 1 {
-				settings.CacheMaxMB = 200
+				settings.CacheMaxMB = 500
 			}
 		case "cache_max_images":
 			if n, err := fmt.Sscanf(v, "%d", &settings.CacheMaxImages); err != nil || n != 1 {
-				settings.CacheMaxImages = 60
+				settings.CacheMaxImages = 120
 			}
 		case "cache_ttl":
 			if n, err := fmt.Sscanf(v, "%d", &settings.CacheTTL); err != nil || n != 1 {
@@ -380,7 +380,7 @@ func (s *Store) GetSettings() (*model.Settings, error) {
 		settings.MaxHistoryRecords = 60
 	}
 	if settings.CacheMaxImages <= 0 {
-		settings.CacheMaxImages = 60
+		settings.CacheMaxImages = 120
 	}
 	if settings.PrecacheCount < 0 {
 		settings.PrecacheCount = 5
@@ -607,6 +607,28 @@ func (s *Store) GetImageByID(id int64) (*model.CachedImage, error) {
 func (s *Store) DeleteImageByFileID(fileID string) error {
 	_, err := s.db.Exec("DELETE FROM images WHERE file_id=? AND is_saved=0", fileID)
 	return err
+}
+
+func (s *Store) GetProtectedFileIDs(limit int) (map[string]bool, error) {
+	if limit <= 0 {
+		limit = 60
+	}
+	rows, err := s.db.Query(
+		"SELECT DISTINCT file_id FROM (SELECT file_id FROM image_history WHERE file_id != '' ORDER BY id DESC LIMIT ?)",
+		limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	protected := make(map[string]bool)
+	for rows.Next() {
+		var fid string
+		if rows.Scan(&fid) == nil && fid != "" {
+			protected[fid] = true
+		}
+	}
+	return protected, nil
 }
 
 func (s *Store) GetImageFileIDsBySourceID(sourceID int64) ([]string, error) {

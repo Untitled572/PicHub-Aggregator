@@ -69,7 +69,12 @@ func (pc *ProxyCache) GetOrFetch(imageURL string) ([]byte, string, error) {
 	}
 
 	pc.httpClient.Timeout = time.Duration(settings.Timeout) * time.Millisecond
-	resp, err := pc.httpClient.Get(imageURL)
+	req, err := http.NewRequest("GET", imageURL, nil)
+	if err != nil {
+		return nil, "", fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("User-Agent", defaultBrowserUA)
+	resp, err := pc.httpClient.Do(req)
 	if err != nil {
 		return nil, "", fmt.Errorf("fetch image: %w", err)
 	}

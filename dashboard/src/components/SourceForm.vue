@@ -181,14 +181,34 @@ function parseFallbackName(rawUrl: string): string {
   }
 }
 
+function deriveOrigin(rawUrl: string): string {
+  try {
+    const u = new URL(rawUrl.trim())
+    return u.origin
+  } catch {
+    return ''
+  }
+}
+
+function prefillRefererIfAbsent() {
+  const hasReferer = headerRows.value.some(r => r.key.trim().toLowerCase() === 'referer')
+  if (hasReferer) return
+  const origin = deriveOrigin(form.value.url)
+  headerRows.value.push({ key: 'Referer', value: origin || '' })
+}
+
 function startHeaderInput() {
   showHeaderInput.value = true
   if (headerRows.value.length === 0) {
-    headerRows.value.push({ key: '', value: '' })
+    prefillRefererIfAbsent()
   }
 }
 
 function addHeaderRow() {
+  if (headerRows.value.length === 0) {
+    prefillRefererIfAbsent()
+    return
+  }
   headerRows.value.push({ key: '', value: '' })
 }
 

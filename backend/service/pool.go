@@ -29,6 +29,7 @@ type PoolEntry struct {
 	Width       int
 	Height      int
 	Format      string
+	ImageID     int64
 	RoundCount  int
 }
 
@@ -218,5 +219,6 @@ func entryToResult(entry *PoolEntry) *Result {
 		Width:       entry.Width,
 		Height:      entry.Height,
 		Format:      entry.Format,
+		ImageID:     entry.ImageID,
 	}
 }

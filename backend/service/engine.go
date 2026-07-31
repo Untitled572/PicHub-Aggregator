@@ -115,12 +115,17 @@ func (e *Engine) RandomImage(category string, format string, orientation string,
 
 	if settings.ProxyMode && settings.PoolSize > 0 && e.distPool != nil {
 		var poolResult *Result
+		single := len(queryCats) == 1
+		hasExcl := hasExclusiveTag(tags, queryCats)
 		switch {
+		case orientation != "" && len(queryCats) > 0:
+			poolResult = e.distPool.PopMatching(func(entry *PoolEntry) bool {
+				return matchCategories(entry.Categories, queryCats, tags, single, hasExcl) &&
+					entry.Orientation == orientation
+			})
 		case orientation != "":
 			poolResult = e.distPool.PopByOrientation(orientation)
 		case len(queryCats) > 0:
-			single := len(queryCats) == 1
-			hasExcl := hasExclusiveTag(tags, queryCats)
 			poolResult = e.distPool.PopMatching(func(entry *PoolEntry) bool {
 				return matchCategories(entry.Categories, queryCats, tags, single, hasExcl)
 			})
@@ -186,6 +191,8 @@ func (e *Engine) RandomImage(category string, format string, orientation string,
 			if !hasUA {
 				req.Header.Set("User-Agent", clientUA)
 			}
+		} else if !hasHeader(selected.Headers, "User-Agent") {
+			req.Header.Set("User-Agent", defaultBrowserUA)
 		}
 
 		e.httpClient.Timeout = timeout
@@ -228,7 +235,7 @@ func (e *Engine) RandomImage(category string, format string, orientation string,
 		origURL := imageURL
 
 		if e.imageStore != nil && settings.ProxyMode {
-			cached, cacheErr := e.imageStore.DownloadAndStore(origURL, selected.ID, selected.Name, queryCats)
+			cached, cacheErr := e.imageStore.DownloadAndStore(origURL, selected.URL, selected.ID, selected.Name, queryCats, selected.Headers)
 			if cacheErr != nil {
 				logger.Error("cache download failed for %s: %v", selected.Name, cacheErr)
 				if e.monitor != nil {
@@ -382,8 +389,8 @@ func filterSources(sources []model.Source, queryCats []string, tags []model.Tag)
 					paramCats = src.Categories
 				}
 
-				if len(param.Categories) > 0 && hasQueryCat {
-					if !matchCategories(param.Categories, queryCats, tags, single, hasExcl) {
+				if hasQueryCat {
+					if !matchCategories(paramCats, queryCats, tags, single, hasExcl) {
 						continue
 					}
 				}
@@ -783,6 +790,9 @@ func (e *Engine) fetchSingleForTag(tag string, sourceCounts map[int64]int) *Resu
 	for k, v := range selected.Headers {
 		req.Header.Set(k, v)
 	}
+	if !hasHeader(selected.Headers, "User-Agent") {
+		req.Header.Set("User-Agent", defaultBrowserUA)
+	}
 
 	settings, err := e.store.GetSettings()
 	if err != nil {
@@ -809,7 +819,7 @@ func (e *Engine) fetchSingleForTag(tag string, sourceCounts map[int64]int) *Resu
 			srcCats = []string{}
 		}
 		origURL := imageURL
-		cached, cacheErr := e.imageStore.DownloadAndStore(origURL, selected.ID, selected.Name, srcCats)
+		cached, cacheErr := e.imageStore.DownloadAndStore(origURL, selected.URL, selected.ID, selected.Name, srcCats, selected.Headers)
 		if cacheErr != nil {
 			return nil
 		}
@@ -843,6 +853,7 @@ func poolEntryFromResult(res *Result) *PoolEntry {
 		Width:       res.Width,
 		Height:      res.Height,
 		Format:      res.Format,
+		ImageID:     res.ImageID,
 		RoundCount:  0,
 	}
 }

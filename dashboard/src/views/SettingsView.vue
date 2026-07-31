@@ -21,8 +21,10 @@ import {
   Zap,
   Globe,
   Network,
-  Cpu
+  Cpu,
+  X
 } from 'lucide-vue-next'
+
 
 const { getSettings, updateSettings } = useApi()
 
@@ -30,8 +32,8 @@ const settings = ref<Settings>({
   proxy_mode: false,
   proxy_enabled: false,
   proxy_url: 'http://127.0.0.1:7890',
-  cache_max_mb: 200,
-  cache_max_images: 60,
+  cache_max_mb: 500,
+  cache_max_images: 120,
   cache_ttl: 0,
   min_resolution: '1920x1080',
   pool_size: 10,
@@ -78,17 +80,23 @@ async function handleSave() {
   <div class="space-y-6 pb-12">
     <!-- Header Banner -->
     <div class="morandi-card p-5 flex flex-col sm:flex-row items-center justify-between gap-4">
-      <div class="flex items-center gap-3.5">
+      <div class="flex items-center gap-3.5 min-w-0">
         <div class="w-11 h-11 rounded-2xl bg-morandi-ocean/15 text-morandi-ocean-dark flex items-center justify-center shrink-0 shadow-2xs">
           <Sliders class="w-5 h-5" />
         </div>
-        <div>
+        <div class="min-w-0">
           <h2 class="font-bold text-base text-morandi-text">系统全局策略与设置中心</h2>
           <p class="text-xs text-morandi-muted mt-0.5">配置中转模式、网络代理、限流阀值与管理员安全认证</p>
         </div>
       </div>
 
       <div class="flex items-center gap-3 shrink-0">
+        <Transition name="fade">
+          <span v-if="saved" class="flex items-center gap-1.5 text-xs text-morandi-sage-dark font-medium bg-morandi-sage-light/60 px-3 py-1.5 rounded-xl border border-morandi-sage/20 animate-in fade-in">
+            <CheckCircle2 class="w-3.5 h-3.5 text-morandi-sage" /> 设置已保存
+          </span>
+        </Transition>
+
         <button
           @click="handleSave"
           :disabled="saving"
@@ -97,11 +105,12 @@ async function handleSave() {
           <Save class="w-4 h-4" />
           <span>{{ saving ? '保存中...' : '保存全局设置' }}</span>
         </button>
-        <span class="px-3 py-1 bg-morandi-sage/10 text-morandi-sage-dark text-xs font-bold rounded-xl font-mono border border-morandi-sage/20">
+        <span class="px-3 py-1 bg-morandi-sage/10 text-morandi-sage-dark text-xs font-bold rounded-xl font-mono border border-morandi-sage/20 shrink-0 whitespace-nowrap">
           {{ appVersion }}
         </span>
       </div>
     </div>
+
 
     <!-- Group 1: 🌐 网络与外网代理服务 -->
     <div class="morandi-card p-6 space-y-5">
@@ -134,15 +143,20 @@ async function handleSave() {
         <button
           type="button"
           @click="settings.proxy_enabled = !settings.proxy_enabled"
-          class="w-12 h-[26px] rounded-full p-[2px] transition-colors duration-300 ease-in-out shrink-0 cursor-pointer focus:outline-none flex items-center shadow-inner"
-          :class="settings.proxy_enabled ? 'bg-morandi-sage' : 'bg-morandi-border/80 hover:bg-morandi-border'"
+          class="relative w-14 h-8 rounded-full p-1 transition-all duration-300 ease-in-out shrink-0 cursor-pointer focus:outline-none flex items-center select-none shadow-xs border"
+          :class="settings.proxy_enabled
+            ? 'bg-morandi-sage border-morandi-sage-dark/30 shadow-morandi-sage/20'
+            : 'bg-stone-200/90 hover:bg-stone-300/80 border-stone-300/80'"
           role="switch"
+          :aria-checked="settings.proxy_enabled"
+          :title="settings.proxy_enabled ? '已启用 HTTP 代理，点击关闭' : '已关闭 HTTP 代理，点击开启'"
         >
           <span
-            class="w-[22px] h-[22px] bg-white rounded-full shadow-md transition-transform duration-300 ease-in-out transform flex items-center justify-center"
-            :class="settings.proxy_enabled ? 'translate-x-[22px]' : 'translate-x-0'"
+            class="w-6 h-6 bg-white rounded-full shadow-md transition-all duration-300 ease-out transform flex items-center justify-center"
+            :class="settings.proxy_enabled ? 'translate-x-6' : 'translate-x-0'"
           >
-            <Check v-if="settings.proxy_enabled" class="w-3 h-3 text-morandi-sage-dark font-bold" />
+            <Check v-if="settings.proxy_enabled" class="w-3.5 h-3.5 text-morandi-sage-dark stroke-[3]" />
+            <X v-else class="w-3 h-3 text-stone-400 font-bold" />
           </span>
         </button>
       </div>
@@ -205,18 +219,24 @@ async function handleSave() {
         <button
           type="button"
           @click="settings.proxy_mode = !settings.proxy_mode"
-          class="w-12 h-[26px] rounded-full p-[2px] transition-colors duration-300 ease-in-out shrink-0 cursor-pointer focus:outline-none flex items-center shadow-inner"
-          :class="settings.proxy_mode ? 'bg-morandi-sage' : 'bg-morandi-border/80 hover:bg-morandi-border'"
+          class="relative w-14 h-8 rounded-full p-1 transition-all duration-300 ease-in-out shrink-0 cursor-pointer focus:outline-none flex items-center select-none shadow-xs border"
+          :class="settings.proxy_mode
+            ? 'bg-morandi-sage border-morandi-sage-dark/30 shadow-morandi-sage/20'
+            : 'bg-stone-200/90 hover:bg-stone-300/80 border-stone-300/80'"
           role="switch"
+          :aria-checked="settings.proxy_mode"
+          :title="settings.proxy_mode ? '已开启本地磁盘缓存，点击切换 302 直链' : '已开启 302 直链，点击开启磁盘缓存'"
         >
           <span
-            class="w-[22px] h-[22px] bg-white rounded-full shadow-md transition-transform duration-300 ease-in-out transform flex items-center justify-center"
-            :class="settings.proxy_mode ? 'translate-x-[22px]' : 'translate-x-0'"
+            class="w-6 h-6 bg-white rounded-full shadow-md transition-all duration-300 ease-out transform flex items-center justify-center"
+            :class="settings.proxy_mode ? 'translate-x-6' : 'translate-x-0'"
           >
-            <Check v-if="settings.proxy_mode" class="w-3 h-3 text-morandi-sage-dark font-bold" />
+            <Check v-if="settings.proxy_mode" class="w-3.5 h-3.5 text-morandi-sage-dark stroke-[3]" />
+            <X v-else class="w-3 h-3 text-stone-400 font-bold" />
           </span>
         </button>
       </div>
+
 
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
         <div>
@@ -340,27 +360,6 @@ async function handleSave() {
         <input v-model="settings.admin_token" type="text" placeholder="留空表示公开访问与配置" class="morandi-input w-full px-3 py-2 font-mono text-xs" />
       </div>
     </div>
-
-    <!-- Bottom Save Action Bar -->
-    <div class="p-4 bg-white/90 backdrop-blur-md rounded-2xl border border-morandi-borderSoft shadow-morandi flex items-center justify-between">
-      <div class="flex items-center gap-3">
-        <button
-          @click="handleSave"
-          :disabled="saving"
-          class="flex items-center gap-2 px-6 py-2.5 bg-morandi-sage hover:bg-morandi-sage-dark text-white rounded-xl text-xs font-semibold shadow-xs transition-all disabled:opacity-50 cursor-pointer active:scale-95"
-        >
-          <Save class="w-4 h-4" />
-          <span>{{ saving ? '保存中...' : '保存系统设置' }}</span>
-        </button>
-
-        <Transition name="fade">
-          <span v-if="saved" class="flex items-center gap-1.5 text-xs text-morandi-sage-dark font-medium bg-morandi-sage-light/60 px-3 py-1.5 rounded-lg border border-morandi-sage/20 animate-in fade-in">
-            <CheckCircle2 class="w-4 h-4 text-morandi-sage" /> 系统设置已成功应用并更新
-          </span>
-        </Transition>
-      </div>
-
-      <span class="text-[11px] text-morandi-muted hidden sm:inline">PicHub Aggregator Engine Config</span>
-    </div>
   </div>
 </template>
+
