@@ -129,6 +129,11 @@ type Settings struct {
 	BoundTags           []string `json:"bound_tags"`
 	AdminToken          string   `json:"admin_token,omitempty"`
 	SavedImagesDir      string   `json:"saved_images_dir,omitempty"`
+	LoginEnabled        bool     `json:"login_enabled"`
+	AdminUsername       string   `json:"admin_username,omitempty"`
+	AdminPasswordHash   string   `json:"-"`
+	AdminPassword       string   `json:"admin_password,omitempty"`
+	SessionHours        int      `json:"session_hours"`
 }
 
 

@@ -27,10 +27,32 @@ func (h *Handler) UpdateSettings(c *gin.Context) {
 	oldSettings, _ := h.store.GetSettings()
 	tagsChanged := oldSettings != nil && !stringSliceEqual(oldSettings.BoundTags, settings.BoundTags)
 
+	// 未提交新密码时保留旧哈希 (前端密码框留空=不修改)
+	credentialsChanged := false
+	if oldSettings != nil {
+		if settings.AdminPassword == "" {
+			settings.AdminPasswordHash = oldSettings.AdminPasswordHash
+		} else {
+			settings.AdminPasswordHash = settings.AdminPassword
+			credentialsChanged = true
+		}
+		if settings.AdminUsername != oldSettings.AdminUsername {
+			credentialsChanged = true
+		}
+		if settings.LoginEnabled != oldSettings.LoginEnabled {
+			credentialsChanged = true
+		}
+	}
+
 	if err := h.store.UpdateSettings(&settings); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	if credentialsChanged {
+		// 凭据变更/登录开关切换: 全量踢下线
+		h.store.Sessions().Clear()
+	}
+	settings.AdminPassword = ""
 	if h.proxyConfig != nil {
 		h.proxyConfig.Update(settings.ProxyEnabled, settings.ProxyURL)
 	}

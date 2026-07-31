@@ -121,6 +121,7 @@ func main() {
 	r.Use(middleware.RequestID())
 	r.Use(middleware.AccessLog())
 	r.Use(middleware.CORS())
+	r.Use(middleware.ServerTime())
 
 	r.GET("/ping", h.HealthCheck)
 	r.GET("/random", middleware.RateLimit(st), h.RandomImage)
@@ -131,6 +132,9 @@ func main() {
 
 	api := r.Group("/api")
 	{
+		api.POST("/login", h.Login)
+		api.POST("/logout", middleware.AdminAuth(st), h.Logout)
+		api.GET("/auth/check", h.CheckAuth)
 		api.GET("/sources", h.ListSources)
 		api.GET("/sources/:id", h.GetSource)
 		api.POST("/sources", middleware.AdminAuth(st), h.CreateSource)

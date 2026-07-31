@@ -164,14 +164,17 @@ func (h *Handler) ImportData(c *gin.Context) {
 	importedStats := 0
 	importedImages := 0
 
-	// Restore Settings (skip admin_token)
+	// Restore Settings (skip admin_token / admin_password_hash)
 	if manifest.Settings != nil {
 		localSettings, _ := h.store.GetSettings()
-		var localToken string
+		var localToken, localPasswordHash string
 		if localSettings != nil {
 			localToken = localSettings.AdminToken
+			localPasswordHash = localSettings.AdminPasswordHash
 		}
 		manifest.Settings.AdminToken = ""
+		manifest.Settings.AdminPasswordHash = localPasswordHash
+		manifest.Settings.AdminPassword = ""
 		_ = h.store.UpdateSettings(manifest.Settings)
 		manifest.Settings.AdminToken = localToken
 	}

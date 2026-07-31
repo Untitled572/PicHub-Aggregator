@@ -18,6 +18,11 @@ type Store struct {
 	cachedSettings *model.Settings
 	settingsMu     sync.RWMutex
 	settingsLoaded bool
+	sessions       *SessionManager
+}
+
+func (s *Store) Sessions() *SessionManager {
+	return s.sessions
 }
 
 func New(dbPath string) (*Store, error) {
@@ -28,7 +33,7 @@ func New(dbPath string) (*Store, error) {
 	if err := db.Ping(); err != nil {
 		return nil, fmt.Errorf("ping db: %w", err)
 	}
-	s := &Store{db: db}
+	s := &Store{db: db, sessions: NewSessionManager()}
 	if err := s.migrate(); err != nil {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
@@ -149,6 +154,10 @@ func (s *Store) seedDefaults() error {
 		"health_check_interval": "360",
 		"admin_token":           "",
 		"saved_images_dir":      "./data/saved",
+		"login_enabled":         "false",
+		"admin_username":        "",
+		"admin_password_hash":   "",
+		"session_hours":         "3",
 		"seeded":                "true",
 	}
 
@@ -369,6 +378,16 @@ func (s *Store) GetSettings() (*model.Settings, error) {
 			settings.AdminToken = v
 		case "saved_images_dir":
 			settings.SavedImagesDir = v
+		case "login_enabled":
+			settings.LoginEnabled = v == "true"
+		case "admin_username":
+			settings.AdminUsername = v
+		case "admin_password_hash":
+			settings.AdminPasswordHash = v
+		case "session_hours":
+			if n, err := fmt.Sscanf(v, "%d", &settings.SessionHours); err != nil || n != 1 {
+				settings.SessionHours = 3
+			}
 		case "seeded":
 			_ = v
 		}
@@ -390,6 +409,9 @@ func (s *Store) GetSettings() (*model.Settings, error) {
 	}
 	if settings.RateLimitWindow <= 0 {
 		settings.RateLimitWindow = 60
+	}
+	if settings.SessionHours <= 0 {
+		settings.SessionHours = 3
 	}
 	s.cachedSettings = settings
 	s.settingsLoaded = true
@@ -416,6 +438,10 @@ func (s *Store) UpdateSettings(settings *model.Settings) error {
 		"bound_tags":            encodeBoundTags(settings.BoundTags),
 		"admin_token":           settings.AdminToken,
 		"saved_images_dir":      settings.SavedImagesDir,
+		"login_enabled":         fmt.Sprintf("%v", settings.LoginEnabled),
+		"admin_username":        settings.AdminUsername,
+		"admin_password_hash":   settings.AdminPasswordHash,
+		"session_hours":         fmt.Sprintf("%d", settings.SessionHours),
 	}
 
 

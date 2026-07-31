@@ -105,11 +105,51 @@ Returns array of health results with status code, latency, and availability.
   "max_history_records": 60,
   "bound_tags": ["horizontal"],
   "admin_token": "",
-  "saved_images_dir": "./data/saved"
+  "saved_images_dir": "./data/saved",
+  "login_enabled": false,
+  "admin_username": "admin",
+  "session_hours": 3
 }
 ```
 
 **Note:** `min_resolution` 仅在 `proxy_mode=true` 时生效，输入 `0` 关闭分辨率过滤。`proxy_enabled` 与 `proxy_url` 用于配置抓取图源时的 HTTP/HTTPS 代理。
+
+**登录保护相关字段:**
+- `login_enabled` (bool): 启用用户名+密码登录保护（默认关闭）。启用后所有写操作（POST/PUT/DELETE）需携带登录会话 token 或旧版 admin_token；GET 接口保持公开。
+- `admin_username` (string): 登录用户名。
+- `admin_password` (string, 仅写): 设置新密码时提交（**明文即可，前端自动转 MD5 摘要**），留空表示不修改。不会在响应中回显。
+- `session_hours` (number): 会话有效时长（默认 3 小时），每次请求自动滑动续期；服务重启后会话清空需重新登录。
+
+## Authentication (登录鉴权)
+
+### 登录
+
+```
+POST /api/login
+Content-Type: application/json
+
+{"username": "admin", "password": "<MD5摘要>"}
+```
+
+成功返回 `{"token": "..."}`；失败返回 401（含 500~2000ms 随机延迟防爆破）。仅当 `login_enabled=true` 且已配置用户名密码时可用。
+
+### 登出
+
+```
+POST /api/logout
+Authorization: Bearer <token>
+```
+
+使当前会话 token 失效（幂等）。
+
+### 鉴权规则
+
+- **写操作**（POST/PUT/DELETE）：携带 `Authorization: Bearer <token>`。token 为登录会话令牌，或旧版 `admin_token`（`login_enabled=true` 时仍兼容）。
+- **首次初始化**：`login_enabled=true` 但尚未配置用户名/密码（`admin_username` 为空）时，写操作临时放行，便于首次运行设置账号；配置完成后立即恢复校验。
+- **凭据变更**（修改密码/用户名/开关登录）：所有已签发会话立即失效，需重新登录。
+- **会话存储**：内存实现，重启失效；单实例部署限制。
+- **前端行为**：收到 401 自动清除本地 token 并跳转 `/login` 登录页。
+- **响应头**：所有接口返回 `X-Server-Time`（服务器毫秒时间戳），前端用于检测客户端/服务端时差漂移（>30 分钟告警）。
 
 ## Tags
 
