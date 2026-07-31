@@ -176,8 +176,8 @@ func findURLFields(prefix string, data []byte, depth int) []string {
 }
 
 func isURLString(s string) bool {
-	s = strings.ToLower(s)
-	return strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://")
+	lower := strings.ToLower(s)
+	return strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") || strings.HasPrefix(lower, "/")
 }
 
 func hintPriority(path string) int {
@@ -190,24 +190,20 @@ func hintPriority(path string) int {
 	// 去除引号: 0.['url'] → url
 	key = strings.Trim(key, "'\"[]")
 
-	// 图片相关字段优先
+	// 直接图片/本地资源优先
 	switch {
 	case key == "url" || key == "img_url" || key == "image_url":
 		return 10
-	case key == "src" || key == "image" || key == "file" || key == "file_url":
+	case key == "local" || key == "origin" || key == "original" || key == "src" || key == "file" || key == "file_url":
 		return 9
+	case key == "image" || key == "img" || key == "download" || key == "pic" || key == "thumbnail":
+		return 8
 	case strings.Contains(key, "img") || strings.Contains(key, "image") || strings.Contains(key, "src"):
 		return 7
-	case key == "download" || key == "pic" || key == "thumbnail":
-		return 6
-	}
-
-	// 页面/链接类字段降权
-	switch {
-	case key == "page" || key == "link" || key == "href":
-		return 2
-	case key == "detail" || key == "origin" || key == "original":
+	case key == "detail" || key == "page" || key == "link" || key == "href":
 		return 3
+	case key == "proxy" || strings.Contains(key, "proxy"):
+		return 2
 	}
 
 	return 5
