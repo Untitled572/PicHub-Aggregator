@@ -7,7 +7,6 @@ dashboard/dist/
 community/frontend/node_modules/
 community/frontend/dist/
 *.db
-devdocs/
 **/data/images/
 **/data/saved/
 AGENTS.md

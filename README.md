@@ -71,12 +71,31 @@
 
 ## 📸 控制台预览
 
-| 页面 / 功能 | 控制台界面截图 |
-| :--- | :--- |
-| **大图图墙**<br>• 取消分页栏，采用 `IntersectionObserver` 滚动加载<br>• 自然长方形比例无缝拼接，超大视觉呈现<br>• 一键【下载本地】与取消保存 | ![Saved Large](screenshots/saved_large.png) |
-| **接口与 Tag 标签管理**<br/>• 独立归集的【系统内置标签框】（横屏/竖屏/自适应）<br/>• 支持独占标签（Exclusive Tag）安全隔离 | ![Saved Small](screenshots/saved_small.png) |
-| **图源管理库**<br>• 基础信息与 10 ~ 90 权重加权配置<br>• 支持添加子 API 链接与参数分支 Variants | ![Sources](screenshots/sources.png) |
-| **使用统计与历史流水**<br/>• 今日/历史 Hits 分发趋势与排行榜<br/>• 历史流水精准缩略图预览与 👍 / 👎 权重实时调优 | ![Endpoints](screenshots/endpoints.png) |
+## 📸 控制台预览
+
+### 🖼️ 大图图墙
+
+![大图图墙](screenshots/saved_large.png)
+
+<sub>取消分页栏，采用 `IntersectionObserver` 滚动加载，自然长方形比例无缝拼接，超大视觉呈现。一键【下载本地】与取消保存。</sub>
+
+### 🏷️ 接口与 Tag 标签管理
+
+![接口与 Tag 标签管理](screenshots/saved_small.png)
+
+<sub>独立归集的【系统内置标签框】（横屏/竖屏/自适应），支持独占标签（Exclusive Tag）安全隔离。</sub>
+
+### 📦 图源管理库
+
+![图源管理库](screenshots/sources.png)
+
+<sub>基础信息与 10 ~ 90 权重加权配置，支持添加子 API 链接与参数分支 Variants。</sub>
+
+### 📊 使用统计与历史流水
+
+![使用统计与历史流水](screenshots/endpoints.png)
+
+<sub>今日/历史 Hits 分发趋势与排行榜，历史流水精准缩略图预览与 👍 / 👎 权重实时调优。</sub>
 
 ---
 
@@ -144,7 +163,10 @@ go build -o pichub .
 ./pichub
 ```
 
-### 方式四：下载release预构建包
+### 方式四：下载 release 预构建包
+
+前往 [GitHub Releases](https://github.com/Untitled572/PicHub-Aggregator/releases) 页面，下载对应平台（linux-amd64 / linux-arm64 / windows-amd64）的压缩包，解压后运行即可。不依赖任何运行时环境。
+
 ---
 
 ## 📡 API 使用指南
@@ -166,7 +188,14 @@ GET /random?category=avatar,anime
 ```
 * **说明**：仅从包含 `landscape`（风景）或 `avatar,anime`（头像/二次元）标签的可用图源中抽选。
 
-### 3. 按真图片比例过滤 (Orientation Filter)
+### 3. 独占标签 (Exclusive Tag) 安全隔离
+
+```http
+GET /random?category=nsfw
+```
+* **说明**：标记为 `exclusive: true` 的独占标签（如 `nsfw`）具有安全隔离特性。客户端必须在 URL 中显式指定该标签才会触发分发，未指定时系统自动屏蔽携带独占标签的所有图源，确保默认分发内容安全可控。系统内置的 `#横屏`、`#竖屏`、`#自适应` 为非独占标签。
+
+### 4. 按真图片比例过滤 (Orientation Filter)
 
 ```http
 GET /random?orientation=horizontal
@@ -174,7 +203,7 @@ GET /random?orientation=vertical
 ```
 * **说明**：在 `proxy_mode=true` 模式下，基于图片真实宽高比（`image.DecodeConfig`）自动过滤横屏或竖屏图片。
 
-### 4. JSON 数据返回格式
+### 5. JSON 数据返回格式
 
 ```http
 GET /random?format=json
@@ -229,7 +258,7 @@ PicHub/
 │   │   └── views/            # 核心页面 (Sources, Endpoints, HealthCheck, Settings, Stats, Saved)
 │   └── tailwind.config.js    # Morandi 色系主题样式定义
 ├── screenshots/              # README 控制台预览截图库
-├── devdocs/                  # 架构设计与抓取数据流文档
+├── devdocs/                  # 面向 AI 辅助开发的架构文档 (详见 devdocs/README.md)
 └── docs/                     # API 用户接口文档与 docker-compose 配置
 ```
 

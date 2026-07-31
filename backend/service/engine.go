@@ -99,22 +99,32 @@ func (e *Engine) RandomImage(category string, format string, orientation string,
 
 	queryCats := splitCategory(category)
 
+	tags, _ := e.store.GetTags()
+
 	if orientation == "" {
 		uaOri := detectOrientationFromUA(clientUA)
-		if uaOri != "" {
-			if len(queryCats) == 0 {
-				queryCats = []string{uaOri}
-			} else if hasCategory(queryCats, "adaptive") && !hasCategory(queryCats, uaOri) {
-				queryCats = append(queryCats, uaOri)
-			}
+		if uaOri != "" && len(queryCats) == 0 {
+			orientation = uaOri
+		}
+	}
+	if hasCategory(queryCats, "adaptive") && orientation == "" {
+		if uaOri := detectOrientationFromUA(clientUA); uaOri != "" {
+			orientation = uaOri
 		}
 	}
 
 	if settings.ProxyMode && settings.PoolSize > 0 && e.distPool != nil {
 		var poolResult *Result
-		if len(queryCats) > 0 {
-			poolResult = e.distPool.Pop(queryCats[0])
-		} else {
+		switch {
+		case orientation != "":
+			poolResult = e.distPool.PopByOrientation(orientation)
+		case len(queryCats) > 0:
+			single := len(queryCats) == 1
+			hasExcl := hasExclusiveTag(tags, queryCats)
+			poolResult = e.distPool.PopMatching(func(entry *PoolEntry) bool {
+				return matchCategories(entry.Categories, queryCats, tags, single, hasExcl)
+			})
+		default:
 			poolResult = e.distPool.PopAny()
 		}
 
@@ -141,7 +151,7 @@ func (e *Engine) RandomImage(category string, format string, orientation string,
 	}
 
 
-	tags, _ := e.store.GetTags()
+	tags, _ = e.store.GetTags()
 	candidates := filterSources(sources, queryCats, tags)
 	if len(candidates) == 0 {
 		return nil, 0, fmt.Errorf("no available sources")

@@ -85,8 +85,15 @@ jobs:
         with:
           name: release-binaries
           path: release/
+      - name: Get tag commit message
+        id: tag_msg
+        run: |
+          msg=$(git log --format=%s -1 ${{ github.ref_name }})
+          echo "body<<EOF" >> $GITHUB_OUTPUT
+          echo "$msg" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
+          body: ${{ steps.tag_msg.outputs.body }}
           files: release/*

@@ -72,12 +72,23 @@ async function handleSave() {
       }
     }
     await updateSource(props.source.id, {
-      ...props.source,
-      params
+      name: props.source.name,
+      url: props.source.url,
+      resp_type: props.source.resp_type,
+      json_path: props.source.json_path,
+      weight: props.source.weight,
+      categories: props.source.categories,
+      headers: props.source.headers,
+      params,
+      default_query: props.source.default_query,
+      enabled: props.source.enabled,
     })
     emit('saved')
     emit('close')
-  } catch {}
+  } catch (e) {
+    console.error(e)
+    alert('保存失败: ' + (e instanceof Error ? e.message : String(e)))
+  }
   saving.value = false
 }
 </script>

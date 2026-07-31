@@ -45,7 +45,7 @@ func NewHealthChecker(st *store.Store) *HealthChecker {
 }
 
 func (hc *HealthChecker) Start() {
-	hc.CheckAll()
+	go hc.CheckAll()
 	interval := 360
 	if settings, err := hc.store.GetSettings(); err == nil && settings.HealthCheckInterval > 0 {
 		interval = settings.HealthCheckInterval

@@ -87,6 +87,20 @@ func (p *DistributionPool) PopByOrientation(orientation string) *Result {
 	return nil
 }
 
+func (p *DistributionPool) PopMatching(matchFn func(entry *PoolEntry) bool) *Result {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	for i, entry := range p.items {
+		if matchFn(entry) {
+			res := entryToResult(entry)
+			p.items = append(p.items[:i], p.items[i+1:]...)
+			return res
+		}
+	}
+	return nil
+}
+
 func (p *DistributionPool) PopAny() *Result {
 	p.mu.Lock()
 	defer p.mu.Unlock()

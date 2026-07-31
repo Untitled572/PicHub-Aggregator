@@ -1,7 +1,10 @@
 <script setup lang="ts">
+declare const __APP_VERSION__: string
 import { ref, onMounted } from 'vue'
 import { useApi, setAuthToken } from '../composables/useApi'
 import type { Settings } from '../types'
+
+const appVersion = __APP_VERSION__
 import {
   Sliders,
   Save,
@@ -95,7 +98,7 @@ async function handleSave() {
           <span>{{ saving ? '保存中...' : '保存全局设置' }}</span>
         </button>
         <span class="px-3 py-1 bg-morandi-sage/10 text-morandi-sage-dark text-xs font-bold rounded-xl font-mono border border-morandi-sage/20">
-          v0.6.1
+          {{ appVersion }}
         </span>
       </div>
     </div>

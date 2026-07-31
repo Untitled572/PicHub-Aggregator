@@ -142,6 +142,9 @@ function handleUrlInput() {
 function selectRespType(type: 'image' | 'redirect' | 'json') {
   form.value.resp_type = type
   userManuallySetType.value = true
+  if (type === 'json' && !form.value.json_path) {
+    form.value.json_path = 'url'
+  }
 }
 
 async function autoDetectUrlType() {
