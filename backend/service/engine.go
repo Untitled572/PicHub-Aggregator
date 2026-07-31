@@ -107,7 +107,7 @@ func (e *Engine) RandomImage(category string, format string, orientation string,
 			orientation = uaOri
 		}
 	}
-	if hasCategory(queryCats, "adaptive") && orientation == "" {
+	if len(queryCats) == 1 && queryCats[0] == "adaptive" && orientation == "" {
 		if uaOri := detectOrientationFromUA(clientUA); uaOri != "" {
 			orientation = uaOri
 		}
