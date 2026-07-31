@@ -15,8 +15,8 @@ import (
 	"github.com/pichub/backend/handler"
 	"github.com/pichub/backend/logger"
 	"github.com/pichub/backend/middleware"
-	"github.com/pichub/backend/monitor"
 	"github.com/pichub/backend/model"
+	"github.com/pichub/backend/monitor"
 	"github.com/pichub/backend/service"
 	"github.com/pichub/backend/store"
 )
@@ -71,14 +71,14 @@ func main() {
 		var srcModels []model.Source
 		for _, sc := range cfg.Sources {
 			srcModels = append(srcModels, model.Source{
-				Name:       sc.Name,
-				URL:        sc.URL,
-				RespType:   sc.RespType,
-				JsonPath:   sc.JsonPath,
-				Weight:     sc.Weight,
-				Categories: sc.Categories,
-				Enabled:    true,
-				Status:     "normal",
+				Name:        sc.Name,
+				URL:         sc.URL,
+				RespType:    sc.RespType,
+				JsonPath:    sc.JsonPath,
+				Weight:      sc.Weight,
+				Categories:  sc.Categories,
+				Enabled:     true,
+				Status:      "normal",
 				SuccessRate: 100.0,
 			})
 		}
@@ -99,6 +99,7 @@ func main() {
 
 	proxyCache := service.NewProxyCache(st, "./cache")
 	imageStore := service.NewImageStore(st, "./data/images", proxyConfig)
+	imageStore.CleanupOrphanPooled()
 
 	// 启动时清理无效图片（宽度/高度 < 1、格式未知）
 	if fileIDs, count, err := st.CleanupInvalidImages(); err == nil && count > 0 {
@@ -121,6 +122,7 @@ func main() {
 	r.Use(middleware.RequestID())
 	r.Use(middleware.AccessLog())
 	r.Use(middleware.CORS())
+	r.Use(middleware.ServerTime())
 
 	r.GET("/ping", h.HealthCheck)
 	r.GET("/random", middleware.RateLimit(st), h.RandomImage)
@@ -128,9 +130,11 @@ func main() {
 	r.POST("/api/sources/health-check", h.BatchHealthCheck)
 	r.GET("/images/:file_id", h.ServeImage)
 
-
 	api := r.Group("/api")
 	{
+		api.POST("/login", h.Login)
+		api.POST("/logout", middleware.AdminAuth(st), h.Logout)
+		api.GET("/auth/check", h.CheckAuth)
 		api.GET("/sources", h.ListSources)
 		api.GET("/sources/:id", h.GetSource)
 		api.POST("/sources", middleware.AdminAuth(st), h.CreateSource)
@@ -153,7 +157,6 @@ func main() {
 		api.GET("/export", h.ExportData)
 		api.POST("/export", middleware.AdminAuth(st), h.ExportRules)
 		api.POST("/import", middleware.AdminAuth(st), h.ImportData)
-
 
 	}
 

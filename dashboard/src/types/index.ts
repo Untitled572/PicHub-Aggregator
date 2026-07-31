@@ -51,6 +51,10 @@ export interface Settings {
   bound_tags?: string[]
   admin_token?: string
   saved_images_dir?: string
+  login_enabled?: boolean
+  admin_username?: string
+  admin_password?: string
+  session_hours?: number
 }
 
 

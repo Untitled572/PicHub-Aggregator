@@ -2,12 +2,13 @@ package service
 
 import (
 	"bytes"
+	"context"
 	"fmt"
+	_ "golang.org/x/image/webp"
 	"image"
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
-	_ "golang.org/x/image/webp"
 	"io"
 	"net/http"
 	"os"
@@ -68,8 +69,9 @@ func (pc *ProxyCache) GetOrFetch(imageURL string) ([]byte, string, error) {
 		return data, http.DetectContentType(data), nil
 	}
 
-	pc.httpClient.Timeout = time.Duration(settings.Timeout) * time.Millisecond
-	req, err := http.NewRequest("GET", imageURL, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(settings.Timeout)*time.Millisecond)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "GET", imageURL, nil)
 	if err != nil {
 		return nil, "", fmt.Errorf("create request: %w", err)
 	}
@@ -143,44 +145,21 @@ func checkResolution(data []byte, minRes string) (bool, error) {
 }
 
 func (pc *ProxyCache) getCacheSize() int64 {
-	var total int64
-	filepath.Walk(pc.cacheDir, func(path string, info os.FileInfo, err error) error {
-		if err == nil && !info.IsDir() {
-			total += info.Size()
-		}
-		return nil
-	})
-	return total
+	return dirSize(pc.cacheDir)
 }
 
 func (pc *ProxyCache) evictLRU() {
-	entries, _ := filepath.Glob(filepath.Join(pc.cacheDir, "*"))
-	if len(entries) == 0 {
-		return
+	if oldest := oldestFile(listCacheFiles(pc.cacheDir)); oldest != "" {
+		os.Remove(oldest)
 	}
-
-	oldest := entries[0]
-	oldestTime := time.Now()
-	for _, e := range entries {
-		info, err := os.Stat(e)
-		if err != nil {
-			continue
-		}
-		if info.ModTime().Before(oldestTime) {
-			oldest = e
-			oldestTime = info.ModTime()
-		}
-	}
-	os.Remove(oldest)
 }
 
 func (pc *ProxyCache) cleanupExpired(ttlMinutes int) {
 	if ttlMinutes <= 0 {
 		return
 	}
-	entries, _ := filepath.Glob(filepath.Join(pc.cacheDir, "*"))
 	now := time.Now()
-	for _, e := range entries {
+	for _, e := range listCacheFiles(pc.cacheDir) {
 		info, err := os.Stat(e)
 		if err != nil {
 			continue

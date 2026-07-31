@@ -8,7 +8,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-
 func (h *Handler) GetStats(c *gin.Context) {
 	todayStr := time.Now().Format("2006-01-02")
 	startDate := c.Query("start_date")
@@ -51,14 +50,12 @@ func (h *Handler) GetStats(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"today":      overview,
-		"stats":      overview,
 		"start_date": startDate,
 		"end_date":   endDate,
 		"range":      rangeParam,
 		"total":      gin.H{"total_requests": total},
 	})
 }
-
 
 func (h *Handler) GetImageHistory(c *gin.Context) {
 	limit := 20
@@ -82,4 +79,3 @@ func (h *Handler) GetImageHistory(c *gin.Context) {
 		"offset":  offset,
 	})
 }
-

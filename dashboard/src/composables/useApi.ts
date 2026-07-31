@@ -1,22 +1,37 @@
 import { ref } from 'vue'
+import CryptoJS from 'crypto-js'
 import type { Source, Settings, DetectResult, ExportData, ImportResult, HealthResult, Tag, StatsResponse, ImageHistoryRecord, SavedImage } from '../types'
 
 
 const API_BASE = ''
 
-function getAuthToken(): string {
-  try {
-    return localStorage.getItem('pichub_admin_token') || ''
-  } catch {
-    return ''
-  }
+// 注意: 不要用 @vueuse useLocalStorage 在模块级创建 token ref ——
+// 非组件上下文中其 ref 赋值不会同步到 localStorage, 导致登录后守卫读不到 token
+const TOKEN_KEY = 'pichub_admin_token'
+const authToken = ref(localStorage.getItem(TOKEN_KEY) || '')
+
+export function getAuthToken(): string {
+  return authToken.value
 }
 
 export function setAuthToken(token: string) {
+  authToken.value = token
   try {
-    if (token) localStorage.setItem('pichub_admin_token', token)
-    else localStorage.removeItem('pichub_admin_token')
-  } catch {}
+    if (token) localStorage.setItem(TOKEN_KEY, token)
+    else localStorage.removeItem(TOKEN_KEY)
+  } catch { /* storage 不可用时降级为内存态 */ }
+}
+
+const MAX_DRIFT_MS = 30 * 60 * 1000 // 30 分钟
+
+function checkTimeDrift(serverTimeHeader: string | null) {
+  if (!serverTimeHeader) return
+  const serverTs = Number(serverTimeHeader)
+  if (Number.isNaN(serverTs)) return
+  const diff = Math.abs(Date.now() - serverTs)
+  if (diff > MAX_DRIFT_MS) {
+    console.warn(`[PicHub] 客户端与服务端时间差超过 30 分钟 (${Math.round(diff / 60000)}min)，可能影响会话有效期`)
+  }
 }
 
 export function useApi() {
@@ -36,6 +51,15 @@ export function useApi() {
         headers: { ...headers, ...options?.headers as Record<string, string> },
         ...options,
       })
+      checkTimeDrift(res.headers.get('x-server-time'))
+      if (res.status === 401 && url !== '/api/login') {
+        // 会话失效: 清 token 并回登录页
+        setAuthToken('')
+        if (!window.location.pathname.startsWith('/login')) {
+          window.location.href = '/login'
+        }
+        throw new Error('未登录或会话已过期')
+      }
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
         throw new Error(body.error || `HTTP ${res.status}`)
@@ -49,6 +73,24 @@ export function useApi() {
     } finally {
       loading.value = false
     }
+  }
+
+  function login(username: string, password: string) {
+    return request<{ token: string }>('/api/login', {
+      method: 'POST',
+      body: JSON.stringify({
+        username,
+        password: CryptoJS.MD5(password).toString(),
+      }),
+    }).then((res) => {
+      // 登录成功即持久化 token (调用方无需再手动 setAuthToken)
+      setAuthToken(res.token)
+      return res
+    })
+  }
+
+  function logout() {
+    return request<{ message: string }>('/api/logout', { method: 'POST' })
   }
 
   function listSources() {
@@ -80,7 +122,12 @@ export function useApi() {
   }
 
   function updateSettings(data: Settings) {
-    return request<Settings>('/api/settings', { method: 'PUT', body: JSON.stringify(data) })
+    // admin_password 语义为 MD5 摘要: 提交前统一转换, 不污染原对象
+    const payload = { ...data }
+    if (payload.admin_password) {
+      payload.admin_password = CryptoJS.MD5(payload.admin_password).toString()
+    }
+    return request<Settings>('/api/settings', { method: 'PUT', body: JSON.stringify(payload) })
   }
 
   function getTags() {
@@ -162,6 +209,7 @@ export function useApi() {
 
   return {
     loading, error,
+    login, logout,
     listSources, getSource, createSource, updateSource, deleteSource, toggleSource,
     getSettings, updateSettings, getTags, updateTags,
     detectURL, healthCheck,

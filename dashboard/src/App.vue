@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from 'vue'
-import { RouterView, RouterLink, useRoute } from 'vue-router'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { RouterView, RouterLink, useRoute, useRouter } from 'vue-router'
 import { useTags } from './composables/useTags'
+import { useApi, getAuthToken, setAuthToken } from './composables/useApi'
 import {
   Layers,
   Activity,
@@ -20,10 +21,18 @@ import {
 } from 'lucide-vue-next'
 
 const route = useRoute()
+const router = useRouter()
 const copiedUrl = ref(false)
 const backendConnected = ref(true)
 const mobileMenuOpen = ref(false)
 const { loadTags } = useTags()
+const { getSettings } = useApi()
+
+// 无布局路由 (如 /login): 全屏渲染, 不显示侧边栏/顶栏
+const isBarePage = computed(() => !!route.meta.bare)
+
+// 登录态确认前不渲染控制台, 避免未登录闪现
+const authReady = ref(false)
 
 const navItems = [
   { path: '/', label: '图源管理', subtitle: 'API 源配置与监听', icon: Layers },
@@ -37,6 +46,10 @@ const navItems = [
 // Close mobile drawer when route changes
 watch(() => route.path, () => {
   mobileMenuOpen.value = false
+  // 登录后从 /login 回跳受保护页面: 组件不重新挂载, 需手动解除渲染锁
+  if (!isBarePage.value && !authReady.value) {
+    authReady.value = true
+  }
 })
 
 function isActive(path: string) {
@@ -60,19 +73,56 @@ function checkMobileDevice() {
 
 async function checkBackendHealth() {
   try {
-    const res = await fetch('/api/settings', { method: 'GET' })
+    const res = await fetch('/ping', { method: 'GET' })
     backendConnected.value = res.ok
   } catch {
     backendConnected.value = false
   }
 }
 
+async function checkLoginState() {
+  try {
+    if (getAuthToken()) {
+      // 有 token: 验证服务端会话是否仍有效 (服务重启后内存会话清空 → 失效)
+      const res = await fetch('/api/auth/check', {
+        headers: { Authorization: `Bearer ${getAuthToken()}` },
+      })
+      if (res.ok) {
+        const r = await res.json()
+        if (r.login_enabled && !r.valid) {
+          setAuthToken('')
+          router.replace('/login')
+          return
+        }
+        authReady.value = true
+        return
+      }
+    } else {
+      const s = await getSettings()
+      if (s.login_enabled) {
+        router.replace('/login')
+        return
+      }
+      authReady.value = true
+      return
+    }
+  } catch {
+    // 后端不可达: 保持占位, 2 秒后重试 (服务就绪后自动判定登录态)
+    setTimeout(checkLoginState, 2000)
+    return
+  }
+  authReady.value = true
+}
+
 let healthTimer: any = null
 
 
 onMounted(() => {
-  loadTags()
-  checkBackendHealth()
+  checkLoginState().then(() => {
+    if (!authReady.value) return // 跳登录中, 不初始化控制台逻辑
+    loadTags()
+    checkBackendHealth()
+  })
   checkMobileDevice()
   window.addEventListener('resize', checkMobileDevice)
   healthTimer = setInterval(checkBackendHealth, 8000)
@@ -93,7 +143,23 @@ function copyUserApiUrl() {
 </script>
 
 <template>
-  <div class="min-h-screen bg-morandi-bg flex flex-col md:flex-row text-morandi-text font-sans">
+  <!-- 无布局路由 (登录页): 全屏独立渲染 -->
+  <div v-if="isBarePage" class="min-h-screen">
+    <RouterView />
+  </div>
+
+  <!-- 登录态确认中: 轻量占位, 不闪现控制台 -->
+  <div v-else-if="!authReady" class="min-h-screen bg-morandi-bg flex items-center justify-center">
+    <div class="flex flex-col items-center gap-3">
+      <div class="w-10 h-10 rounded-2xl bg-morandi-sage text-white flex items-center justify-center shadow-md shadow-morandi-sage/20">
+        <Sparkles class="w-5 h-5 animate-pulse" />
+      </div>
+      <p class="text-xs text-morandi-muted">正在验证登录状态…</p>
+    </div>
+  </div>
+
+  <!-- 控制台布局 -->
+  <div v-else class="min-h-screen bg-morandi-bg flex flex-col md:flex-row text-morandi-text font-sans">
     <!-- Desktop Sidebar (Hidden on Mobile) -->
     <aside class="hidden md:flex w-64 bg-morandi-sidebar/80 backdrop-blur-md border-r border-morandi-border/60 flex-col justify-between p-4 shrink-0 sticky top-0 h-screen overflow-y-auto z-20">
       <div>

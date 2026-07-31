@@ -138,30 +138,63 @@ func (d *DemandTracker) GetAllocationPlan(poolSize int, currentStock map[string]
 	return plan
 }
 
-func (d *DemandTracker) MissedTags() []string {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	var tags []string
-	for tag, td := range d.window {
-		if td.Misses > 0 {
-			tags = append(tags, tag)
-		}
-	}
-	return tags
-}
-
-func (d *DemandTracker) ResetWindow() {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.window = make(map[string]*TagDemand)
-}
-
 func (d *DemandTracker) expire() {
 	cutoff := time.Now().Add(-d.interval)
 	for tag, td := range d.window {
 		if td.LastAccessAt.Before(cutoff) {
 			delete(d.window, tag)
+		}
+	}
+}
+
+type SourceDemand struct {
+	Selections int
+	LastSeen   time.Time
+}
+
+// SourceDemandTracker 跟踪每个源近期被选中/分发的频次, 用于池单源额度的自适应分配
+type SourceDemandTracker struct {
+	mu       sync.Mutex
+	window   map[int64]*SourceDemand
+	interval time.Duration
+}
+
+func NewSourceDemandTracker() *SourceDemandTracker {
+	return &SourceDemandTracker{
+		window:   make(map[int64]*SourceDemand),
+		interval: 5 * time.Minute,
+	}
+}
+
+func (d *SourceDemandTracker) RecordSelection(sourceID int64) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	td, ok := d.window[sourceID]
+	if !ok {
+		td = &SourceDemand{}
+		d.window[sourceID] = td
+	}
+	td.Selections++
+	td.LastSeen = time.Now()
+}
+
+// Snapshot 返回窗口内各源被选中次数
+func (d *SourceDemandTracker) Snapshot() map[int64]int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.expire()
+	snap := make(map[int64]int, len(d.window))
+	for id, td := range d.window {
+		snap[id] = td.Selections
+	}
+	return snap
+}
+
+func (d *SourceDemandTracker) expire() {
+	cutoff := time.Now().Add(-d.interval)
+	for id, td := range d.window {
+		if td.LastSeen.Before(cutoff) {
+			delete(d.window, id)
 		}
 	}
 }

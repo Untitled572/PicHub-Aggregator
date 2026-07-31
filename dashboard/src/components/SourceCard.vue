@@ -2,7 +2,7 @@
 import { ref, computed } from 'vue'
 import type { Source } from '../types'
 import HealthStatusBadge from './HealthStatusBadge.vue'
-import { Edit3, Trash2, Globe, Sliders } from 'lucide-vue-next'
+import { Edit3, Trash2, Globe, Sliders, Check, X } from 'lucide-vue-next'
 import { useTags } from '../composables/useTags'
 
 defineProps<{ source: Source; available?: boolean }>()
@@ -116,7 +116,20 @@ function handleDeleteConfirm() {
             @change="$emit('toggle')"
             class="sr-only peer"
           />
-          <div class="w-9 h-5 bg-morandi-sidebar peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-morandi-borderSoft after:border after:rounded-full after:h-4 after:w-4 after:transition-all duration-200 peer-checked:bg-morandi-sage"></div>
+          <div
+            class="relative w-12 h-7 rounded-full p-1 transition-all duration-300 ease-in-out flex items-center shadow-xs border peer-focus-visible:ring-2 peer-focus-visible:ring-morandi-sage/30"
+            :class="source.enabled
+              ? 'bg-morandi-sage border-morandi-sage-dark/30 shadow-morandi-sage/20'
+              : 'bg-stone-200/90 hover:bg-stone-300/80 border-stone-300/80'"
+          >
+            <span
+              class="w-5 h-5 bg-white rounded-full shadow-md transition-all duration-300 ease-out transform flex items-center justify-center"
+              :class="source.enabled ? 'translate-x-5' : 'translate-x-0'"
+            >
+              <Check v-if="source.enabled" class="w-3 h-3 text-morandi-sage-dark stroke-[3]" />
+              <X v-else class="w-2.5 h-2.5 text-stone-400 font-bold" />
+            </span>
+          </div>
         </label>
 
         <!-- Manage Parameter Variants Button -->

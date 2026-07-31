@@ -88,7 +88,9 @@ func (h *Handler) GetHealthStatus(c *gin.Context) {
 	}
 	results := h.healthChecker.GetLastResult()
 	if results == nil {
-		results = h.healthChecker.CheckAll()
+		// 首次检查未完成: 异步触发, 立即返回空结果, 不阻塞请求
+		results = []service.HealthResult{}
+		go h.healthChecker.CheckAll()
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"results":   results,

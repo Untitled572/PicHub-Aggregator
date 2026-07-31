@@ -37,7 +37,20 @@ func (h *Handler) ExportData(c *gin.Context) {
 			manifest.Settings = settings
 		}
 		if sources, err := h.store.ListSources(); err == nil {
-			manifest.Sources = sources
+			sanitized := make([]model.Source, 0, len(sources))
+			for _, src := range sources {
+				if src.Headers != nil {
+					hdrs := make(map[string]string, len(src.Headers))
+					for k, v := range src.Headers {
+						if !isSensitive(k) {
+							hdrs[k] = v
+						}
+					}
+					src.Headers = hdrs
+				}
+				sanitized = append(sanitized, src)
+			}
+			manifest.Sources = sanitized
 		}
 		if tags, err := h.store.GetTags(); err == nil {
 			manifest.Tags = tags
@@ -164,14 +177,17 @@ func (h *Handler) ImportData(c *gin.Context) {
 	importedStats := 0
 	importedImages := 0
 
-	// Restore Settings (skip admin_token)
+	// Restore Settings (skip admin_token / admin_password_hash)
 	if manifest.Settings != nil {
 		localSettings, _ := h.store.GetSettings()
-		var localToken string
+		var localToken, localPasswordHash string
 		if localSettings != nil {
 			localToken = localSettings.AdminToken
+			localPasswordHash = localSettings.AdminPasswordHash
 		}
 		manifest.Settings.AdminToken = ""
+		manifest.Settings.AdminPasswordHash = localPasswordHash
+		manifest.Settings.AdminPassword = ""
 		_ = h.store.UpdateSettings(manifest.Settings)
 		manifest.Settings.AdminToken = localToken
 	}
@@ -189,7 +205,6 @@ func (h *Handler) ImportData(c *gin.Context) {
 			importedSources++
 		}
 	}
-
 
 	// Restore Stats
 	if manifest.Stats != nil {

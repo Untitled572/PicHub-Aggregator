@@ -36,7 +36,6 @@ type Source struct {
 	UpdatedAt    time.Time         `json:"updated_at"`
 }
 
-
 type DailyTrend struct {
 	Date  string `json:"date"`
 	Total int    `json:"total"`
@@ -56,7 +55,6 @@ type StatsOverview struct {
 	DailyTrends  []DailyTrend       `json:"daily_trends"`
 	SourceTrends []SourceDailyTrend `json:"source_trends"`
 }
-
 
 type TagStat struct {
 	TagID string `json:"tag_id"`
@@ -80,7 +78,6 @@ type ImageHistoryRecord struct {
 	FileID     string    `json:"file_id,omitempty"`
 	IsSaved    bool      `json:"is_saved"`
 }
-
 
 type CachedImage struct {
 	ID          int64  `json:"id"`
@@ -127,10 +124,14 @@ type Settings struct {
 	HealthCheckInterval int      `json:"health_check_interval"`
 	MaxHistoryRecords   int      `json:"max_history_records"`
 	BoundTags           []string `json:"bound_tags"`
-	AdminToken          string   `json:"admin_token,omitempty"`
+	AdminToken          string   `json:"-"`
 	SavedImagesDir      string   `json:"saved_images_dir,omitempty"`
+	LoginEnabled        bool     `json:"login_enabled"`
+	AdminUsername       string   `json:"admin_username,omitempty"`
+	AdminPasswordHash   string   `json:"-"`
+	AdminPassword       string   `json:"admin_password,omitempty"`
+	SessionHours        int      `json:"session_hours"`
 }
-
 
 type StatsRequestRow struct {
 	Date  string `json:"date"`
@@ -167,7 +168,3 @@ type ExportManifest struct {
 	Stats       *StatsExportData `json:"stats,omitempty"`
 	SavedImages []SavedImage     `json:"saved_images,omitempty"`
 }
-
-
-
-

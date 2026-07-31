@@ -1,8 +1,10 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"io"
+	"math"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -17,6 +19,15 @@ import (
 	"github.com/pichub/backend/store"
 )
 
+const (
+	// maxFetchPerTick 单轮池补充的最大拉取数, 防止突发打爆图源触发风控
+	maxFetchPerTick = 8
+	// maxPoolPerSource 单源池条目封顶
+	maxPoolPerSource = 8
+	// minPoolPerSource 单源池条目下限
+	minPoolPerSource = 1
+)
+
 type Engine struct {
 	store         *store.Store
 	proxyCache    *ProxyCache
@@ -24,6 +35,7 @@ type Engine struct {
 	proxyConfig   *ProxyConfig
 	distPool      *DistributionPool
 	demandTracker *DemandTracker
+	sourceDemand  *SourceDemandTracker
 	httpClient    *http.Client
 	monitor       *monitor.SourceMonitor
 }
@@ -40,9 +52,11 @@ func NewEngine(st *store.Store, pc *ProxyCache, imgStore *ImageStore, proxyCfg *
 		proxyConfig:   proxyCfg,
 		distPool:      NewDistributionPool(),
 		demandTracker: NewDemandTracker(),
+		sourceDemand:  NewSourceDemandTracker(),
 		monitor:       mon,
 		httpClient: &http.Client{
 			Transport: transport,
+			Timeout:   30 * time.Second,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				return http.ErrUseLastResponse
 			},
@@ -100,6 +114,7 @@ func (e *Engine) RandomImage(category string, format string, orientation string,
 	queryCats := splitCategory(category)
 
 	tags, _ := e.store.GetTags()
+	exclSet := exclusiveTagSet(tags)
 
 	if orientation == "" {
 		uaOri := detectOrientationFromUA(clientUA)
@@ -124,13 +139,13 @@ func (e *Engine) RandomImage(category string, format string, orientation string,
 					entry.Orientation == orientation
 			})
 		case orientation != "":
-			poolResult = e.distPool.PopByOrientation(orientation)
+			poolResult = e.distPool.PopByOrientation(orientation, exclSet)
 		case len(queryCats) > 0:
 			poolResult = e.distPool.PopMatching(func(entry *PoolEntry) bool {
 				return matchCategories(entry.Categories, queryCats, tags, single, hasExcl)
 			})
 		default:
-			poolResult = e.distPool.PopAny()
+			poolResult = e.distPool.PopAny(exclSet)
 		}
 
 		if poolResult != nil && e.imageStore != nil {
@@ -142,12 +157,16 @@ func (e *Engine) RandomImage(category string, format string, orientation string,
 
 		if poolResult != nil {
 			e.demandTracker.RecordRequest(queryCats, true)
+			e.sourceDemand.RecordSelection(poolResult.SourceID)
 			src := model.Source{
 				ID:   poolResult.SourceID,
 				Name: poolResult.SourceName,
 			}
 			imgID := poolResult.ImageID
-			go e.store.RecordStats(queryCats, src, poolResult.LocalURL, &imgID, poolResult.FileID)
+			go func() {
+				e.store.SetImagePooled(imgID, false)
+				e.store.RecordStats(queryCats, src, poolResult.LocalURL, &imgID, poolResult.FileID)
+			}()
 			logger.System("pool hit for category %q, instant response", category)
 
 			if format == "json" {
@@ -162,8 +181,6 @@ func (e *Engine) RandomImage(category string, format string, orientation string,
 		return nil, 0, fmt.Errorf("list sources: %w", err)
 	}
 
-
-	tags, _ = e.store.GetTags()
 	candidates := filterSources(sources, queryCats, tags)
 	if len(candidates) == 0 {
 		return nil, 0, fmt.Errorf("no available sources")
@@ -179,32 +196,17 @@ func (e *Engine) RandomImage(category string, format string, orientation string,
 	for attempt := 0; attempt < maxAttempts && len(candidates) > 0; attempt++ {
 		selected := weightedPick(candidates)
 
-		req, err := http.NewRequest("GET", selected.URL, nil)
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		req, err := e.newFetchRequest(ctx, selected, clientUA)
 		if err != nil {
+			cancel()
 			candidates = removeSource(candidates, selected.ID)
 			continue
 		}
-		for k, v := range selected.Headers {
-			req.Header.Set(k, v)
-		}
-		if clientUA != "" {
-			hasUA := false
-			for k := range selected.Headers {
-				if strings.EqualFold(k, "User-Agent") {
-					hasUA = true
-					break
-				}
-			}
-			if !hasUA {
-				req.Header.Set("User-Agent", clientUA)
-			}
-		} else if !hasHeader(selected.Headers, "User-Agent") {
-			req.Header.Set("User-Agent", defaultBrowserUA)
-		}
 
-		e.httpClient.Timeout = timeout
 		resp, err := e.httpClient.Do(req)
 		if err != nil {
+			cancel()
 			logger.Error("source %q fetch failed: %v", selected.Name, err)
 			if e.monitor != nil {
 				e.monitor.Emit(selected.ID, false)
@@ -223,6 +225,7 @@ func (e *Engine) RandomImage(category string, format string, orientation string,
 			}
 			candidates = removeSource(candidates, selected.ID)
 			resp.Body.Close()
+			cancel()
 			continue
 		}
 
@@ -232,6 +235,7 @@ func (e *Engine) RandomImage(category string, format string, orientation string,
 
 		imageURL, err := extractImageURL(resp, selected)
 		resp.Body.Close()
+		cancel()
 		if err != nil {
 			candidates = removeSource(candidates, selected.ID)
 			continue
@@ -242,7 +246,7 @@ func (e *Engine) RandomImage(category string, format string, orientation string,
 		origURL := imageURL
 
 		if e.imageStore != nil && settings.ProxyMode {
-			cached, cacheErr := e.imageStore.DownloadAndStore(origURL, selected.URL, selected.ID, selected.Name, queryCats, selected.Headers)
+			cached, cacheErr := e.imageStore.DownloadAndStore(origURL, selected.URL, selected.ID, selected.Name, queryCats, selected.Headers, false)
 			if cacheErr != nil {
 				logger.Error("cache download failed for %s: %v", selected.Name, cacheErr)
 				if e.monitor != nil {
@@ -282,6 +286,7 @@ func (e *Engine) RandomImage(category string, format string, orientation string,
 			fileID = cachedInfo.FileID
 		}
 		e.demandTracker.RecordRequest(queryCats, cachedInfo != nil)
+		e.sourceDemand.RecordSelection(selected.ID)
 		go e.store.RecordStats(queryCats, selected, imageURL, imgID, fileID)
 
 		res := &Result{
@@ -309,6 +314,31 @@ func (e *Engine) RandomImage(category string, format string, orientation string,
 	return nil, 0, fmt.Errorf("all sources failed")
 }
 
+func (e *Engine) newFetchRequest(ctx context.Context, selected model.Source, clientUA string) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", selected.URL, nil)
+	if err != nil {
+		return nil, err
+	}
+	for k, v := range selected.Headers {
+		req.Header.Set(k, v)
+	}
+	if clientUA != "" {
+		hasUA := false
+		for k := range selected.Headers {
+			if strings.EqualFold(k, "User-Agent") {
+				hasUA = true
+				break
+			}
+		}
+		if !hasUA {
+			req.Header.Set("User-Agent", clientUA)
+		}
+	} else if !hasHeader(selected.Headers, "User-Agent") {
+		req.Header.Set("User-Agent", defaultBrowserUA)
+	}
+	return req, nil
+}
+
 func hasExclusiveTag(tags []model.Tag, ids []string) bool {
 	for _, id := range ids {
 		for _, t := range tags {
@@ -318,6 +348,35 @@ func hasExclusiveTag(tags []model.Tag, ids []string) bool {
 		}
 	}
 	return false
+}
+
+// exclusiveTagSet 收集所有 exclusive 标签 ID, 用于池消费隔离
+func exclusiveTagSet(tags []model.Tag) map[string]bool {
+	set := make(map[string]bool)
+	for _, t := range tags {
+		if t.Exclusive {
+			set[t.ID] = true
+		}
+	}
+	return set
+}
+
+// excludeExclusiveSources 过滤掉 Categories 含 exclusive 标签的源 (通用预取不得拉取 exclusive 内容)
+func excludeExclusiveSources(sources []model.Source, tags []model.Tag) []model.Source {
+	var result []model.Source
+	for _, src := range sources {
+		excl := false
+		for _, cat := range src.Categories {
+			if isExclusiveTag(cat, tags) {
+				excl = true
+				break
+			}
+		}
+		if !excl {
+			result = append(result, src)
+		}
+	}
+	return result
 }
 
 func isExclusiveTag(id string, tags []model.Tag) bool {
@@ -409,7 +468,6 @@ func filterSources(sources []model.Source, queryCats []string, tags []model.Tag)
 				variant.Categories = paramCats
 				result = append(result, variant)
 			}
-
 
 			baseURL := appendDefaultQuery(src.URL, src.DefaultQuery)
 			if len(src.Categories) > 0 && hasQueryCat {
@@ -542,9 +600,6 @@ func getRelativePathOrHost(rawURL string) string {
 	}
 	return rawURL
 }
-
-
-
 
 func hasCategory(cats []string, target string) bool {
 	for _, c := range cats {
@@ -715,13 +770,26 @@ func (e *Engine) replenishPool() {
 		return
 	}
 
-	// 获取各源磁盘缓存文件数，用于单源上限过滤
+	// 各源磁盘缓存文件数 (池占用) + 按热度/风控封顶计算出的单源额度
 	sourceCounts := make(map[int64]int)
 	if e.imageStore != nil {
 		sources, _ := e.store.ListSources()
 		for _, src := range sources {
 			sourceCounts[src.ID] = e.imageStore.CountSourceCachedFiles(src.ID)
 		}
+	}
+	caps := e.sourceCaps(settings.PoolSize)
+
+	// 每 tick 拉取数上限, 防止突发打爆图源触发风控
+	fetched := 0
+	push := func(res *Result) bool {
+		if res == nil {
+			return false
+		}
+		e.distPool.Push(poolEntryFromResult(res))
+		sourceCounts[res.SourceID]++
+		fetched++
+		return true
 	}
 
 	stock := e.distPool.CategorySnapshot()
@@ -731,23 +799,18 @@ func (e *Engine) replenishPool() {
 		// 窗口无数据：为每个有源的 tag 各拉一张
 		tags, _ := e.store.GetTags()
 		for _, t := range tags {
-			if e.distPool.Size() >= settings.PoolSize {
+			if e.distPool.Size() >= settings.PoolSize || fetched >= maxFetchPerTick {
 				break
 			}
-			res := e.fetchSingleForTag(t.ID, sourceCounts)
-			if res != nil {
-				e.distPool.Push(poolEntryFromResult(res))
-				sourceCounts[res.SourceID]++
+			if !push(e.fetchSingleForTag(t.ID, sourceCounts, caps)) {
+				continue
 			}
 		}
 		// 剩余 slot 填无 tag 源
-		for e.distPool.Size() < settings.PoolSize {
-			res := e.fetchSingleForTag("", sourceCounts)
-			if res == nil {
+		for e.distPool.Size() < settings.PoolSize && fetched < maxFetchPerTick {
+			if !push(e.fetchSingleForTag("", sourceCounts, caps)) {
 				break
 			}
-			e.distPool.Push(poolEntryFromResult(res))
-			sourceCounts[res.SourceID]++
 		}
 		return
 	}
@@ -756,18 +819,45 @@ func (e *Engine) replenishPool() {
 		if count <= 0 {
 			continue
 		}
-		for i := 0; i < count && e.distPool.Size() < settings.PoolSize; i++ {
-			res := e.fetchSingleForTag(tag, sourceCounts)
-			if res == nil {
+		for i := 0; i < count && e.distPool.Size() < settings.PoolSize && fetched < maxFetchPerTick; i++ {
+			if !push(e.fetchSingleForTag(tag, sourceCounts, caps)) {
 				break
 			}
-			e.distPool.Push(poolEntryFromResult(res))
-			sourceCounts[res.SourceID]++
 		}
 	}
 }
 
-func (e *Engine) fetchSingleForTag(tag string, sourceCounts map[int64]int) *Result {
+// sourceCaps 按源近期被选中热度分配池额度, 并叠加单源封顶 (防源风控)
+func (e *Engine) sourceCaps(poolSize int) map[int64]int {
+	snap := e.sourceDemand.Snapshot()
+	caps := make(map[int64]int)
+	if len(snap) == 0 {
+		return caps
+	}
+	total := 0
+	for _, n := range snap {
+		total += n
+	}
+	if total == 0 {
+		for id := range snap {
+			caps[id] = minPoolPerSource
+		}
+		return caps
+	}
+	for id, n := range snap {
+		share := int(math.Ceil(float64(n) / float64(total) * float64(poolSize)))
+		if share < minPoolPerSource {
+			share = minPoolPerSource
+		}
+		if share > maxPoolPerSource {
+			share = maxPoolPerSource
+		}
+		caps[id] = share
+	}
+	return caps
+}
+
+func (e *Engine) fetchSingleForTag(tag string, sourceCounts map[int64]int, caps map[int64]int) *Result {
 	sources, err := e.store.ListSources()
 	if err != nil || len(sources) == 0 {
 		return nil
@@ -778,16 +868,20 @@ func (e *Engine) fetchSingleForTag(tag string, sourceCounts map[int64]int) *Resu
 	if tag != "" {
 		candidates = filterSources(sources, []string{tag}, tags)
 	} else {
-		candidates = filterSources(sources, nil, tags)
+		candidates = excludeExclusiveSources(filterSources(sources, nil, tags), tags)
 	}
 	if len(candidates) == 0 {
 		return nil
 	}
 
-	// 过滤掉已达单源缓存上限（5 张）的源
+	// 过滤掉已达该源自适应额度上限的源 (默认上限由热度分配, 封顶 maxPoolPerSource)
 	var filtered []model.Source
 	for _, src := range candidates {
-		if sourceCounts[src.ID] < 5 {
+		limit := caps[src.ID]
+		if limit < minPoolPerSource {
+			limit = minPoolPerSource
+		}
+		if sourceCounts[src.ID] < limit {
 			filtered = append(filtered, src)
 		}
 	}
@@ -796,22 +890,17 @@ func (e *Engine) fetchSingleForTag(tag string, sourceCounts map[int64]int) *Resu
 	}
 
 	selected := weightedPick(filtered)
-	req, err := http.NewRequest("GET", selected.URL, nil)
-	if err != nil {
-		return nil
-	}
-	for k, v := range selected.Headers {
-		req.Header.Set(k, v)
-	}
-	if !hasHeader(selected.Headers, "User-Agent") {
-		req.Header.Set("User-Agent", defaultBrowserUA)
-	}
 
 	settings, err := e.store.GetSettings()
 	if err != nil {
 		return nil
 	}
-	e.httpClient.Timeout = time.Duration(settings.Timeout) * time.Millisecond
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(settings.Timeout)*time.Millisecond)
+	defer cancel()
+	req, err := e.newFetchRequest(ctx, selected, "")
+	if err != nil {
+		return nil
+	}
 	resp, err := e.httpClient.Do(req)
 	if err != nil || resp.StatusCode >= 400 {
 		if resp != nil {
@@ -832,7 +921,7 @@ func (e *Engine) fetchSingleForTag(tag string, sourceCounts map[int64]int) *Resu
 			srcCats = []string{}
 		}
 		origURL := imageURL
-		cached, cacheErr := e.imageStore.DownloadAndStore(origURL, selected.URL, selected.ID, selected.Name, srcCats, selected.Headers)
+		cached, cacheErr := e.imageStore.DownloadAndStore(origURL, selected.URL, selected.ID, selected.Name, srcCats, selected.Headers, true)
 		if cacheErr != nil {
 			return nil
 		}
@@ -870,5 +959,3 @@ func poolEntryFromResult(res *Result) *PoolEntry {
 		RoundCount:  0,
 	}
 }
-
-
