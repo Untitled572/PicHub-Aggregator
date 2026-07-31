@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import type { Source, Settings } from '../types'
+import type { Source, Settings, Endpoint } from '../types'
 import { useTags } from '../composables/useTags'
 import { useApi } from '../composables/useApi'
+import EndpointTagBinding from '../components/EndpointTagBinding.vue'
 import {
   Link2,
   Copy,
@@ -16,15 +17,15 @@ import {
   Code2,
   Globe,
   Tag as TagIcon,
-  CheckSquare,
-  Square,
   X,
   CheckCircle2,
-  Lock
+  Lock,
+  Save,
+  Power
 } from 'lucide-vue-next'
 
 const { tags, addTag, renameTag, deleteTag, toggleExclusive } = useTags()
-const { listSources, getSettings, updateSettings } = useApi()
+const { listSources, getSettings, updateSettings, listEndpoints, createEndpoint, updateEndpoint, deleteEndpoint, toggleEndpoint } = useApi()
 
 const systemTags = computed(() => tags.value.filter(t => t.system))
 const customTags = computed(() => tags.value.filter(t => !t.system))
@@ -41,6 +42,10 @@ const boundTags = ref<string[]>([])
 const cachedSettings = ref<Settings | null>(null)
 const saveSuccess = ref(false)
 
+const endpoints = ref<Endpoint[]>([])
+const drafts = ref<{ name: string; bound_tags: string[] }[]>([])
+const savingDraftIdx = ref(-1)
+
 onMounted(async () => {
   try {
     sources.value = await listSources()
@@ -52,21 +57,30 @@ onMounted(async () => {
       boundTags.value = settings.bound_tags
     }
   } catch {}
+  try {
+    endpoints.value = await listEndpoints() || []
+  } catch {}
 })
 
 const origin = computed(() => window.location.origin)
 
-// Count sources per tag
+// Count sources per tag (含参数分支 categories, 每源每标签去重)
 const tagSourceCounts = computed(() => {
   const counts: Record<string, number> = {}
   for (const t of tags.value) {
     counts[t.id] = 0
   }
   for (const src of sources.value) {
-    if (src.categories) {
-      for (const cat of src.categories) {
+    const seen = new Set<string>()
+    const add = (cat?: string) => {
+      if (cat && cat !== '__uncategorized__' && !seen.has(cat)) {
+        seen.add(cat)
         counts[cat] = (counts[cat] || 0) + 1
       }
+    }
+    ;(src.categories || []).forEach(add)
+    for (const p of src.params || []) {
+      ;(p.categories || []).forEach(add)
     }
   }
   return counts
@@ -96,40 +110,65 @@ async function saveBoundTags(tags: string[]) {
   } catch {}
 }
 
-function toggleAllTagsBound() {
-  if (isAllTagsBound.value) {
-    boundTags.value = []
-    saveBoundTags([])
-  } else {
-    const allWithHidden = [...tags.value.map(t => t.id), '__uncategorized__']
-    boundTags.value = allWithHidden
-    saveBoundTags(allWithHidden)
-  }
+function onMasterBoundChange(v: string[]) {
+  boundTags.value = v
+  saveBoundTags(v)
 }
 
-function toggleTagBound(tagId: string) {
-  let current = boundTags.value.filter(id => id !== '__uncategorized__')
-  if (current.length === 0) {
-    current = [tagId]
-  } else {
-    const idx = current.indexOf(tagId)
-    if (idx >= 0) {
-      current.splice(idx, 1)
-    } else {
-      current.push(tagId)
+function endpointUrl(ep: Endpoint): string {
+  return `${origin.value}/e/${ep.name}`
+}
+
+function addEndpointDraft() {
+  drafts.value.push({ name: '', bound_tags: [] })
+}
+
+function removeDraft(idx: number) {
+  drafts.value.splice(idx, 1)
+}
+
+async function saveDraft(idx: number) {
+  const draft = drafts.value[idx]
+  if (!draft.name.trim() || savingDraftIdx.value === idx) return
+  savingDraftIdx.value = idx
+  try {
+    const created = await createEndpoint({ name: draft.name.trim(), bound_tags: draft.bound_tags })
+    if (created) {
+      endpoints.value.push(created)
+      drafts.value.splice(idx, 1)
     }
-  }
-  const allVisible = tags.value.map(t => t.id)
-  if (allVisible.every(t => current.includes(t))) {
-    current.push('__uncategorized__')
-  }
-  boundTags.value = current
-  saveBoundTags(current)
+  } catch {}
+  savingDraftIdx.value = -1
 }
 
-function isTagBound(tagId: string): boolean {
-  if (boundTags.value.length === 0) return false
-  return boundTags.value.includes(tagId)
+async function onEndpointTagsChange(ep: Endpoint, v: string[]) {
+  ep.bound_tags = v
+  try {
+    await updateEndpoint(ep.id, { bound_tags: v })
+  } catch {}
+}
+
+async function onEndpointEnabledChange(ep: Endpoint) {
+  try {
+    const updated = await toggleEndpoint(ep.id)
+    if (updated) ep.enabled = updated.enabled
+  } catch {}
+}
+
+async function onEndpointRename(ep: Endpoint) {
+  const name = ep.name.trim()
+  if (!name || name === ep.name) return
+  try {
+    const updated = await updateEndpoint(ep.id, { name })
+    if (updated) Object.assign(ep, updated)
+  } catch {}
+}
+
+async function handleEndpointDelete(ep: Endpoint) {
+  try {
+    await deleteEndpoint(ep.id)
+    endpoints.value = endpoints.value.filter(e => e.id !== ep.id)
+  } catch {}
 }
 
 function copyToClipboard(key: string, text: string) {
@@ -275,39 +314,152 @@ function handleTagDelete(id: string) {
           </span>
         </div>
 
-        <div class="flex flex-wrap gap-2 pt-1">
-          <!-- All Tags Toggle -->
-          <button
-            type="button"
-            @click="toggleAllTagsBound"
-            class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all border cursor-pointer"
-            :class="isAllTagsBound
-              ? 'bg-morandi-sage text-white border-morandi-sage shadow-xs'
-              : 'bg-white text-morandi-muted border-morandi-borderSoft hover:bg-morandi-hover'"
-          >
-            <component :is="isAllTagsBound ? CheckSquare : Square" class="w-3.5 h-3.5" />
-            <span>全部 Tags 标签</span>
-          </button>
-
-          <!-- Individual Tags -->
-          <button
-            v-for="t in tags"
-            :key="t.id"
-            type="button"
-            @click="toggleTagBound(t.id)"
-            class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all border cursor-pointer"
-            :class="isTagBound(t.id)
-              ? 'bg-morandi-sage-light text-morandi-sage-dark border-morandi-sage/40 font-semibold'
-              : 'bg-white text-morandi-muted border-morandi-borderSoft hover:bg-morandi-hover opacity-60'"
-          >
-            <component :is="isTagBound(t.id) ? CheckSquare : Square" class="w-3.5 h-3.5 text-morandi-sage" />
-            <span>#{{ t.name }} ({{ t.id }})</span>
-          </button>
-        </div>
+        <EndpointTagBinding
+          :model-value="boundTags"
+          :tags="tags"
+          @update:model-value="onMasterBoundChange"
+        />
 
         <div v-if="boundTags.length === 0" class="mt-2 px-3 py-2 bg-morandi-bg/80 border border-morandi-borderSoft rounded-xl text-[11px] text-morandi-muted flex items-center gap-2">
           <span class="text-amber-500">⚠</span>
           <span>未绑定任何 Tag 标签，所有图源均会输出</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Custom Endpoints Section -->
+    <div class="morandi-card p-4 sm:p-6 space-y-5">
+      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div>
+          <h3 class="font-bold text-sm text-morandi-text flex items-center gap-1.5">
+            <Link2 class="w-4 h-4 text-morandi-sage" /> 自定义分发端点 (共 {{ endpoints.length + drafts.length }} 个)
+          </h3>
+          <p class="text-xs text-morandi-muted mt-0.5">创建与主接口 /random 完全同功能的多条分发接口 <code class="font-mono bg-white px-1 py-0.5 rounded border border-morandi-borderSoft">/e/{name}</code>，可独立绑定标签</p>
+        </div>
+
+        <button
+          @click="addEndpointDraft"
+          class="w-full sm:w-auto flex items-center justify-center gap-1.5 px-3.5 py-2 sm:py-1.5 bg-morandi-sage hover:bg-morandi-sage-dark text-white rounded-xl text-xs font-semibold shadow-xs transition-colors cursor-pointer shrink-0 whitespace-nowrap"
+        >
+          <Plus class="w-3.5 h-3.5" />
+          <span class="whitespace-nowrap">添加端点</span>
+        </button>
+      </div>
+
+      <div v-if="endpoints.length === 0 && drafts.length === 0" class="text-center py-8 text-morandi-muted bg-morandi-bg/40 rounded-xl border border-dashed border-morandi-border text-xs">
+        暂未配置自定义端点，点击右上角【添加端点】新增
+      </div>
+
+      <!-- Draft Rows (未保存的新端点) -->
+      <div
+        v-for="(draft, idx) in drafts"
+        :key="'draft-' + idx"
+        class="p-4 bg-morandi-sage-light/20 rounded-xl border border-dashed border-morandi-sage/40 space-y-3"
+      >
+        <div class="flex items-center gap-2">
+          <span class="font-mono text-morandi-muted font-bold text-xs shrink-0">新端点</span>
+          <input
+            v-model="draft.name"
+            placeholder="端点名称 (小写字母/数字/连字符, 如: anime)"
+            class="morandi-input px-2.5 py-1.5 font-mono text-xs flex-1"
+          />
+          <button
+            type="button"
+            @click="removeDraft(idx)"
+            class="p-1.5 text-morandi-muted hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors shrink-0 cursor-pointer"
+            title="取消此端点"
+          >
+            <X class="w-4 h-4" />
+          </button>
+        </div>
+
+        <EndpointTagBinding v-model="draft.bound_tags" :tags="tags" />
+
+        <div class="flex justify-end pt-2 border-t border-morandi-sage/20">
+          <button
+            type="button"
+            @click="saveDraft(idx)"
+            :disabled="!draft.name.trim() || savingDraftIdx === idx"
+            class="px-3.5 py-1.5 bg-morandi-sage hover:bg-morandi-sage-dark text-white rounded-xl text-xs font-semibold shadow-xs transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+          >
+            <Save class="w-3.5 h-3.5" />
+            <span>{{ savingDraftIdx === idx ? '创建中...' : '创建端点' }}</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Saved Endpoint Rows -->
+      <div
+        v-for="(ep, idx) in endpoints"
+        :key="ep.id"
+        class="p-4 bg-morandi-bg/60 rounded-xl border border-morandi-borderSoft space-y-3 hover:border-morandi-sage/40 transition-colors"
+      >
+        <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="font-mono text-morandi-muted font-bold text-xs shrink-0">#{{ idx + 1 }}</span>
+            <span class="font-mono text-xs font-bold text-morandi-sage-dark bg-white px-2 py-1 rounded-lg border border-morandi-borderSoft">
+              {{ endpointUrl(ep) }}
+            </span>
+            <button
+              type="button"
+              @click="copyToClipboard('ep-' + ep.id, endpointUrl(ep))"
+              class="p-1.5 text-morandi-muted hover:text-morandi-sage-dark hover:bg-morandi-sage-light/60 rounded-lg transition-colors cursor-pointer"
+              title="复制端点 URL"
+            >
+              <component :is="copiedState['ep-' + ep.id] ? Check : Copy" class="w-3.5 h-3.5" />
+            </button>
+            <a
+              :href="endpointUrl(ep)"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="p-1.5 text-morandi-muted hover:text-morandi-sage-dark hover:bg-morandi-sage-light/60 rounded-lg transition-colors"
+              title="测试访问"
+            >
+              <ExternalLink class="w-3.5 h-3.5" />
+            </a>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              @click="onEndpointEnabledChange(ep)"
+              class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors cursor-pointer"
+              :class="ep.enabled
+                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                : 'bg-morandi-bg text-morandi-muted border-morandi-borderSoft'"
+            >
+              <Power class="w-3 h-3" />
+              <span>{{ ep.enabled ? '启用中' : '已停用' }}</span>
+            </button>
+            <button
+              type="button"
+              @click="handleEndpointDelete(ep)"
+              class="flex items-center gap-1 px-2.5 py-1 text-morandi-muted hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+              title="删除此端点"
+            >
+              <Trash2 class="w-3.5 h-3.5" />
+              <span>删除</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <span class="text-[11px] font-medium text-morandi-muted shrink-0">端点名称:</span>
+          <input
+            v-model="ep.name"
+            @keyup.enter="onEndpointRename(ep)"
+            @blur="onEndpointRename(ep)"
+            class="morandi-input px-2.5 py-1.5 font-mono text-xs w-56"
+          />
+        </div>
+
+        <div class="pt-2 border-t border-morandi-border/30">
+          <span class="text-[11px] font-medium text-morandi-muted block mb-1">绑定 Tag 范围 (勾选即时保存):</span>
+          <EndpointTagBinding
+            :model-value="ep.bound_tags"
+            :tags="tags"
+            @update:model-value="v => onEndpointTagsChange(ep, v)"
+          />
         </div>
       </div>
     </div>

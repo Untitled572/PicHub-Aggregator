@@ -108,6 +108,16 @@ type SavedImage struct {
 	SavedAt     time.Time `json:"saved_at"`
 }
 
+// Endpoint 自定义分发端点: /e/{name} 与 /random 完全同功能
+type Endpoint struct {
+	ID        int64     `json:"id"`
+	Name      string    `json:"name"`
+	BoundTags []string  `json:"bound_tags"`
+	Enabled   bool      `json:"enabled"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 type Settings struct {
 	ProxyMode           bool     `json:"proxy_mode"`
 	ProxyEnabled        bool     `json:"proxy_enabled"`

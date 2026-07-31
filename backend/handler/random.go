@@ -10,16 +10,35 @@ import (
 
 func (h *Handler) RandomImage(c *gin.Context) {
 	category := c.Query("category")
-	format := c.Query("format")
-	orientation := c.Query("orientation")
-	clientUA := c.GetHeader("User-Agent")
-
 	if category == "" {
 		settings, err := h.store.GetSettings()
 		if err == nil && len(settings.BoundTags) > 0 {
 			category = strings.Join(settings.BoundTags, ",")
 		}
 	}
+	h.serveRandom(c, category)
+}
+
+// EndpointImage /e/{name} 自定义分发端点, 与 /random 完全同功能
+// ?category 为空时 fallback 到端点自身绑定的标签
+func (h *Handler) EndpointImage(c *gin.Context) {
+	name := strings.TrimSpace(c.Param("name"))
+	ep, err := h.store.GetEndpointByName(name)
+	if err != nil || ep == nil || !ep.Enabled {
+		c.JSON(http.StatusNotFound, gin.H{"error": "endpoint not found"})
+		return
+	}
+	category := c.Query("category")
+	if category == "" && len(ep.BoundTags) > 0 {
+		category = strings.Join(ep.BoundTags, ",")
+	}
+	h.serveRandom(c, category)
+}
+
+func (h *Handler) serveRandom(c *gin.Context, category string) {
+	format := c.Query("format")
+	orientation := c.Query("orientation")
+	clientUA := c.GetHeader("User-Agent")
 
 	result, statusCode, err := h.engine.RandomImage(category, format, orientation, clientUA)
 	if err != nil {
@@ -93,7 +112,7 @@ func (h *Handler) GetHealthStatus(c *gin.Context) {
 		go h.healthChecker.CheckAll()
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"results":   results,
-		"last_run":  h.healthChecker.LastRunAt(),
+		"results":  results,
+		"last_run": h.healthChecker.LastRunAt(),
 	})
 }

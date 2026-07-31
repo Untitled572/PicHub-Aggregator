@@ -795,6 +795,21 @@ func (e *Engine) replenishPool() {
 	stock := e.distPool.CategorySnapshot()
 	plan := e.demandTracker.GetAllocationPlan(settings.PoolSize, stock)
 
+	// 绑定标签池覆盖保障: 已绑定但当前无池库存的 tag 分配最小额度,
+	// 使勾选绑定的标签(如 exclusive)能实际进入池并影响输出
+	for _, bt := range settings.BoundTags {
+		if bt == "" {
+			continue
+		}
+		if _, ok := plan[bt]; ok {
+			continue
+		}
+		if stock[bt] > 0 {
+			continue
+		}
+		plan[bt] = 1
+	}
+
 	if len(plan) == 0 {
 		// 窗口无数据：为每个有源的 tag 各拉一张
 		tags, _ := e.store.GetTags()
@@ -819,8 +834,12 @@ func (e *Engine) replenishPool() {
 		if count <= 0 {
 			continue
 		}
+		fetchTag := tag
+		if fetchTag == "__uncategorized__" {
+			fetchTag = "" // 通用预取覆盖无分类源
+		}
 		for i := 0; i < count && e.distPool.Size() < settings.PoolSize && fetched < maxFetchPerTick; i++ {
-			if !push(e.fetchSingleForTag(tag, sourceCounts, caps)) {
+			if !push(e.fetchSingleForTag(fetchTag, sourceCounts, caps)) {
 				break
 			}
 		}

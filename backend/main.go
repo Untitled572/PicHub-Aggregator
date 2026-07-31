@@ -124,8 +124,10 @@ func main() {
 	r.Use(middleware.CORS())
 	r.Use(middleware.ServerTime())
 
+	rateLimitMW := middleware.RateLimit(st)
 	r.GET("/ping", h.HealthCheck)
-	r.GET("/random", middleware.RateLimit(st), h.RandomImage)
+	r.GET("/random", rateLimitMW, h.RandomImage)
+	r.GET("/e/:name", rateLimitMW, h.EndpointImage)
 	r.POST("/random/detect", h.DetectURL)
 	r.POST("/api/sources/health-check", h.BatchHealthCheck)
 	r.GET("/images/:file_id", h.ServeImage)
@@ -145,6 +147,11 @@ func main() {
 		api.PUT("/settings", middleware.AdminAuth(st), h.UpdateSettings)
 		api.GET("/tags", h.GetTags)
 		api.PUT("/tags", middleware.AdminAuth(st), h.UpdateTags)
+		api.GET("/endpoints", h.ListEndpoints)
+		api.POST("/endpoints", middleware.AdminAuth(st), h.CreateEndpoint)
+		api.PUT("/endpoints/:id", middleware.AdminAuth(st), h.UpdateEndpoint)
+		api.DELETE("/endpoints/:id", middleware.AdminAuth(st), h.DeleteEndpoint)
+		api.POST("/endpoints/:id/toggle", middleware.AdminAuth(st), h.ToggleEndpoint)
 		api.GET("/health", h.GetHealthStatus)
 		api.GET("/stats", h.GetStats)
 		api.GET("/stats/history", h.GetImageHistory)
@@ -175,7 +182,7 @@ func main() {
 			r.StaticFS("/assets", http.FS(assetsFS))
 		}
 		r.NoRoute(func(c *gin.Context) {
-			if strings.HasPrefix(c.Request.URL.Path, "/api/") || strings.HasPrefix(c.Request.URL.Path, "/random/") {
+			if strings.HasPrefix(c.Request.URL.Path, "/api/") || strings.HasPrefix(c.Request.URL.Path, "/random/") || strings.HasPrefix(c.Request.URL.Path, "/e/") {
 				c.JSON(404, gin.H{"error": "not found"})
 				return
 			}

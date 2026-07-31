@@ -2,6 +2,7 @@ package service
 
 import (
 	"math"
+	"strings"
 	"sync"
 	"time"
 )
@@ -25,25 +26,28 @@ func NewDemandTracker() *DemandTracker {
 	}
 }
 
+// RecordRequest 记录一次请求的需求: 遍历所有非空、非 __uncategorized__ 的分类, 使池分配贴合多标签请求。
+// 空分类(未绑定/未指定)不记录, 由无-plan 分支的通用预取兜底。
 func (d *DemandTracker) RecordRequest(categories []string, hit bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	key := "_any"
-	if len(categories) > 0 && categories[0] != "" {
-		key = categories[0]
+	for _, c := range categories {
+		c = strings.TrimSpace(c)
+		if c == "" || c == "__uncategorized__" {
+			continue
+		}
+		td, ok := d.window[c]
+		if !ok {
+			td = &TagDemand{}
+			d.window[c] = td
+		}
+		td.Requested++
+		if !hit {
+			td.Misses++
+		}
+		td.LastAccessAt = time.Now()
 	}
-	td, ok := d.window[key]
-	if !ok {
-		td = &TagDemand{}
-		d.window[key] = td
-	}
-
-	td.Requested++
-	if !hit {
-		td.Misses++
-	}
-	td.LastAccessAt = time.Now()
 }
 
 func (d *DemandTracker) GetAllocationPlan(poolSize int, currentStock map[string]int) map[string]int {
@@ -68,20 +72,32 @@ func (d *DemandTracker) GetAllocationPlan(poolSize int, currentStock map[string]
 	plan := make(map[string]int)
 	remaining := poolSize
 
+	// 统计缺货的 miss 标签数, 动态收缩每标签保底, 避免多标签记录后池被过度切碎
+	var missingTags []string
 	for tag, td := range d.window {
-		if td.Misses > 0 {
-			current := currentStock[tag]
-			if current == 0 {
-				guarantee := int(math.Ceil(float64(poolSize) * 0.1))
-				if guarantee < 1 {
-					guarantee = 1
-				}
-				plan[tag] = guarantee
-				remaining -= guarantee
-				if remaining <= 0 {
-					return plan
-				}
-			}
+		if td.Misses > 0 && currentStock[tag] == 0 {
+			missingTags = append(missingTags, tag)
+		}
+	}
+	guaranteeCap := 0
+	if len(missingTags) > 0 {
+		guaranteeCap = poolSize / (2 * len(missingTags))
+		if guaranteeCap < 1 {
+			guaranteeCap = 1
+		}
+	}
+	for _, tag := range missingTags {
+		guarantee := int(math.Ceil(float64(poolSize) * 0.1))
+		if guarantee > guaranteeCap {
+			guarantee = guaranteeCap
+		}
+		if guarantee < 1 {
+			guarantee = 1
+		}
+		plan[tag] = guarantee
+		remaining -= guarantee
+		if remaining <= 0 {
+			return plan
 		}
 	}
 
@@ -145,6 +161,18 @@ func (d *DemandTracker) expire() {
 			delete(d.window, tag)
 		}
 	}
+}
+
+// Snapshot 返回窗口内各 tag 的请求数
+func (d *DemandTracker) Snapshot() map[string]int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.expire()
+	snap := make(map[string]int, len(d.window))
+	for tag, td := range d.window {
+		snap[tag] = td.Requested
+	}
+	return snap
 }
 
 type SourceDemand struct {

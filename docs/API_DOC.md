@@ -28,6 +28,30 @@ GET /random?category=landscape&format=json&orientation=horizontal
 
 **Note:** 速率限制基于内存实现（单实例），多实例负载均衡场景下各实例独立计数。多实例部署建议配合 sticky session 或外部 Redis。
 
+## Custom Endpoint Distribution (自定义分发端点)
+
+与 `/random` 完全同功能的多条分发接口，可在控制台【接口管理】创建并独立绑定标签。
+
+```
+GET /e/{name}?category=landscape&format=json&orientation=horizontal
+```
+
+**参数：** 与 `/random` 完全一致（`category` / `format` / `orientation`）。
+**行为：** `?category` 为空时，fallback 到该端点自身绑定的标签；端点不存在或已停用返回 404。与 `/random` 共享同一分发池与 per-IP 限流计数。
+
+**管理接口：**
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/endpoints` | List all endpoints (public read) |
+| POST | `/api/endpoints` | Create endpoint (auth) |
+| PUT | `/api/endpoints/:id` | Update endpoint: rename / bound_tags / enabled (auth) |
+| DELETE | `/api/endpoints/:id` | Delete endpoint (auth) |
+| POST | `/api/endpoints/:id/toggle` | Enable/disable endpoint (auth) |
+
+**Endpoint JSON:** `{"id":1,"name":"anime","bound_tags":["horizontal"],"enabled":true}`
+**名称规则：** 小写字母/数字/连字符，全局唯一。
+
 ## Smart Detect
 
 ```

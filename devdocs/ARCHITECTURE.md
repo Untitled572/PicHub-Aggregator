@@ -140,6 +140,12 @@ Stages:
 - **Local File Download**:
   - One-click native browser file download via `downloadImage(img)` using `/images/${file_id}`.
 
+## Custom Endpoints (/e/:name)
+- **数据**: `endpoints` 表 (`name` UNIQUE, `bound_tags`, `enabled`), CRUD 在 `handler/endpoint.go`, 名称校验 `^[a-z0-9-]+$`。
+- **分发**: `handler/random.go` 抽出 `serveRandom(c, category)` 供 `/random` 与 `/e/:name` 共用; 端点 `?category` 为空时 fallback 到自身 `bound_tags`, 不存在/禁用返回 404。
+- **共享**: 与 `/random` 共用同一个 `RateLimit` 实例 (`rateLimitMW`)、同一分发池与统计。
+- **前端**: `EndpointsView.vue`「自定义分发端点」区块, 行模式添加草稿→创建; 已保存端点绑定标签勾选即时保存; 绑定 UI 复用 `EndpointTagBinding.vue` (主接口与端点共用)。
+
 ## Distribution Pool & Cache Separation
 - **池对用户不可见**: `pool_size` 不再暴露于设置 UI, 池参数退回内部默认 (DB 保留, 仅 API 可调)。
 - **自适应单源额度** (`service/engine.go` `sourceCaps`): 按源近期被选中热度分配池额度 (夹在 `minPoolPerSource=1` ~ `maxPoolPerSource=8`), 替代旧的硬编码 `< 5`; 叠加 `maxFetchPerTick=8` 每轮拉取上限, 防止突发打爆图源触发风控。热度由 `SourceDemandTracker` (5 分钟窗口) 记录。
@@ -157,10 +163,12 @@ Stages:
 |---|---|---|---|
 | GET | /ping | HealthCheck | `{"status":"ok"}` |
 | GET | /random | RandomImage | Core endpoint, supports `?category=&format=&orientation=` |
+| GET | /e/:name | EndpointImage | Custom endpoint, fully equivalent to /random (fallback to endpoint's own bound tags) |
 | POST | /random/detect | DetectURL | Analyze URL response type |
 | POST | /api/sources/health-check | BatchHealthCheck | Health-check all sources |
 | GET | /api/sources | ListSources | |
 | GET | /api/sources/:id | GetSource | |
+| GET | /api/endpoints | ListEndpoints | Custom distribution endpoints (public read) |
 | GET | /api/settings | GetSettings | |
 | GET | /api/tags | GetTags | |
 | GET | /api/health | GetHealthStatus | Last health check results |
@@ -180,6 +188,10 @@ Stages:
 | POST | /api/sources/:id/toggle | ToggleSource |
 | PUT | /api/settings | UpdateSettings |
 | PUT | /api/tags | UpdateTags |
+| POST | /api/endpoints | CreateEndpoint |
+| PUT | /api/endpoints/:id | UpdateEndpoint |
+| DELETE | /api/endpoints/:id | DeleteEndpoint |
+| POST | /api/endpoints/:id/toggle | ToggleEndpoint |
 | POST | /api/images/:id/save | SaveImage |
 | DELETE | /api/images/:id/save | UnsaveImage |
 | POST | /api/images/:id/like | LikeImage |

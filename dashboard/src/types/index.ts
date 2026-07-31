@@ -148,6 +148,15 @@ export interface SavedImage {
   saved_at: string
 }
 
+export interface Endpoint {
+  id: number
+  name: string
+  bound_tags: string[]
+  enabled: boolean
+  created_at?: string
+  updated_at?: string
+}
+
 export interface ExportData {
   sources: Array<{
     name: string
