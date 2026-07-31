@@ -135,6 +135,22 @@ func (p *DistributionPool) Remove(fileID string) {
 	}
 }
 
+func (p *DistributionPool) RemoveBySourceID(sourceID int64) int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	kept := p.items[:0]
+	removed := 0
+	for _, entry := range p.items {
+		if entry.SourceID == sourceID {
+			removed++
+			continue
+		}
+		kept = append(kept, entry)
+	}
+	p.items = kept
+	return removed
+}
+
 func (p *DistributionPool) Size() int {
 	p.mu.RLock()
 	defer p.mu.RUnlock()

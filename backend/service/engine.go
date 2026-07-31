@@ -133,6 +133,13 @@ func (e *Engine) RandomImage(category string, format string, orientation string,
 			poolResult = e.distPool.PopAny()
 		}
 
+		if poolResult != nil && e.imageStore != nil {
+			if _, _, err := e.imageStore.GetImage(poolResult.FileID); err != nil {
+				logger.System("pool entry %s no longer exists on disk, skip", poolResult.FileID)
+				poolResult = nil
+			}
+		}
+
 		if poolResult != nil {
 			e.demandTracker.RecordRequest(queryCats, true)
 			src := model.Source{
@@ -685,6 +692,12 @@ func (e *Engine) StartDistributionWorker() {
 
 func (e *Engine) ReplenishPool() {
 	e.replenishPool()
+}
+
+func (e *Engine) RemoveSourceFromPool(sourceID int64) {
+	if e.distPool != nil {
+		e.distPool.RemoveBySourceID(sourceID)
+	}
 }
 
 func (e *Engine) replenishPool() {

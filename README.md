@@ -71,8 +71,6 @@
 
 ## 📸 控制台预览
 
-## 📸 控制台预览
-
 ### 🖼️ 大图图墙
 
 ![大图图墙](screenshots/saved_large.png)
