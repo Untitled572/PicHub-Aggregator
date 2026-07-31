@@ -794,21 +794,7 @@ func (e *Engine) replenishPool() {
 
 	stock := e.distPool.CategorySnapshot()
 	plan := e.demandTracker.GetAllocationPlan(settings.PoolSize, stock)
-
-	// 绑定标签池覆盖保障: 已绑定但当前无池库存的 tag 分配最小额度,
-	// 使勾选绑定的标签(如 exclusive)能实际进入池并影响输出
-	for _, bt := range settings.BoundTags {
-		if bt == "" {
-			continue
-		}
-		if _, ok := plan[bt]; ok {
-			continue
-		}
-		if stock[bt] > 0 {
-			continue
-		}
-		plan[bt] = 1
-	}
+	plan = ensureBoundTagCoverage(plan, settings.BoundTags, stock)
 
 	if len(plan) == 0 {
 		// 窗口无数据：为每个有源的 tag 各拉一张
@@ -874,6 +860,28 @@ func (e *Engine) sourceCaps(poolSize int) map[int64]int {
 		caps[id] = share
 	}
 	return caps
+}
+
+// ensureBoundTagCoverage 为已绑定但当前无池库存的 tag 分配最小额度,
+// 使勾选绑定的标签(如 exclusive)能实际进入池并影响输出。
+// plan 可能为 nil (无需求窗口), 必须初始化, 否则赋值 panic。
+func ensureBoundTagCoverage(plan map[string]int, boundTags []string, stock map[string]int) map[string]int {
+	if plan == nil {
+		plan = make(map[string]int)
+	}
+	for _, bt := range boundTags {
+		if bt == "" {
+			continue
+		}
+		if _, ok := plan[bt]; ok {
+			continue
+		}
+		if stock[bt] > 0 {
+			continue
+		}
+		plan[bt] = 1
+	}
+	return plan
 }
 
 func (e *Engine) fetchSingleForTag(tag string, sourceCounts map[int64]int, caps map[int64]int) *Result {

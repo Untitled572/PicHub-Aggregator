@@ -69,3 +69,27 @@ func TestGetAllocationPlanGuaranteeCapped(t *testing.T) {
 		}
 	}
 }
+
+func TestEnsureBoundTagCoverageNilPlan(t *testing.T) {
+	// 回归: GetAllocationPlan 无需求时返回 nil, 绑定标签覆盖不得 panic
+	plan := ensureBoundTagCoverage(nil, []string{"r18", "horizontal", ""}, map[string]int{})
+	if plan["r18"] != 1 {
+		t.Errorf("exclusive bound tag should get coverage slot, got %d", plan["r18"])
+	}
+	if plan["horizontal"] != 1 {
+		t.Errorf("bound tag should get coverage slot, got %d", plan["horizontal"])
+	}
+	if _, ok := plan[""]; ok {
+		t.Errorf("empty bound tag should be skipped")
+	}
+}
+
+func TestEnsureBoundTagCoverageSkipsStockedAndPlanned(t *testing.T) {
+	plan := ensureBoundTagCoverage(map[string]int{"r18": 3}, []string{"r18", "horizontal"}, map[string]int{"horizontal": 2})
+	if plan["r18"] != 3 {
+		t.Errorf("planned tag should be preserved, got %d", plan["r18"])
+	}
+	if _, ok := plan["horizontal"]; ok {
+		t.Errorf("stocked tag should not be added to plan")
+	}
+}

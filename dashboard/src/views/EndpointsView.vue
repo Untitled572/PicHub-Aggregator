@@ -45,6 +45,7 @@ const saveSuccess = ref(false)
 const endpoints = ref<Endpoint[]>([])
 const drafts = ref<{ name: string; bound_tags: string[] }[]>([])
 const savingDraftIdx = ref(-1)
+const savedEndpointNames: Record<number, string> = {}
 
 onMounted(async () => {
   try {
@@ -59,6 +60,7 @@ onMounted(async () => {
   } catch {}
   try {
     endpoints.value = await listEndpoints() || []
+    for (const ep of endpoints.value) savedEndpointNames[ep.id] = ep.name
   } catch {}
 })
 
@@ -134,6 +136,7 @@ async function saveDraft(idx: number) {
   try {
     const created = await createEndpoint({ name: draft.name.trim(), bound_tags: draft.bound_tags })
     if (created) {
+      savedEndpointNames[created.id] = created.name
       endpoints.value.push(created)
       drafts.value.splice(idx, 1)
     }
@@ -157,10 +160,13 @@ async function onEndpointEnabledChange(ep: Endpoint) {
 
 async function onEndpointRename(ep: Endpoint) {
   const name = ep.name.trim()
-  if (!name || name === ep.name) return
+  if (!name || savedEndpointNames[ep.id] === name) return
   try {
     const updated = await updateEndpoint(ep.id, { name })
-    if (updated) Object.assign(ep, updated)
+    if (updated) {
+      Object.assign(ep, updated)
+      savedEndpointNames[ep.id] = updated.name
+    }
   } catch {}
 }
 
@@ -211,7 +217,7 @@ function handleTagDelete(id: string) {
 
 
 <template>
-  <div class="space-y-6">
+  <div class="space-y-6 flex flex-col">
     <!-- Header -->
     <div class="morandi-card p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
       <div>
@@ -224,7 +230,7 @@ function handleTagDelete(id: string) {
 
 
     <!-- Master Endpoint Card -->
-    <div class="morandi-card p-4 sm:p-6 space-y-4 border-l-4 border-l-morandi-sage">
+    <div class="morandi-card p-4 sm:p-6 space-y-4 border-l-4 border-l-morandi-sage order-1">
       <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
         <div class="flex items-center gap-2">
           <div class="w-8 h-8 rounded-lg bg-morandi-sage/15 text-morandi-sage-dark flex items-center justify-center shrink-0">
@@ -328,7 +334,7 @@ function handleTagDelete(id: string) {
     </div>
 
     <!-- Custom Endpoints Section -->
-    <div class="morandi-card p-4 sm:p-6 space-y-5">
+    <div class="morandi-card p-4 sm:p-6 space-y-5 order-3">
       <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div>
           <h3 class="font-bold text-sm text-morandi-text flex items-center gap-1.5">
@@ -397,8 +403,15 @@ function handleTagDelete(id: string) {
         <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
           <div class="flex items-center gap-2 flex-wrap">
             <span class="font-mono text-morandi-muted font-bold text-xs shrink-0">#{{ idx + 1 }}</span>
+            <input
+              v-model="ep.name"
+              @keyup.enter="onEndpointRename(ep)"
+              @blur="onEndpointRename(ep)"
+              class="morandi-input px-2.5 py-1.5 font-mono text-xs w-32"
+              title="端点名称 (回车或失焦保存)"
+            />
             <span class="font-mono text-xs font-bold text-morandi-sage-dark bg-white px-2 py-1 rounded-lg border border-morandi-borderSoft">
-              {{ endpointUrl(ep) }}
+              /e/{{ ep.name }}
             </span>
             <button
               type="button"
@@ -443,16 +456,6 @@ function handleTagDelete(id: string) {
           </div>
         </div>
 
-        <div class="flex items-center gap-2">
-          <span class="text-[11px] font-medium text-morandi-muted shrink-0">端点名称:</span>
-          <input
-            v-model="ep.name"
-            @keyup.enter="onEndpointRename(ep)"
-            @blur="onEndpointRename(ep)"
-            class="morandi-input px-2.5 py-1.5 font-mono text-xs w-56"
-          />
-        </div>
-
         <div class="pt-2 border-t border-morandi-border/30">
           <span class="text-[11px] font-medium text-morandi-muted block mb-1">绑定 Tag 范围 (勾选即时保存):</span>
           <EndpointTagBinding
@@ -465,7 +468,7 @@ function handleTagDelete(id: string) {
     </div>
 
     <!-- Pure Tag Management Section -->
-    <div class="morandi-card p-4 sm:p-6 space-y-5">
+    <div class="morandi-card p-4 sm:p-6 space-y-5 flex flex-col order-2">
       <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div>
           <h3 class="font-bold text-sm text-morandi-text flex items-center gap-1.5">
@@ -484,7 +487,7 @@ function handleTagDelete(id: string) {
       </div>
 
       <!-- System Tags Unified Box (系统内置标签框) -->
-      <div v-if="systemTags.length > 0" class="p-4 bg-morandi-bg/80 rounded-2xl border border-morandi-borderSoft space-y-3">
+      <div v-if="systemTags.length > 0" class="p-4 bg-morandi-bg/80 rounded-2xl border border-morandi-borderSoft space-y-3 order-2">
         <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
           <div class="flex items-center gap-2">
             <div class="w-6 h-6 rounded-lg bg-morandi-sage/15 text-morandi-sage-dark flex items-center justify-center shrink-0">
@@ -520,7 +523,7 @@ function handleTagDelete(id: string) {
       </div>
 
       <!-- Custom Tag Grid Cards -->
-      <div class="space-y-2.5">
+      <div class="space-y-2.5 order-1">
         <h4 class="text-xs font-bold text-morandi-text flex items-center gap-1.5">
           <Sliders class="w-3.5 h-3.5 text-morandi-sage" /> 自定义分类 Tag 标签 (共 {{ customTags.length }} 个)
         </h4>
