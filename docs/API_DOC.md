@@ -1,5 +1,8 @@
 # API Documentation
 
+> **交互式文档 (Swagger UI):** `http://<host>:5721/swagger/`，OpenAPI 定义见 `/swagger/doc.json`。
+> 默认开启；设置环境变量 `SWAGGER_ENABLED=false` 可关闭。
+
 ## Health Check
 
 ```

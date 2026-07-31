@@ -24,6 +24,13 @@ func validateEndpointName(name string) (string, error) {
 	return name, nil
 }
 
+// ListEndpoints GET /api/endpoints 自定义端点列表
+// @Summary 自定义端点列表
+// @Tags Endpoints
+// @Produce json
+// @Success 200 {array} model.Endpoint
+// @Failure 500 {object} map[string]interface{}
+// @Router /api/endpoints [get]
 func (h *Handler) ListEndpoints(c *gin.Context) {
 	endpoints, err := h.store.ListEndpoints()
 	if err != nil {
@@ -33,11 +40,20 @@ func (h *Handler) ListEndpoints(c *gin.Context) {
 	c.JSON(http.StatusOK, endpoints)
 }
 
+// CreateEndpoint POST /api/endpoints 新建自定义端点
+// @Summary 新建自定义端点
+// @Tags Endpoints
+// @Security BearerAuth
+// @Accept json
+// @Produce json
+// @Param body body EndpointCreateRequest true "端点配置"
+// @Success 201 {object} model.Endpoint
+// @Failure 400 {object} map[string]interface{}
+// @Failure 409 {object} map[string]interface{} "名称已存在"
+// @Failure 500 {object} map[string]interface{}
+// @Router /api/endpoints [post]
 func (h *Handler) CreateEndpoint(c *gin.Context) {
-	var body struct {
-		Name      string   `json:"name"`
-		BoundTags []string `json:"bound_tags"`
-	}
+	var body EndpointCreateRequest
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -68,6 +84,20 @@ func (h *Handler) CreateEndpoint(c *gin.Context) {
 	c.JSON(http.StatusCreated, ep)
 }
 
+// UpdateEndpoint PUT /api/endpoints/:id 更新自定义端点
+// @Summary 更新自定义端点
+// @Tags Endpoints
+// @Security BearerAuth
+// @Accept json
+// @Produce json
+// @Param id path int true "端点 ID"
+// @Param body body EndpointUpdateRequest true "端点配置"
+// @Success 200 {object} model.Endpoint
+// @Failure 400 {object} map[string]interface{}
+// @Failure 404 {object} map[string]interface{}
+// @Failure 409 {object} map[string]interface{} "名称已存在"
+// @Failure 500 {object} map[string]interface{}
+// @Router /api/endpoints/{id} [put]
 func (h *Handler) UpdateEndpoint(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
@@ -79,11 +109,7 @@ func (h *Handler) UpdateEndpoint(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "endpoint not found"})
 		return
 	}
-	var body struct {
-		Name      *string  `json:"name"`
-		BoundTags []string `json:"bound_tags"`
-		Enabled   *bool    `json:"enabled"`
-	}
+	var body EndpointUpdateRequest
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -118,6 +144,15 @@ func (h *Handler) UpdateEndpoint(c *gin.Context) {
 	c.JSON(http.StatusOK, ep)
 }
 
+// DeleteEndpoint DELETE /api/endpoints/:id 删除自定义端点
+// @Summary 删除自定义端点
+// @Tags Endpoints
+// @Security BearerAuth
+// @Param id path int true "端点 ID"
+// @Success 204 "已删除"
+// @Failure 400 {object} map[string]interface{}
+// @Failure 500 {object} map[string]interface{}
+// @Router /api/endpoints/{id} [delete]
 func (h *Handler) DeleteEndpoint(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
@@ -131,6 +166,15 @@ func (h *Handler) DeleteEndpoint(c *gin.Context) {
 	c.JSON(http.StatusNoContent, nil)
 }
 
+// ToggleEndpoint POST /api/endpoints/:id/toggle 启停自定义端点
+// @Summary 启停自定义端点
+// @Tags Endpoints
+// @Security BearerAuth
+// @Param id path int true "端点 ID"
+// @Success 200 {object} model.Endpoint
+// @Failure 400 {object} map[string]interface{}
+// @Failure 404 {object} map[string]interface{}
+// @Router /api/endpoints/{id}/toggle [post]
 func (h *Handler) ToggleEndpoint(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {

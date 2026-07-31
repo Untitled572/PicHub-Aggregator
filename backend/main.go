@@ -1,3 +1,13 @@
+// @title PicHub Aggregator API
+// @version 0.6.4
+// @description PicHub-Aggregator 图片聚合分发服务。AdminAuth 只保护 POST/PUT/DELETE，所有 GET 端点公开。
+// @termsOfService https://github.com/untitled572/pichub-aggregator
+// @contact.name PicHub
+// @license.name MIT
+// @BasePath /
+// @securityDefinitions.apikey BearerAuth
+// @in header
+// @name Authorization
 package main
 
 import (
@@ -9,8 +19,11 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
 
 	"github.com/pichub/backend/config"
+	_ "github.com/pichub/backend/docs"
 	"github.com/pichub/backend/embed"
 	"github.com/pichub/backend/handler"
 	"github.com/pichub/backend/logger"
@@ -20,6 +33,8 @@ import (
 	"github.com/pichub/backend/service"
 	"github.com/pichub/backend/store"
 )
+
+//go:generate swag init -g main.go --parseDependency --parseInternal -o docs
 
 func main() {
 	gin.SetMode(gin.ReleaseMode)
@@ -125,6 +140,12 @@ func main() {
 	r.Use(middleware.ServerTime())
 
 	rateLimitMW := middleware.RateLimit(st)
+
+	// Swagger API 文档: SWAGGER_ENABLED=false 时关闭
+	if os.Getenv("SWAGGER_ENABLED") != "false" {
+		r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+	}
+
 	r.GET("/ping", h.HealthCheck)
 	r.GET("/random", rateLimitMW, h.RandomImage)
 	r.GET("/e/:name", rateLimitMW, h.EndpointImage)
@@ -182,7 +203,7 @@ func main() {
 			r.StaticFS("/assets", http.FS(assetsFS))
 		}
 		r.NoRoute(func(c *gin.Context) {
-			if strings.HasPrefix(c.Request.URL.Path, "/api/") || strings.HasPrefix(c.Request.URL.Path, "/random/") || strings.HasPrefix(c.Request.URL.Path, "/e/") {
+			if strings.HasPrefix(c.Request.URL.Path, "/api/") || strings.HasPrefix(c.Request.URL.Path, "/random/") || strings.HasPrefix(c.Request.URL.Path, "/e/") || strings.HasPrefix(c.Request.URL.Path, "/swagger/") {
 				c.JSON(404, gin.H{"error": "not found"})
 				return
 			}

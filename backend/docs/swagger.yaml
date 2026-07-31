@@ -1,0 +1,1327 @@
+basePath: /
+definitions:
+  handler.DetectURLRequest:
+    properties:
+      url:
+        type: string
+    type: object
+  handler.EndpointCreateRequest:
+    properties:
+      bound_tags:
+        items:
+          type: string
+        type: array
+      name:
+        type: string
+    type: object
+  handler.EndpointUpdateRequest:
+    properties:
+      bound_tags:
+        items:
+          type: string
+        type: array
+      enabled:
+        type: boolean
+      name:
+        type: string
+    type: object
+  handler.loginRequest:
+    properties:
+      password:
+        description: 前端 MD5 后的摘要
+        type: string
+      username:
+        type: string
+    type: object
+  model.Endpoint:
+    properties:
+      bound_tags:
+        items:
+          type: string
+        type: array
+      created_at:
+        type: string
+      enabled:
+        type: boolean
+      id:
+        type: integer
+      name:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  model.ExportManifest:
+    properties:
+      exported_at:
+        type: string
+      saved_images:
+        items:
+          $ref: '#/definitions/model.SavedImage'
+        type: array
+      scope:
+        items:
+          type: string
+        type: array
+      settings:
+        $ref: '#/definitions/model.Settings'
+      sources:
+        items:
+          $ref: '#/definitions/model.Source'
+        type: array
+      stats:
+        $ref: '#/definitions/model.StatsExportData'
+      tags:
+        items:
+          $ref: '#/definitions/model.Tag'
+        type: array
+      version:
+        type: string
+    type: object
+  model.ImageHistoryRecord:
+    properties:
+      categories:
+        type: string
+      created_at:
+        type: string
+      file_id:
+        type: string
+      id:
+        type: integer
+      image_id:
+        type: integer
+      image_url:
+        type: string
+      is_saved:
+        type: boolean
+      source_id:
+        type: integer
+      source_name:
+        type: string
+    type: object
+  model.QueryParam:
+    properties:
+      categories:
+        items:
+          type: string
+        type: array
+      key:
+        type: string
+      value:
+        type: string
+      weight:
+        type: integer
+    type: object
+  model.SavedImage:
+    properties:
+      file_id:
+        type: string
+      file_size:
+        type: integer
+      format:
+        type: string
+      height:
+        type: integer
+      id:
+        type: integer
+      orientation:
+        type: string
+      original_url:
+        type: string
+      saved_at:
+        type: string
+      source_name:
+        type: string
+      width:
+        type: integer
+    type: object
+  model.Settings:
+    properties:
+      admin_password:
+        type: string
+      admin_username:
+        type: string
+      bound_tags:
+        items:
+          type: string
+        type: array
+      cache_max_images:
+        type: integer
+      cache_max_mb:
+        type: integer
+      cache_ttl:
+        type: integer
+      health_check_interval:
+        type: integer
+      login_enabled:
+        type: boolean
+      max_history_records:
+        type: integer
+      min_resolution:
+        type: string
+      pool_size:
+        type: integer
+      precache_count:
+        type: integer
+      proxy_enabled:
+        type: boolean
+      proxy_mode:
+        type: boolean
+      proxy_url:
+        type: string
+      rate_limit:
+        type: integer
+      rate_limit_window:
+        type: integer
+      saved_images_dir:
+        type: string
+      session_hours:
+        type: integer
+      timeout:
+        type: integer
+    type: object
+  model.Source:
+    properties:
+      avg_latency:
+        type: integer
+      categories:
+        items:
+          type: string
+        type: array
+      created_at:
+        type: string
+      default_query:
+        type: string
+      enabled:
+        type: boolean
+      fail_count:
+        type: integer
+      headers:
+        additionalProperties:
+          type: string
+        type: object
+      id:
+        type: integer
+      json_path:
+        type: string
+      name:
+        type: string
+      params:
+        items:
+          $ref: '#/definitions/model.QueryParam'
+        type: array
+      resp_type:
+        type: string
+      status:
+        type: string
+      success_rate:
+        type: number
+      updated_at:
+        type: string
+      url:
+        type: string
+      weight:
+        type: integer
+    type: object
+  model.StatsExportData:
+    properties:
+      image_history:
+        items:
+          $ref: '#/definitions/model.ImageHistoryRecord'
+        type: array
+      stats_requests:
+        items:
+          $ref: '#/definitions/model.StatsRequestRow'
+        type: array
+      stats_source:
+        items:
+          $ref: '#/definitions/model.StatsSourceRow'
+        type: array
+      stats_tag:
+        items:
+          $ref: '#/definitions/model.StatsTagRow'
+        type: array
+    type: object
+  model.StatsRequestRow:
+    properties:
+      count:
+        type: integer
+      date:
+        type: string
+    type: object
+  model.StatsSourceRow:
+    properties:
+      date:
+        type: string
+      hit_count:
+        type: integer
+      source_id:
+        type: integer
+      source_name:
+        type: string
+    type: object
+  model.StatsTagRow:
+    properties:
+      count:
+        type: integer
+      date:
+        type: string
+      tag_id:
+        type: string
+    type: object
+  model.Tag:
+    properties:
+      exclusive:
+        type: boolean
+      id:
+        type: string
+      name:
+        type: string
+      system:
+        type: boolean
+    type: object
+  service.DetectResult:
+    properties:
+      body_tree: {}
+      error:
+        type: string
+      headers:
+        additionalProperties:
+          type: string
+        type: object
+      resp_type:
+        type: string
+      url_hints:
+        items:
+          type: string
+        type: array
+    type: object
+  service.HealthResult:
+    properties:
+      available:
+        type: boolean
+      error:
+        type: string
+      id:
+        type: integer
+      latency_ms:
+        type: integer
+      name:
+        type: string
+      status_code:
+        type: integer
+      url:
+        type: string
+    type: object
+  service.Result:
+    properties:
+      categories:
+        items:
+          type: string
+        type: array
+      file_id:
+        type: string
+      format:
+        type: string
+      height:
+        type: integer
+      image_id:
+        type: integer
+      local_url:
+        type: string
+      orientation:
+        type: string
+      source:
+        type: string
+      source_id:
+        type: integer
+      url:
+        type: string
+      width:
+        type: integer
+    type: object
+info:
+  contact:
+    name: PicHub
+  description: PicHub-Aggregator 图片聚合分发服务。AdminAuth 只保护 POST/PUT/DELETE，所有 GET 端点公开。
+  license:
+    name: MIT
+  termsOfService: https://github.com/untitled572/pichub-aggregator
+  title: PicHub Aggregator API
+  version: 0.6.4
+paths:
+  /api/auth/check:
+    get:
+      description: 校验当前 Bearer token 是否仍有效
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 校验登录态
+      tags:
+      - Auth
+  /api/endpoints:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/model.Endpoint'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 自定义端点列表
+      tags:
+      - Endpoints
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: 端点配置
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.EndpointCreateRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/model.Endpoint'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: 名称已存在
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 新建自定义端点
+      tags:
+      - Endpoints
+  /api/endpoints/{id}:
+    delete:
+      parameters:
+      - description: 端点 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "204":
+          description: 已删除
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 删除自定义端点
+      tags:
+      - Endpoints
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: 端点 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 端点配置
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.EndpointUpdateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/model.Endpoint'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: 名称已存在
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 更新自定义端点
+      tags:
+      - Endpoints
+  /api/endpoints/{id}/toggle:
+    post:
+      parameters:
+      - description: 端点 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/model.Endpoint'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 启停自定义端点
+      tags:
+      - Endpoints
+  /api/export:
+    get:
+      description: scope 含 images 时导出 ZIP (含 manifest.json + 已保存图片)，否则导出 JSON
+      parameters:
+      - default: config,stats,images
+        description: 导出范围(逗号分隔)
+        enum:
+        - config
+        - stats
+        - images
+        in: query
+        name: scope
+        type: string
+      produces:
+      - application/json
+      - application/zip
+      responses:
+        "200":
+          description: 备份文件(JSON 或 ZIP)
+          schema:
+            $ref: '#/definitions/model.ExportManifest'
+      summary: 导出备份
+      tags:
+      - Export
+    post:
+      description: 导出数据源规则，自动剔除敏感 headers
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 导出规则
+      tags:
+      - Export
+  /api/health:
+    get:
+      description: 返回最近一次健康检查的结果与运行时间；若首次检查未完成则异步触发
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "503":
+          description: 健康检查器不可用
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 健康检查结果
+      tags:
+      - Health
+  /api/images/{id}/dislike:
+    post:
+      parameters:
+      - description: 图片 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 不喜欢图片
+      tags:
+      - Images
+  /api/images/{id}/like:
+    post:
+      parameters:
+      - description: 图片 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 喜欢图片
+      tags:
+      - Images
+  /api/images/{id}/save:
+    delete:
+      parameters:
+      - description: 图片 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 取消保存图片
+      tags:
+      - Images
+    post:
+      parameters:
+      - description: 图片 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 保存图片
+      tags:
+      - Images
+  /api/images/saved:
+    get:
+      parameters:
+      - default: 20
+        description: 每页数量(默认20,最大200)
+        in: query
+        name: limit
+        type: integer
+      - default: 0
+        description: 偏移量
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 已保存图片列表
+      tags:
+      - Images
+  /api/import:
+    post:
+      consumes:
+      - multipart/form-data
+      - application/json
+      description: 支持 multipart 上传 ZIP/JSON 文件或直接提交 manifest JSON
+      parameters:
+      - description: 备份文件 (multipart)
+        in: formData
+        name: file
+        type: file
+      - description: 备份 JSON (非 multipart 时)
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/model.ExportManifest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 导入备份
+      tags:
+      - Export
+  /api/login:
+    post:
+      consumes:
+      - application/json
+      description: 用户名 + MD5 后的密码摘要校验，成功后签发 session token
+      parameters:
+      - description: 登录凭据
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.loginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: token
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 请求体无效
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: 用户名或密码错误
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: 未启用登录或未配置
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 登录
+      tags:
+      - Auth
+  /api/logout:
+    post:
+      description: 使当前 Bearer token 失效（幂等）
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 登出
+      tags:
+      - Auth
+  /api/settings:
+    get:
+      description: 公开接口，不回显 admin_token / admin_password_hash
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/model.Settings'
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 读取设置
+      tags:
+      - Settings
+    put:
+      consumes:
+      - application/json
+      description: admin_password 留空表示不修改；admin_token 留空保持现有令牌。凭据变更会全量踢下线
+      parameters:
+      - description: 设置项
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/model.Settings'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/model.Settings'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 更新设置
+      tags:
+      - Settings
+  /api/sources:
+    get:
+      description: 返回全部数据源
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/model.Source'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 数据源列表
+      tags:
+      - Sources
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: 数据源配置
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/model.Source'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/model.Source'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 新建数据源
+      tags:
+      - Sources
+  /api/sources/{id}:
+    delete:
+      parameters:
+      - description: 数据源 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "204":
+          description: 已删除
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 删除数据源
+      tags:
+      - Sources
+    get:
+      parameters:
+      - description: 数据源 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/model.Source'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 单个数据源
+      tags:
+      - Sources
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: 数据源 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 数据源配置
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/model.Source'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/model.Source'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 更新数据源
+      tags:
+      - Sources
+  /api/sources/{id}/toggle:
+    post:
+      parameters:
+      - description: 数据源 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/model.Source'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 启停数据源
+      tags:
+      - Sources
+  /api/sources/health-check:
+    post:
+      description: 对全部启用数据源执行一次健康检查并返回结果
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/service.HealthResult'
+            type: array
+      summary: 批量健康检查
+      tags:
+      - Health
+  /api/stats:
+    get:
+      parameters:
+      - description: 开始日期 YYYY-MM-DD
+        in: query
+        name: start_date
+        type: string
+      - description: 结束日期 YYYY-MM-DD
+        in: query
+        name: end_date
+        type: string
+      - description: 快捷区间
+        enum:
+        - today
+        - 7d
+        - 30d
+        - all
+        in: query
+        name: range
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 请求统计
+      tags:
+      - Stats
+  /api/stats/history:
+    get:
+      parameters:
+      - default: 20
+        description: 每页数量(默认20,最大200)
+        in: query
+        name: limit
+        type: integer
+      - default: 0
+        description: 偏移量
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 分发历史
+      tags:
+      - Stats
+  /api/tags:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/model.Tag'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 标签列表
+      tags:
+      - Tags
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: 完整标签列表
+        in: body
+        name: body
+        required: true
+        schema:
+          items:
+            $ref: '#/definitions/model.Tag'
+          type: array
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/model.Tag'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 更新标签
+      tags:
+      - Tags
+  /e/{name}:
+    get:
+      description: ?category 为空时 fallback 到端点自身绑定的标签
+      parameters:
+      - description: 端点名称
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: 标签(可逗号分隔多个)
+        in: query
+        name: category
+        type: string
+      - description: 响应格式
+        enum:
+        - json
+        in: query
+        name: format
+        type: string
+      - description: 根据 UA 推断的屏幕方向
+        enum:
+        - mobile
+        - desktop
+        in: query
+        name: orientation
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/service.Result'
+        "302":
+          description: 重定向到图片 URL (format != json)
+        "404":
+          description: 端点不存在或已禁用
+          schema:
+            additionalProperties: true
+            type: object
+        "503":
+          description: 无可用图片
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 自定义端点分发
+      tags:
+      - Distribution
+  /images/{file_id}:
+    get:
+      parameters:
+      - description: 图片 file_id
+        in: path
+        name: file_id
+        required: true
+        type: string
+      produces:
+      - image/*
+      responses:
+        "200":
+          description: 图片内容
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: 图片不存在
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 读取缓存图片
+      tags:
+      - Images
+  /ping:
+    get:
+      description: 返回服务是否存活
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: 存活探针
+      tags:
+      - Health
+  /random:
+    get:
+      description: 从分发池随机返回一张图片。category 为空时使用 settings.bound_tags。format=json 返回
+        JSON，否则 302 重定向到图片 URL。
+      parameters:
+      - description: 标签(可逗号分隔多个)
+        in: query
+        name: category
+        type: string
+      - description: 响应格式
+        enum:
+        - json
+        in: query
+        name: format
+        type: string
+      - description: 根据 UA 推断的屏幕方向
+        enum:
+        - mobile
+        - desktop
+        in: query
+        name: orientation
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/service.Result'
+        "302":
+          description: 重定向到图片 URL (format != json)
+        "503":
+          description: 无可用图片
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 随机分发图片
+      tags:
+      - Distribution
+  /random/detect:
+    post:
+      consumes:
+      - application/json
+      description: 抓取目标 URL 并推断响应类型、headers 与可能的图片 URL 路径
+      parameters:
+      - description: 目标 URL
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.DetectURLRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/service.DetectResult'
+        "400":
+          description: 请求体无效
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 探测失败
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 探测数据源结构
+      tags:
+      - Distribution
+securityDefinitions:
+  BearerAuth:
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"

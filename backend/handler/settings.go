@@ -8,6 +8,14 @@ import (
 	"github.com/pichub/backend/model"
 )
 
+// GetSettings GET /api/settings 读取设置
+// @Summary 读取设置
+// @Description 公开接口，不回显 admin_token / admin_password_hash
+// @Tags Settings
+// @Produce json
+// @Success 200 {object} model.Settings
+// @Failure 500 {object} map[string]interface{}
+// @Router /api/settings [get]
 func (h *Handler) GetSettings(c *gin.Context) {
 	settings, err := h.store.GetSettings()
 	if err != nil {
@@ -17,6 +25,18 @@ func (h *Handler) GetSettings(c *gin.Context) {
 	c.JSON(http.StatusOK, settings)
 }
 
+// UpdateSettings PUT /api/settings 更新设置
+// @Summary 更新设置
+// @Description admin_password 留空表示不修改；admin_token 留空保持现有令牌。凭据变更会全量踢下线
+// @Tags Settings
+// @Security BearerAuth
+// @Accept json
+// @Produce json
+// @Param body body model.Settings true "设置项"
+// @Success 200 {object} model.Settings
+// @Failure 400 {object} map[string]interface{}
+// @Failure 500 {object} map[string]interface{}
+// @Router /api/settings [put]
 func (h *Handler) UpdateSettings(c *gin.Context) {
 	var settings model.Settings
 	if err := c.ShouldBindJSON(&settings); err != nil {
