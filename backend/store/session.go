@@ -19,7 +19,31 @@ type SessionManager struct {
 }
 
 func NewSessionManager() *SessionManager {
-	return &SessionManager{sessions: make(map[string]sessionEntry)}
+	sm := &SessionManager{sessions: make(map[string]sessionEntry)}
+	sm.startSweep(10 * time.Minute)
+	return sm
+}
+
+// startSweep 定时清理过期会话, 避免内存滞留
+func (sm *SessionManager) startSweep(interval time.Duration) {
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for range ticker.C {
+			sm.sweepExpired()
+		}
+	}()
+}
+
+func (sm *SessionManager) sweepExpired() {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	now := time.Now()
+	for token, entry := range sm.sessions {
+		if now.After(entry.expiresAt) {
+			delete(sm.sessions, token)
+		}
+	}
 }
 
 // Create 生成随机 token 并记录过期时间

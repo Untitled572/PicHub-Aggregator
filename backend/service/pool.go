@@ -44,33 +44,7 @@ func NewDistributionPool() *DistributionPool {
 	}
 }
 
-func (p *DistributionPool) Pop(category string) *Result {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if len(p.items) == 0 {
-		return nil
-	}
-
-	if category != "" {
-		for i, entry := range p.items {
-			for _, cat := range entry.Categories {
-				if cat == category {
-					res := entryToResult(entry)
-					p.items = append(p.items[:i], p.items[i+1:]...)
-					return res
-				}
-			}
-		}
-		return nil
-	}
-
-	res := entryToResult(p.items[0])
-	p.items = p.items[1:]
-	return res
-}
-
-func (p *DistributionPool) PopByOrientation(orientation string) *Result {
+func (p *DistributionPool) PopByOrientation(orientation string, exclusive map[string]bool) *Result {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -79,11 +53,12 @@ func (p *DistributionPool) PopByOrientation(orientation string) *Result {
 	}
 
 	for i, entry := range p.items {
-		if entry.Orientation == orientation {
-			res := entryToResult(entry)
-			p.items = append(p.items[:i], p.items[i+1:]...)
-			return res
+		if entry.Orientation != orientation || entryHasExclusive(entry, exclusive) {
+			continue
 		}
+		res := entryToResult(entry)
+		p.items = append(p.items[:i], p.items[i+1:]...)
+		return res
 	}
 	return nil
 }
@@ -102,17 +77,32 @@ func (p *DistributionPool) PopMatching(matchFn func(entry *PoolEntry) bool) *Res
 	return nil
 }
 
-func (p *DistributionPool) PopAny() *Result {
+func (p *DistributionPool) PopAny(exclusive map[string]bool) *Result {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if len(p.items) == 0 {
-		return nil
+	for i, entry := range p.items {
+		if entryHasExclusive(entry, exclusive) {
+			continue
+		}
+		res := entryToResult(entry)
+		p.items = append(p.items[:i], p.items[i+1:]...)
+		return res
 	}
+	return nil
+}
 
-	res := entryToResult(p.items[0])
-	p.items = p.items[1:]
-	return res
+// entryHasExclusive 判断池条目是否携带 exclusive 标签 (未显式点名的请求不得消费)
+func entryHasExclusive(entry *PoolEntry, exclusive map[string]bool) bool {
+	if len(exclusive) == 0 {
+		return false
+	}
+	for _, cat := range entry.Categories {
+		if exclusive[cat] {
+			return true
+		}
+	}
+	return false
 }
 
 func (p *DistributionPool) Push(entry *PoolEntry) {
@@ -188,39 +178,6 @@ func (p *DistributionPool) CategorySnapshot() map[string]int {
 		}
 	}
 	return snap
-}
-
-func (p *DistributionPool) SourceSnapshot() map[int64]int {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	snap := make(map[int64]int)
-	for _, entry := range p.items {
-		snap[entry.SourceID]++
-	}
-	return snap
-}
-
-func (p *DistributionPool) OrientationSnapshot() map[string]int {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-
-	snap := make(map[string]int)
-	for _, entry := range p.items {
-		ori := entry.Orientation
-		if ori == "" {
-			ori = "unknown"
-		}
-		snap[ori]++
-	}
-	return snap
-}
-
-func (p *DistributionPool) All() []*PoolEntry {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	cp := make([]*PoolEntry, len(p.items))
-	copy(cp, p.items)
-	return cp
 }
 
 func entryToResult(entry *PoolEntry) *Result {

@@ -20,7 +20,6 @@ import {
   Image,
   Key,
   History,
-  Zap,
   Globe,
   Network,
   Cpu,
@@ -264,7 +263,7 @@ async function handleSave() {
             </span>
           </div>
           <p class="text-[11px] text-morandi-muted leading-relaxed">
-            开启后图片拉取存储至本地磁盘，支持精准计算像素像素尺寸过滤横竖屏、收藏图片；关闭时返回 302 重定向直链。
+            开启后图片预拉取至本地磁盘，请求秒级响应，支持精准计算像素尺寸过滤横竖屏、收藏图片；拉取上限由系统按使用热度自动调节以保护图源。关闭时返回 302 重定向直链。
           </p>
         </div>
 
@@ -293,10 +292,11 @@ async function handleSave() {
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
         <div>
           <label class="font-medium text-morandi-text block mb-1.5 flex items-center gap-1">
-            <Zap class="w-3.5 h-3.5 text-morandi-sage-dark font-bold" /> 预缓存分发池大小 (张)
+            <Gauge class="w-3.5 h-3.5 text-morandi-sage-dark font-bold" /> 预拉取加速 (自动)
           </label>
-          <input v-model.number="settings.pool_size" type="number" min="0" max="50" class="morandi-input w-full px-3 py-2 font-mono text-xs font-bold text-morandi-sage-dark" />
-          <p class="text-[10px] text-morandi-muted mt-1">后台提前拉取的图片数量，建议大于图片源数量</p>
+          <p class="text-[11px] text-morandi-muted leading-relaxed px-1 py-1.5">
+            开启本地缓存后，系统会在后台自动预拉取图片到本地，请求即可秒级响应。拉取数量与单源上限由系统按使用热度自动调节，以保护图源避免触发风控，无需手动配置。
+          </p>
         </div>
 
         <div>
@@ -458,9 +458,9 @@ async function handleSave() {
         <label class="font-medium text-morandi-text block mb-1.5 flex items-center gap-1 text-xs">
           <Key class="w-3.5 h-3.5 text-morandi-light" /> Admin Token（兼容旧版静态令牌）
         </label>
-        <input v-model="settings.admin_token" type="text" placeholder="留空表示不启用静态令牌" class="morandi-input w-full px-3 py-2 font-mono text-xs" />
+        <input v-model="settings.admin_token" type="text" placeholder="留空表示保持当前令牌不变（仅写入，不回显）" class="morandi-input w-full px-3 py-2 font-mono text-xs" />
         <p class="text-[10px] text-morandi-muted mt-1.5 leading-relaxed">
-          配置后写操作亦可通过 <code class="font-mono bg-white px-1.5 py-0.5 rounded text-morandi-sage-dark border border-morandi-borderSoft font-semibold">Authorization: Bearer &lt;Token&gt;</code> 访问，作为脚本/API 调用方无需登录的静态通道。公共 API 分发路径不受影响。
+          配置后写操作亦可通过 <code class="font-mono bg-white px-1.5 py-0.5 rounded text-morandi-sage-dark border border-morandi-borderSoft font-semibold">Authorization: Bearer &lt;Token&gt;</code> 访问，作为脚本/API 调用方无需登录的静态通道。令牌仅写入不回显，修改时直接输入新值即可。公共 API 分发路径不受影响。
         </p>
       </div>
     </div>

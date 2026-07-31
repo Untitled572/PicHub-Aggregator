@@ -1,7 +1,6 @@
 # PicHub-Aggregator Architecture
 
 > Updated: 2026-07-31. Update this file when making significant backend changes.
-
 ## Tech Stack
 - **Backend**: Go (Gin framework) + SQLite (mattn/go-sqlite3, CGO required)
 - **Frontend**: Vue 3 + TypeScript + Tailwind CSS (embedded via `embed`); @vueuse/core (localStorage 状态/主题), crypto-js (登录 MD5), unplugin-auto-import (自动导入), vite-plugin-compression (gzip 预构建)
@@ -101,7 +100,7 @@ Stages:
 2. **filterSources()**
    - Exclude: disabled, status=="error"
    - Match categories requested vs source categories
-   - Exclusive Tag Filter: `exclusive: true` tags (e.g. `r18`) are skipped unless explicitly requested in `?category=`
+   - Exclusive Tag Filter: `exclusive: true` tags (e.g. `nsfw`) are skipped unless explicitly requested in `?category=`
    - Expand `Params` sub-API links & query variants via `resolveSubEndpoint(mainURL, key, val)`
    - Append `DefaultQuery` to source URLs
 3. **weightedPick()** — weighted random selection, up to 3 retries (8 if orientation filter active)
@@ -140,6 +139,16 @@ Stages:
   - Native `loading="lazy"` decoding on all image elements.
 - **Local File Download**:
   - One-click native browser file download via `downloadImage(img)` using `/images/${file_id}`.
+
+## Distribution Pool & Cache Separation
+- **池对用户不可见**: `pool_size` 不再暴露于设置 UI, 池参数退回内部默认 (DB 保留, 仅 API 可调)。
+- **自适应单源额度** (`service/engine.go` `sourceCaps`): 按源近期被选中热度分配池额度 (夹在 `minPoolPerSource=1` ~ `maxPoolPerSource=8`), 替代旧的硬编码 `< 5`; 叠加 `maxFetchPerTick=8` 每轮拉取上限, 防止突发打爆图源触发风控。热度由 `SourceDemandTracker` (5 分钟窗口) 记录。
+- **Exclusive 消费隔离**: 池中条目若携带 exclusive 标签, 仅显式 `?category=` / BoundTags 注入的请求 (`PopMatching`) 可消费; `PopAny` / `PopByOrientation` 会跳过这类条目。通用兜底预取 (`fetchSingleForTag("")`) 排除含 exclusive 标签的源。exclusive 内容仍按需求小额度预取, 保留显式请求的秒级响应。
+- **池图与历史分离**: `images.pooled` 列标记"未分发预取池"图片 (池预取写 `1`, 分发命中置 `0` 并记入 `image_history`)。`image_history` 只含已分发流水。淘汰优先级: `pooled=1` 最旧 → 未保护的已分发最旧; `is_saved=1` 与历史最近 `MaxHistoryRecords` 条永不淘汰。启动时 `CleanupOrphanPooled` 清理磁盘文件缺失的孤儿池记录。
+- **缓存淘汰覆盖子目录**: `service/cacheutil.go` 统一收集根目录 + 按源子目录文件, 修复旧逻辑只淘汰根目录导致池子目录无限增长的缺陷。
+
+## Security Notes
+- `admin_token` (旧版静态令牌) 仅写入, `GET /api/settings` 不再回显; `PUT /api/settings` 响应在鉴权后回传。源 Headers 中的敏感项 (`api-key/authorization/token/secret/cookie`) 在导出备份时被过滤。
 
 ## API Endpoints (main.go)
 
@@ -201,7 +210,7 @@ Stages:
 | ID | string | e.g. "horizontal" |
 | Name | string | e.g. "横屏" |
 | System | bool | `true` for system-only rules (`horizontal/vertical/adaptive`) |
-| Exclusive | bool | `true` for exclusive tags (e.g. `r18`) requiring explicit opt-in |
+| Exclusive | bool | `true` for exclusive tags (e.g. `nsfw`) requiring explicit opt-in |
 
 ### Settings
 | Field | Type | Default | Notes |
@@ -209,14 +218,14 @@ Stages:
 | ProxyMode | bool | false | Enables full local caching (download + serve) |
 | ProxyEnabled | bool | false | Enable HTTP proxy for outgoing requests |
 | ProxyURL | string | "http://127.0.0.1:7890" | HTTP proxy address |
-| PoolSize | int | 10 | 0ms dispatch pool size |
+| PoolSize | int | 20 | 分发池总容量 (内部默认, UI 不暴露) |
 | CacheMaxMB | int | 200 | Max cache size in MB (secondary eviction) |
 | CacheMaxImages | int | 60 | Max cached image count (primary eviction) |
 | MinResolution | string | "1920x1080" | Min resolution; "0" disables filter |
 | RateLimit | int | 60 | Requests per minute per IP |
 | RateLimitWindow | int | 60 | Rate limit sliding window (seconds) |
 | Timeout | int | 3000 | HTTP timeout in ms |
-| AdminToken | string | "" | Legacy auth token for admin endpoints (仍兼容) |
+| AdminToken | string | "" | Legacy auth token for admin endpoints (仍兼容, 仅写入不回显) |
 | SavedImagesDir | string | "./data/saved" | Directory for saved images copy |
 | LoginEnabled | bool | false | 启用用户名+密码登录保护 |
 | AdminUsername | string | "" | 登录用户名 |

@@ -37,7 +37,20 @@ func (h *Handler) ExportData(c *gin.Context) {
 			manifest.Settings = settings
 		}
 		if sources, err := h.store.ListSources(); err == nil {
-			manifest.Sources = sources
+			sanitized := make([]model.Source, 0, len(sources))
+			for _, src := range sources {
+				if src.Headers != nil {
+					hdrs := make(map[string]string, len(src.Headers))
+					for k, v := range src.Headers {
+						if !isSensitive(k) {
+							hdrs[k] = v
+						}
+					}
+					src.Headers = hdrs
+				}
+				sanitized = append(sanitized, src)
+			}
+			manifest.Sources = sanitized
 		}
 		if tags, err := h.store.GetTags(); err == nil {
 			manifest.Tags = tags
@@ -192,7 +205,6 @@ func (h *Handler) ImportData(c *gin.Context) {
 			importedSources++
 		}
 	}
-
 
 	// Restore Stats
 	if manifest.Stats != nil {

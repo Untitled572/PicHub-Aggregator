@@ -24,7 +24,7 @@ GET /random?category=landscape&format=json&orientation=horizontal
 
 **orientation 说明：** 基于图片真实宽高过滤（`image.DecodeConfig`），不依赖分类标签。仅在 `proxy_mode=true` 时生效。不匹配时自动重试其他图源。
 
-**Exclusive Tag 说明：** 带有 `exclusive: true` 标记的独占标签（如 `r18`）不会被匿名/未指定标签的随机请求抽中。仅当客户端在请求参数中显式指定 `?category=r18` 或绑定该 Tag 时方可触发该类图源分发。
+**Exclusive Tag 说明：** 带有 `exclusive: true` 标记的独占标签（如 `nsfw` / `square`）不会被匿名/未指定标签的随机请求抽中。仅当客户端在请求参数中显式指定 `?category=nsfw` 或绑定该 Tag 时方可触发该类图源分发。独占标签由用户在控制台自行添加/标记，非系统预设。
 
 **Note:** 速率限制基于内存实现（单实例），多实例负载均衡场景下各实例独立计数。多实例部署建议配合 sticky session 或外部 Redis。
 
@@ -164,13 +164,13 @@ Authorization: Bearer <token>
   {"id": "horizontal", "name": "横屏", "system": true},
   {"id": "vertical", "name": "竖屏", "system": true},
   {"id": "adaptive", "name": "自适应", "system": true},
-  {"id": "r18", "name": "R18", "exclusive": true}
+  {"id": "square", "name": "正方形头像", "exclusive": true}
 ]
 ```
 
 **Tags 分类说明：**
 - `system: true`：系统内置硬编程只读规则标签（`横屏`、`竖屏`、`自适应`），前端归集于【系统内置标签框】展示。
-- `exclusive: true`：独占隔离标签（如 `R18`），仅在明确指定该标签时触发抽中分发。
+- `exclusive: true`：独占隔离标签（如 `square`），仅在明确指定该标签时触发抽中分发。独占标签由用户自行添加/标记。
 
 ## Health Status
 

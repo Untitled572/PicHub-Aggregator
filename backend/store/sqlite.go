@@ -123,6 +123,7 @@ func (s *Store) migrate() error {
 	_, _ = s.db.Exec("ALTER TABLE image_history ADD COLUMN file_id TEXT DEFAULT ''")
 	_, _ = s.db.Exec("ALTER TABLE images ADD COLUMN orientation TEXT DEFAULT ''")
 	_, _ = s.db.Exec("ALTER TABLE images ADD COLUMN fail_count INTEGER NOT NULL DEFAULT 0")
+	_, _ = s.db.Exec("ALTER TABLE images ADD COLUMN pooled INTEGER NOT NULL DEFAULT 0")
 	if err := s.seedDefaults(); err != nil {
 
 		return err
@@ -160,7 +161,6 @@ func (s *Store) seedDefaults() error {
 		"session_hours":         "3",
 		"seeded":                "true",
 	}
-
 
 	for k, v := range defaults {
 		if _, err := s.db.Exec("INSERT INTO settings (key, value) VALUES (?, ?)", k, v); err != nil {
@@ -444,7 +444,6 @@ func (s *Store) UpdateSettings(settings *model.Settings) error {
 		"session_hours":         fmt.Sprintf("%d", settings.SessionHours),
 	}
 
-
 	for k, v := range pairs {
 		_, err := s.db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", k, v)
 		if err != nil {
@@ -493,7 +492,6 @@ func (s *Store) GetTags() ([]model.Tag, error) {
 	return merged, nil
 }
 
-
 func (s *Store) UpdateTags(tags []model.Tag) error {
 	var kept []model.Tag
 	for _, t := range tags {
@@ -531,26 +529,6 @@ func mergeWithSystemTags(tags []model.Tag) []model.Tag {
 	return result
 }
 
-func defaultTags() []model.Tag {
-	return []model.Tag{
-		{ID: "horizontal", Name: "横屏", System: true},
-		{ID: "vertical", Name: "竖屏", System: true},
-		{ID: "adaptive", Name: "自适应"},
-		{ID: "r18", Name: "R18", Exclusive: true},
-	}
-}
-
-func hasExclusiveTag(tags []model.Tag, ids []string) bool {
-	for _, id := range ids {
-		for _, t := range tags {
-			if t.ID == id && t.Exclusive {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 func (s *Store) GetEnabledSources() ([]model.Source, error) {
 	all, err := s.ListSources()
 	if err != nil {
@@ -578,15 +556,63 @@ func (s *Store) RecordStats(queryCats []string, src model.Source, imageURL strin
 	return nil
 }
 
-func (s *Store) InsertImage(fileID, originalURL string, sourceID int64, sourceName string, width, height int, format string, fileSize int64, categories string, orientation string) (int64, error) {
+func (s *Store) InsertImage(fileID, originalURL string, sourceID int64, sourceName string, width, height int, format string, fileSize int64, categories string, orientation string, pooled bool) (int64, error) {
+	pooledInt := 0
+	if pooled {
+		pooledInt = 1
+	}
 	result, err := s.db.Exec(
-		"INSERT INTO images (file_id, original_url, source_id, source_name, width, height, format, file_size, categories, orientation) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		fileID, originalURL, sourceID, sourceName, width, height, format, fileSize, categories, orientation,
+		"INSERT INTO images (file_id, original_url, source_id, source_name, width, height, format, file_size, categories, orientation, pooled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		fileID, originalURL, sourceID, sourceName, width, height, format, fileSize, categories, orientation, pooledInt,
 	)
 	if err != nil {
 		return 0, err
 	}
 	return result.LastInsertId()
+}
+
+// SetImagePooled 标记图片是否处于"未分发预取池"状态 (分发命中时置 0)
+func (s *Store) SetImagePooled(id int64, pooled bool) error {
+	v := 0
+	if pooled {
+		v = 1
+	}
+	_, err := s.db.Exec("UPDATE images SET pooled=? WHERE id=?", v, id)
+	return err
+}
+
+// GetPooledFileIDSet 返回所有未分发预取池图片的 file_id 集合 (用于优先淘汰)
+func (s *Store) GetPooledFileIDSet() (map[string]bool, error) {
+	rows, err := s.db.Query("SELECT file_id FROM images WHERE pooled=1")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	set := make(map[string]bool)
+	for rows.Next() {
+		var fid string
+		if rows.Scan(&fid) == nil && fid != "" {
+			set[fid] = true
+		}
+	}
+	return set, nil
+}
+
+// QueryPooledFileIDs 返回所有 pooled=1 的 file_id 列表 (孤儿清理用)
+func (s *Store) QueryPooledFileIDs() ([]string, error) {
+	rows, err := s.db.Query("SELECT file_id FROM images WHERE pooled=1")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var fid string
+		if rows.Scan(&fid) == nil && fid != "" {
+			ids = append(ids, fid)
+		}
+	}
+	return ids, nil
 }
 
 func (s *Store) GetImageByFileID(fileID string) (*model.CachedImage, error) {
@@ -659,6 +685,22 @@ func (s *Store) GetProtectedFileIDs(limit int) (map[string]bool, error) {
 
 func (s *Store) GetImageFileIDsBySourceID(sourceID int64) ([]string, error) {
 	rows, err := s.db.Query("SELECT file_id FROM images WHERE source_id=? AND is_saved=0", sourceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err == nil {
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
+}
+
+func (s *Store) GetImageFileIDsBySourceIDAll(sourceID int64) ([]string, error) {
+	rows, err := s.db.Query("SELECT file_id FROM images WHERE source_id=?", sourceID)
 	if err != nil {
 		return nil, err
 	}
@@ -821,7 +863,6 @@ func (s *Store) GetStatsRange(startDate, endDate string) (*model.StatsOverview, 
 	return overview, nil
 }
 
-
 func (s *Store) GetTotalRequests() (int, error) {
 	var total int
 	err := s.db.QueryRow("SELECT COALESCE(SUM(count), 0) FROM stats_requests").Scan(&total)
@@ -868,7 +909,6 @@ func (s *Store) GetImageHistory(limit, offset int) ([]model.ImageHistoryRecord, 
 	}
 	return records, total, nil
 }
-
 
 func (s *Store) ExportStatsData() (*model.StatsExportData, error) {
 
@@ -963,6 +1003,3 @@ func (s *Store) ImportSavedImage(img *model.SavedImage) error {
 	)
 	return err
 }
-
-
-

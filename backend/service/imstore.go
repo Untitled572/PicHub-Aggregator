@@ -5,11 +5,11 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	_ "golang.org/x/image/webp"
 	"image"
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
-	_ "golang.org/x/image/webp"
 	"io"
 	"net/http"
 	"os"
@@ -70,7 +70,7 @@ func generateFileID() string {
 	return fmt.Sprintf("%x", b)
 }
 
-func (is *ImageStore) DownloadAndStore(imageURL, sourceURL string, sourceID int64, sourceName string, categories []string, headers map[string]string) (*CachedImageInfo, error) {
+func (is *ImageStore) DownloadAndStore(imageURL, sourceURL string, sourceID int64, sourceName string, categories []string, headers map[string]string, pooled bool) (*CachedImageInfo, error) {
 	req, err := http.NewRequest("GET", imageURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -135,11 +135,11 @@ func (is *ImageStore) DownloadAndStore(imageURL, sourceURL string, sourceID int6
 	if settings != nil && settings.CacheMaxImages > 0 {
 		is.evictByCount(settings.CacheMaxImages, protected)
 	}
-	totalSize := getDirSize(is.cacheDir)
+	totalSize := dirSize(is.cacheDir)
 	if settings != nil && totalSize > int64(settings.CacheMaxMB)*1024*1024 {
 		maxIter := 100
 		for i := 0; i < maxIter; i++ {
-			if getDirSize(is.cacheDir) <= int64(settings.CacheMaxMB)*1024*1024 {
+			if dirSize(is.cacheDir) <= int64(settings.CacheMaxMB)*1024*1024 {
 				break
 			}
 			if !evictLRU(is.cacheDir, is.store, protected) {
@@ -151,7 +151,7 @@ func (is *ImageStore) DownloadAndStore(imageURL, sourceURL string, sourceID int6
 
 	orientation := GetOrientation(cfg.Width, cfg.Height)
 	catsJSON := encodeStringSlice(categories)
-	imgID, err := is.store.InsertImage(fileID, imageURL, sourceID, sourceName, cfg.Width, cfg.Height, format, int64(len(data)), catsJSON, orientation)
+	imgID, err := is.store.InsertImage(fileID, imageURL, sourceID, sourceName, cfg.Width, cfg.Height, format, int64(len(data)), catsJSON, orientation, pooled)
 	if err != nil {
 		return nil, fmt.Errorf("store metadata: %w", err)
 	}
@@ -251,7 +251,6 @@ func (is *ImageStore) SaveImage(imageID int64) error {
 	return nil
 }
 
-
 func (is *ImageStore) UnsaveImage(imageID int64) error {
 	img, err := is.store.GetImageByID(imageID)
 	if err != nil {
@@ -348,51 +347,43 @@ func copyFile(src, dst string) error {
 	return err
 }
 
-func getDirSize(dir string) int64 {
-	var total int64
-	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-		if err == nil && !info.IsDir() {
-			total += info.Size()
-		}
-		return nil
-	})
-	return total
-}
-
 func fileIDFromPath(path string) string {
 	return strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 }
 
 func evictLRU(dir string, st *store.Store, protected map[string]bool) bool {
-	entries, _ := filepath.Glob(filepath.Join(dir, "*"))
-	if len(entries) == 0 {
-		return false
+	var pooledSet map[string]bool
+	if st != nil {
+		pooledSet, _ = st.GetPooledFileIDSet()
 	}
-
-	type entryInfo struct {
-		path string
-		mod  time.Time
-	}
-	var infos []entryInfo
-	for _, e := range entries {
-		info, err := os.Stat(e)
-		if err != nil {
-			continue
-		}
+	var candidates []string
+	for _, e := range listCacheFiles(dir) {
 		if protected != nil && protected[fileIDFromPath(e)] {
 			continue
 		}
-		infos = append(infos, entryInfo{e, info.ModTime()})
+		candidates = append(candidates, e)
 	}
-	if len(infos) == 0 {
+	if len(candidates) == 0 {
 		return false
 	}
-
-	sort.Slice(infos, func(i, j int) bool {
-		return infos[i].mod.Before(infos[j].mod)
-	})
-
-	oldest := infos[0].path
+	// 优先淘汰池中未分发 (pooled=1) 的最旧文件, 再淘汰未保护的已分发文件
+	oldest := oldestFile(candidates)
+	if pooledSet != nil {
+		var pooled []string
+		for _, e := range candidates {
+			if pooledSet[fileIDFromPath(e)] {
+				pooled = append(pooled, e)
+			}
+		}
+		if len(pooled) > 0 {
+			if p := oldestFile(pooled); p != "" {
+				oldest = p
+			}
+		}
+	}
+	if oldest == "" {
+		return false
+	}
 	if st != nil {
 		st.DeleteImageByFileID(fileIDFromPath(oldest))
 	}
@@ -401,18 +392,13 @@ func evictLRU(dir string, st *store.Store, protected map[string]bool) bool {
 }
 
 func (is *ImageStore) evictByCount(maxImages int, protected map[string]bool) {
-	entries, _ := filepath.Glob(filepath.Join(is.cacheDir, "*", "*"))
-	rootEntries, _ := filepath.Glob(filepath.Join(is.cacheDir, "*"))
-	for _, e := range rootEntries {
-		info, err := os.Stat(e)
-		if err == nil && !info.IsDir() {
-			entries = append(entries, e)
-		}
-	}
+	entries := listCacheFiles(is.cacheDir)
 	if len(entries) <= maxImages {
 		return
 	}
 	over := len(entries) - maxImages
+
+	pooledSet, _ := is.store.GetPooledFileIDSet()
 
 	type entryInfo struct {
 		path string
@@ -431,6 +417,11 @@ func (is *ImageStore) evictByCount(maxImages int, protected map[string]bool) {
 	}
 
 	sort.Slice(infos, func(i, j int) bool {
+		iPooled := pooledSet != nil && pooledSet[fileIDFromPath(infos[i].path)]
+		jPooled := pooledSet != nil && pooledSet[fileIDFromPath(infos[j].path)]
+		if iPooled != jPooled {
+			return iPooled
+		}
 		return infos[i].mod.Before(infos[j].mod)
 	})
 
@@ -438,6 +429,29 @@ func (is *ImageStore) evictByCount(maxImages int, protected map[string]bool) {
 		fileID := fileIDFromPath(infos[i].path)
 		is.store.DeleteImageByFileID(fileID)
 		os.Remove(infos[i].path)
+	}
+}
+
+// CleanupOrphanPooled 清理 pooled=1 但磁盘文件已缺失的孤儿记录 (启动时调用)
+func (is *ImageStore) CleanupOrphanPooled() {
+	ids, err := is.store.QueryPooledFileIDs()
+	if err != nil {
+		return
+	}
+	for _, fid := range ids {
+		found := false
+		for _, pattern := range []string{
+			filepath.Join(is.cacheDir, "*", fid+".*"),
+			filepath.Join(is.cacheDir, fid+".*"),
+		} {
+			if matches, _ := filepath.Glob(pattern); len(matches) > 0 {
+				found = true
+				break
+			}
+		}
+		if !found {
+			is.store.DeleteImageByFileID(fid)
+		}
 	}
 }
 
@@ -461,6 +475,12 @@ func (is *ImageStore) ClearSourceImages(sourceID int64) error {
 		for _, m := range matches {
 			os.Remove(m)
 		}
+		// 已被 MoveToRoot 移到根目录的文件一并清理
+		rootPattern := filepath.Join(is.cacheDir, fileID+".*")
+		rootMatches, _ := filepath.Glob(rootPattern)
+		for _, m := range rootMatches {
+			os.Remove(m)
+		}
 	}
 	return is.store.DeleteImagesBySourceID(sourceID)
 }
@@ -468,6 +488,16 @@ func (is *ImageStore) ClearSourceImages(sourceID int64) error {
 func (is *ImageStore) DeleteSourceFolder(sourceID int64) error {
 	dir := filepath.Join(is.cacheDir, fmt.Sprintf("%d", sourceID))
 	os.RemoveAll(dir)
+	fileIDs, err := is.store.GetImageFileIDsBySourceIDAll(sourceID)
+	if err != nil {
+		return err
+	}
+	for _, fileID := range fileIDs {
+		rootMatches, _ := filepath.Glob(filepath.Join(is.cacheDir, fileID+".*"))
+		for _, m := range rootMatches {
+			os.Remove(m)
+		}
+	}
 	return is.store.DeleteImagesBySourceIDAll(sourceID)
 }
 
@@ -483,9 +513,17 @@ func (is *ImageStore) MoveToRoot(fileID string, sourceID int64) error {
 }
 
 func (is *ImageStore) CountSourceCachedFiles(sourceID int64) int {
-	dir := filepath.Join(is.cacheDir, fmt.Sprintf("%d", sourceID))
-	entries, _ := filepath.Glob(filepath.Join(dir, "*"))
-	return len(entries)
+	count, _ := filepath.Glob(filepath.Join(is.cacheDir, fmt.Sprintf("%d", sourceID), "*"))
+	total := len(count)
+	// 统计已被 MoveToRoot 移到根目录的文件
+	if ids, err := is.store.GetImageFileIDsBySourceID(sourceID); err == nil {
+		for _, fid := range ids {
+			if matches, _ := filepath.Glob(filepath.Join(is.cacheDir, fid+".*")); len(matches) > 0 {
+				total += len(matches)
+			}
+		}
+	}
+	return total
 }
 
 func GetOrientation(width, height int) string {

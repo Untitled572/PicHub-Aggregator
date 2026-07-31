@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -36,6 +37,10 @@ func (h *Handler) UpdateSettings(c *gin.Context) {
 			settings.AdminPasswordHash = settings.AdminPassword
 			credentialsChanged = true
 		}
+		// admin_token 不回显: 留空则保持现有令牌, 避免保存设置时误清空
+		if settings.AdminToken == "" {
+			settings.AdminToken = oldSettings.AdminToken
+		}
 		if settings.AdminUsername != oldSettings.AdminUsername {
 			credentialsChanged = true
 		}
@@ -59,7 +64,18 @@ func (h *Handler) UpdateSettings(c *gin.Context) {
 	if tagsChanged && h.engine != nil {
 		go h.engine.ReplenishPool()
 	}
-	c.JSON(http.StatusOK, settings)
+	c.JSON(http.StatusOK, settingsResponseWithToken(&settings))
+}
+
+func settingsResponseWithToken(s *model.Settings) map[string]interface{} {
+	b, _ := json.Marshal(s)
+	var m map[string]interface{}
+	if err := json.Unmarshal(b, &m); err != nil || m == nil {
+		m = gin.H{}
+	}
+	// admin_token 仅对已鉴权的写请求返回 (GET /api/settings 公开, 不回显)
+	m["admin_token"] = s.AdminToken
+	return m
 }
 
 func stringSliceEqual(a, b []string) bool {
