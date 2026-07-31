@@ -23,6 +23,8 @@ jobs:
         working-directory: dashboard
       - run: npx vue-tsc --noEmit && npx vite build
         working-directory: dashboard
+        env:
+          VITE_APP_VERSION: ${{ github.ref_name }}
       - uses: actions/upload-artifact@v4
         with:
           name: dashboard-dist

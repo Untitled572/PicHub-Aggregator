@@ -3,6 +3,8 @@ import vue from '@vitejs/plugin-vue'
 import { execSync } from 'child_process'
 
 const version = (() => {
+  const explicit = process.env.VITE_APP_VERSION
+  if (explicit) return explicit
   try {
     return execSync('git describe --tags --abbrev=0 2>/dev/null || echo "dev"').toString().trim()
   } catch {
