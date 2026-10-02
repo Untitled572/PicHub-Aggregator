@@ -41,11 +41,11 @@ jobs:
         with:
           images: |
             ghcr.io/untitled572/pichub-aggregator
-            crpi-1ml0uqt093yc1v96.cn-beijing.personal.cr.aliyuncs.com/untitled572/pichub
           tags: |
             type=raw,value=dev
 
-      - name: Build and push
+      - name: Build and push to GHCR
+        id: image_build
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -54,3 +54,17 @@ jobs:
           platforms: linux/amd64
           tags: ${{ steps.meta.outputs.tags }}
           build-args: VITE_APP_VERSION=${{ github.ref_name }}
+
+      # GHCR keeps provenance; ACR receives the runnable image manifest only.
+      - name: Sync Linux image to ACR
+        env:
+          SOURCE_IMAGE: ghcr.io/untitled572/pichub-aggregator
+          SOURCE_DIGEST: ${{ steps.image_build.outputs.digest }}
+          ACR_IMAGE: crpi-1ml0uqt093yc1v96.cn-beijing.personal.cr.aliyuncs.com/untitled572/pichub
+          IMAGE_TAG: dev
+        run: |
+          set -euo pipefail
+          source_image="${SOURCE_IMAGE,,}@${SOURCE_DIGEST}"
+          docker pull --platform linux/amd64 "$source_image"
+          docker tag "$source_image" "$ACR_IMAGE:$IMAGE_TAG"
+          docker push "$ACR_IMAGE:$IMAGE_TAG"
