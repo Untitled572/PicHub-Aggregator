@@ -158,7 +158,7 @@ async function autoDetectUrlType() {
       if (res.resp_type === 'json' && res.url_hints && res.url_hints.length > 0) {
         form.value.json_path = res.url_hints[0]
       }
-      testDetected.value = res.resp_type === 'image' ? '图片二进制流' : res.resp_type === 'json' ? 'JSON 节点提取' : '302 重定向直链'
+      testDetected.value = res.resp_type === 'image' ? '图片二进制流' : res.resp_type === 'json' ? 'JSON 路径提取' : '302 重定向直链'
     } else {
       handleUrlInput()
       testDetected.value = form.value.resp_type === 'image' ? '图片直链' : form.value.resp_type === 'json' ? 'JSON提取' : '302重定向'
@@ -400,7 +400,7 @@ async function handleSave() {
               >
                 <option value="image">图片二进制流</option>
                 <option value="redirect">302 重定向直链</option>
-                <option value="json">JSON 节点提取</option>
+                <option value="json">JSON 路径提取</option>
               </select>
             </div>
 

@@ -122,16 +122,58 @@ func (is *ImageStore) DownloadAndStore(imageURL, sourceURL string, sourceID int6
 	ext := getExtension(format, resp.Header.Get("Content-Type"))
 	filename := fileID + ext
 	subDir := filepath.Join(is.cacheDir, fmt.Sprintf("%d", sourceID))
-	os.MkdirAll(subDir, 0755)
+	if err := os.MkdirAll(subDir, 0755); err != nil {
+		return nil, fmt.Errorf("create image directory: %w", err)
+	}
 	filePath := filepath.Join(subDir, filename)
 
 	is.mu.Lock()
-	os.WriteFile(filePath, data, 0644)
+	defer is.mu.Unlock()
+	tmpFile, err := os.CreateTemp(subDir, ".pichub-*.tmp")
+	if err != nil {
+		return nil, fmt.Errorf("create temporary image file: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	defer os.Remove(tmpPath)
+	written, err := tmpFile.Write(data)
+	if err == nil && written != len(data) {
+		err = io.ErrShortWrite
+	}
+	if err != nil {
+		tmpFile.Close()
+		return nil, fmt.Errorf("write image file: %w", err)
+	}
+	if err := tmpFile.Sync(); err != nil {
+		tmpFile.Close()
+		return nil, fmt.Errorf("sync image file: %w", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		return nil, fmt.Errorf("close image file: %w", err)
+	}
+
+	if err := os.Rename(tmpPath, filePath); err != nil {
+		return nil, fmt.Errorf("publish image file: %w", err)
+	}
+
+	orientation := GetOrientation(cfg.Width, cfg.Height)
+	catsJSON := encodeStringSlice(categories)
+	imgID, err := is.store.InsertImage(fileID, imageURL, sourceID, sourceName, cfg.Width, cfg.Height, format, int64(len(data)), catsJSON, orientation, pooled)
+	if err != nil {
+		if removeErr := os.Remove(filePath); removeErr != nil && !os.IsNotExist(removeErr) {
+			return nil, fmt.Errorf("store metadata: %w (remove image file: %v)", err, removeErr)
+		}
+		return nil, fmt.Errorf("store metadata: %w", err)
+	}
+
 	protectedLimit := 60
 	if settings != nil && settings.MaxHistoryRecords > 0 {
 		protectedLimit = settings.MaxHistoryRecords
 	}
 	protected, _ := is.store.GetProtectedFileIDs(protectedLimit)
+	if protected == nil {
+		protected = make(map[string]bool)
+	}
+	protected[fileID] = true
 	if settings != nil && settings.CacheMaxImages > 0 {
 		is.evictByCount(settings.CacheMaxImages, protected)
 	}
@@ -146,14 +188,6 @@ func (is *ImageStore) DownloadAndStore(imageURL, sourceURL string, sourceID int6
 				break
 			}
 		}
-	}
-	is.mu.Unlock()
-
-	orientation := GetOrientation(cfg.Width, cfg.Height)
-	catsJSON := encodeStringSlice(categories)
-	imgID, err := is.store.InsertImage(fileID, imageURL, sourceID, sourceName, cfg.Width, cfg.Height, format, int64(len(data)), catsJSON, orientation, pooled)
-	if err != nil {
-		return nil, fmt.Errorf("store metadata: %w", err)
 	}
 
 	return &CachedImageInfo{

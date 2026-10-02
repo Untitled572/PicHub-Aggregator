@@ -2,9 +2,9 @@
 
 # PicHub Aggregator
 
-**超高性能、单文件部署的第三方图片 API 聚合分发引擎**
+**单文件部署的图片 API 聚合与分发服务**
 
-[![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat-square&logo=go)](https://golang.org)
+[![Go Version](https://img.shields.io/badge/Go-1.26+-00ADD8?style=flat-square&logo=go)](https://golang.org)
 [![Vue3](https://img.shields.io/badge/Vue.js-v3.4-4FC08D?style=flat-square&logo=vue.js)](https://vuejs.org)
 [![Tailwind CSS](https://img.shields.io/badge/TailwindCSS-v3.4-38BDF8?style=flat-square&logo=tailwindcss)](https://tailwindcss.com)
 [![Release](https://img.shields.io/badge/Release-v0.5.0-emerald?style=flat-square)](https://github.com/untitled572/PicHub-Aggregator/releases)
@@ -24,9 +24,9 @@
 
 ## 🌟 简介
 
-**PicHub** 是一个专为开发者、博客作者与前端应用打造的图片 API 聚合与分发引擎。
+**PicHub** 用于统一管理和调用多个图片 API。
 
-它可以将全网散落的各种第三方随机图片 API（包括图片直链、302 重定向、JSON 响应提取等）统一收归管理，对外提供极速、稳定且支持多维度过滤的单分发入口 `/random`。内置现代化 Morandi 风格管理控制台，无需额外部署 Web 服务。
+它可以统一管理第三方随机图片 API，包括图片直链、302 重定向和从 JSON 响应提取图片地址，并通过 `/random` 提供统一的分发入口和分类筛选。项目内置管理控制台，无需单独部署前端 Web 服务。
 
 ```
 		[前端 / Markdown / 博客 / APP]
@@ -48,24 +48,24 @@
 
 ## ✨ 核心特性
 
-- ⚡ **单文件极简部署**
+- ⚡ **单文件部署**
   Go + Gin 驱动，将打包后的前端页面嵌入至单个可执行二进制文件。无需 Node.js、Nginx 或外部前端环境，单文件/单镜像即开即用。
 - 🎯 **多维分类 Tag 与专属分发**
   支持自定义分类 Tag（如默认 `#横屏`, `#竖屏`, `#自适应`）管理。支持为客户端绑定专属 Tag 分发链接，或在 `GET /random?category=tag1,tag2` 中动态多选过滤分发。
-- 🏷️ **系统硬编程标签与独占 Tag 隔离**
-  内置规则硬编程标签（`#横屏`, `#竖屏`, `#自适应`）独立于【系统内置标签框】中展示；支持 `exclusive: true` 独占隔离标记，仅在客户端显式指定时触发分发。
+- 🏷️ **内置标签与独占标签**
+  横屏、竖屏和自适应是内置标签。设置了 `exclusive: true` 的标签只在请求明确指定时参与分发。
 - 🧩 **多参数与路径衍生分支**
-  支持为单个主图源配置参数分支（如 `type=pc`）或独立子 API 链接（如 `/pe.php`）。分支继承主源属性，可单独绑定 Tag 与权重，分发历史流水精确记录轨迹。
+  支持为图源配置参数变体（如 `type=pc`）或子 API 路径（如 `/pe.php`）。变体继承主图源设置，可单独绑定 Tag 和权重，分发记录会标明使用的变体。
 - 💾 **本地缓存代理模式**
-  支持开启 `proxy_mode` 本地代理缓存。开启后，引擎自动抓取第三方图片并转存至本地磁盘缓存目录 (`./cache`)，对外提供本地 `/images/:file_id` 极速直发与长效 HTTP 缓存。有效解决第三方图源防盗链、跨域限制与源站宕机风险，同时解锁物理宽高检测与离线转存功能。
-- 📐 **真图片物理比例动态过滤**
-  基于 Go `image.DecodeConfig` 对图片流/缓存文件的真实宽高进行解码检测。在 `proxy_mode=true` 本地代理中转模式下，支持通过 `?orientation=horizontal|vertical` 强制过滤物理真横屏或竖屏图片。
+  开启 `proxy_mode` 后，服务会将抓取的图片保存到图片缓存目录（`./data/images`），并通过 `/images/:file_id` 提供图片。缓存可减少重复请求上游；图片尺寸过滤和离线保存也需要此模式。
+- 📐 **按图片宽高筛选**
+  基于 Go `image.DecodeConfig` 对图片流/缓存文件的真实宽高进行解码检测。在 `proxy_mode=true` 本地代理中转模式下，支持通过 `?orientation=horizontal|vertical` 按图片实际宽高筛选横屏或竖屏图片。
 - 👍 **历史流水与权重动态微调**
-  提供带图片灯箱预览的分发流水日志，支持对已分发图片一键执行【👍 喜欢 (+1 权重)】或【👎 不喜欢 (-1 权重)】实时调优，可即时优化图源偏好。
+  可以查看取图记录和图片预览，通过“喜欢”或“不喜欢”调整图源权重。
 - 🖼️ **离线保存图库与图墙**
-  支持将喜爱的图片一键本地转存。提供 **列表视图**、**小图展示** 与 **大图图墙** 3 种模式。大图模式取消传统分页栏，采用 **`IntersectionObserver` 无限滚动** 与 **`loading="lazy"` 按需懒加载**。
+  可以将图片保存到本地。提供 **列表视图**、**小图展示** 与 **大图图墙** 3 种模式。大图模式取消传统分页栏，采用 **`IntersectionObserver` 无限滚动** 与 **`loading="lazy"` 按需懒加载**。
 - 🛡️ **加权随机抽选与自动容错降级**
-  内置加权随机抽选算法，支持单次分发最多 3 次（或 8 次）重试。配合后台定期（默认 360 分钟可调）批量健康检测，连续故障图源自动熔断挂起，确保对外分发服务 100% 高可用。
+  分发时按权重选择图源，并可尝试其他候选图源。后台会按设定间隔检测已启用图源；检测结果不代表后续图片下载一定成功，服务可用性也取决于上游 API 和网络状态。
 
 ---
 
@@ -75,7 +75,7 @@
 
 ![大图图墙](screenshots/saved_large.png)
 
-<sub>取消分页栏，采用 `IntersectionObserver` 滚动加载，自然长方形比例无缝拼接，超大视觉呈现。一键【下载本地】与取消保存。</sub>
+<sub>滚动浏览保存的图片，也可以下载图片或取消保存。</sub>
 
 ### 🏷️ 接口与 Tag 标签管理
 
@@ -87,13 +87,13 @@
 
 ![图源管理库](screenshots/sources.png)
 
-<sub>基础信息与 10 ~ 90 权重加权配置，支持添加子 API 链接与参数分支 Variants。</sub>
+<sub>配置图源地址、权重、子 API 路径和参数分支。</sub>
 
 ### 📊 使用统计与历史流水
 
 ![使用统计与历史流水](screenshots/endpoints.png)
 
-<sub>今日/历史 Hits 分发趋势与排行榜，历史流水精准缩略图预览与 👍 / 👎 权重实时调优。</sub>
+<sub>查看请求趋势、各图源的使用次数和取图记录。</sub>
 
 ---
 
@@ -117,7 +117,6 @@ services:
       - PGID=1000
       - PORT=5721
       - DB_PATH=/app/data/pichub.db
-      - CACHE_PATH=/app/cache
       - TRUSTED_PROXIES=127.0.0.1/32
     restart: unless-stopped
 ```
@@ -149,11 +148,13 @@ docker run -d --name pichub --network host \
 
 ```bash
 cd dashboard
-npm install
+npm ci
 npm run build
 ```
 
 #### 2. 编译并运行 Go 后端
+
+需要 Go 1.26 或更新版本，以及用于 CGO 的 C 编译器。先构建 Dashboard，再编译后端；后端会把已构建的前端文件嵌入到可执行文件中。
 
 ```bash
 cd ../backend
@@ -232,7 +233,6 @@ GET /random?category=anime&format=json
 | :--- | :--- | :--- |
 | `PORT` | `5721` | HTTP 服务监听端口 |
 | `DB_PATH` | `./data/pichub.db` | SQLite 数据库文件存储路径 |
-| `CACHE_PATH` | `./cache` | 图片缓存目录路径 |
 
 ---
 

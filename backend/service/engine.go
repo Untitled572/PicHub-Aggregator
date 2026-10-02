@@ -165,8 +165,10 @@ func (e *Engine) RandomImage(category string, format string, orientation string,
 			imgID := poolResult.ImageID
 			go func() {
 				e.store.SetImagePooled(imgID, false)
-				e.store.RecordStats(queryCats, src, poolResult.LocalURL, &imgID, poolResult.FileID)
 			}()
+			if err := e.store.RecordStats(queryCats, src, poolResult.LocalURL, &imgID, poolResult.FileID); err != nil {
+				logger.Error("record pool stats: %v", err)
+			}
 			logger.System("pool hit for category %q, instant response", category)
 
 			if format == "json" {
@@ -287,7 +289,9 @@ func (e *Engine) RandomImage(category string, format string, orientation string,
 		}
 		e.demandTracker.RecordRequest(queryCats, cachedInfo != nil)
 		e.sourceDemand.RecordSelection(selected.ID)
-		go e.store.RecordStats(queryCats, selected, imageURL, imgID, fileID)
+		if err := e.store.RecordStats(queryCats, selected, imageURL, imgID, fileID); err != nil {
+			logger.Error("record image stats: %v", err)
+		}
 
 		res := &Result{
 			URL:        origURL,
@@ -315,6 +319,11 @@ func (e *Engine) RandomImage(category string, format string, orientation string,
 }
 
 func (e *Engine) newFetchRequest(ctx context.Context, selected model.Source, clientUA string) (*http.Request, error) {
+	return newSourceRequest(ctx, selected, clientUA)
+}
+
+// newSourceRequest keeps health checks and distribution request headers consistent.
+func newSourceRequest(ctx context.Context, selected model.Source, clientUA string) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", selected.URL, nil)
 	if err != nil {
 		return nil, err

@@ -30,6 +30,7 @@ func validateEndpointName(name string) (string, error) {
 // @Produce json
 // @Success 200 {array} model.Endpoint
 // @Failure 500 {object} map[string]interface{}
+// @Security BearerAuth
 // @Router /api/endpoints [get]
 func (h *Handler) ListEndpoints(c *gin.Context) {
 	endpoints, err := h.store.ListEndpoints()

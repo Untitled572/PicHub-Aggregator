@@ -10,11 +10,12 @@ import (
 
 // GetSettings GET /api/settings 读取设置
 // @Summary 读取设置
-// @Description 公开接口，不回显 admin_token / admin_password_hash
+// @Description 管理接口，不回显 admin_token / admin_password_hash
 // @Tags Settings
 // @Produce json
 // @Success 200 {object} model.Settings
 // @Failure 500 {object} map[string]interface{}
+// @Security BearerAuth
 // @Router /api/settings [get]
 func (h *Handler) GetSettings(c *gin.Context) {
 	settings, err := h.store.GetSettings()
@@ -93,7 +94,7 @@ func settingsResponseWithToken(s *model.Settings) map[string]interface{} {
 	if err := json.Unmarshal(b, &m); err != nil || m == nil {
 		m = gin.H{}
 	}
-	// admin_token 仅对已鉴权的写请求返回 (GET /api/settings 公开, 不回显)
+	// admin_token 仅对已鉴权的写请求返回 (GET /api/settings 不回显)
 	m["admin_token"] = s.AdminToken
 	return m
 }

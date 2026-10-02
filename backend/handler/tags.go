@@ -13,6 +13,7 @@ import (
 // @Produce json
 // @Success 200 {array} model.Tag
 // @Failure 500 {object} map[string]interface{}
+// @Security BearerAuth
 // @Router /api/tags [get]
 func (h *Handler) GetTags(c *gin.Context) {
 	tags, err := h.store.GetTags()

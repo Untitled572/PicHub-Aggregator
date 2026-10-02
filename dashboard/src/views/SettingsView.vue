@@ -111,7 +111,7 @@ async function handleSave() {
           <Sliders class="w-5 h-5" />
         </div>
         <div class="min-w-0">
-          <h2 class="font-bold text-base text-morandi-text">系统全局策略与设置中心</h2>
+          <h2 class="font-bold text-base text-morandi-text">系统设置</h2>
           <p class="text-xs text-morandi-muted mt-0.5">配置中转模式、网络代理、限流阀值与管理员安全认证</p>
         </div>
       </div>
@@ -129,7 +129,7 @@ async function handleSave() {
           class="flex items-center gap-2 px-5 py-2.5 bg-morandi-sage hover:bg-morandi-sage-dark text-white rounded-xl text-xs font-semibold shadow-xs transition-all disabled:opacity-50 cursor-pointer active:scale-95"
         >
           <Save class="w-4 h-4" />
-          <span>{{ saving ? '保存中...' : '保存全局设置' }}</span>
+          <span>{{ saving ? '保存中...' : '保存设置' }}</span>
         </button>
         <button
           @click="handleLogout"
@@ -187,7 +187,7 @@ async function handleSave() {
             </span>
           </div>
           <p class="text-[11px] text-morandi-muted leading-relaxed">
-            开启后，后台从第三方 API 抓取图片或测试探针时将统一通过指定的 HTTP 代理转发，适用于需代理访问的第三方图源。
+            开启后，图片抓取和图源检测请求会通过此 HTTP 代理发送。适用于需要代理访问的第三方图源。
           </p>
         </div>
 
@@ -226,20 +226,20 @@ async function handleSave() {
             <Clock class="w-3.5 h-3.5 text-morandi-light" /> 单次请求超时时间 (毫秒 ms)
           </label>
           <input v-model.number="settings.timeout" type="number" step="500" class="morandi-input w-full px-3 py-2 font-mono text-xs" />
-          <p class="text-[10px] text-morandi-muted mt-1">抓取第三方图源超时自动切换下一备用源</p>
+          <p class="text-[10px] text-morandi-muted mt-1">请求超时后可尝试其他候选图源</p>
         </div>
 
         <div>
           <label class="font-medium text-morandi-text block mb-1.5 flex items-center gap-1">
-            <Clock class="w-3.5 h-3.5 text-morandi-light" /> 后台巡检轮询周期 (分钟)
+            <Clock class="w-3.5 h-3.5 text-morandi-light" /> 后台检测间隔 (分钟)
           </label>
           <input v-model.number="settings.health_check_interval" type="number" class="morandi-input w-full px-3 py-2 font-mono text-xs" />
-          <p class="text-[10px] text-morandi-muted mt-1">定时健康探针后台自动检测图源连通性周期</p>
+          <p class="text-[10px] text-morandi-muted mt-1">后台定期检测启用的图源（主 URL 和参数变体）的间隔</p>
         </div>
       </div>
     </div>
 
-    <!-- Group 2: 💾 本地缓存与秒级分发池 -->
+    <!-- Group 2: 💾 本地缓存 -->
     <div v-show="activeTab === 'cache'" class="morandi-card p-6 space-y-5">
       <div class="flex items-center justify-between pb-3 border-b border-morandi-border/60">
         <div class="flex items-center gap-2">
@@ -263,7 +263,7 @@ async function handleSave() {
             </span>
           </div>
           <p class="text-[11px] text-morandi-muted leading-relaxed">
-            开启后图片预拉取至本地磁盘，请求秒级响应，支持精准计算像素尺寸过滤横竖屏、收藏图片；拉取上限由系统按使用热度自动调节以保护图源。关闭时返回 302 重定向直链。
+            开启后，服务会将抓取的图片保存到本地，支持按图片实际尺寸筛选和收藏。缓存可减少重复抓取；实际响应时间取决于图片是否已缓存及网络、磁盘状况。缓存上限会根据使用情况调整。关闭时返回 302 重定向链接。
           </p>
         </div>
 
@@ -295,7 +295,7 @@ async function handleSave() {
             <Gauge class="w-3.5 h-3.5 text-morandi-sage-dark font-bold" /> 预拉取加速 (自动)
           </label>
           <p class="text-[11px] text-morandi-muted leading-relaxed px-1 py-1.5">
-            开启本地缓存后，系统会在后台自动预拉取图片到本地，请求即可秒级响应。拉取数量与单源上限由系统按使用热度自动调节，以保护图源避免触发风控，无需手动配置。
+            本地缓存可减少重复抓取。预取数量和单源上限会按使用情况调整；实际响应时间取决于图片是否已缓存以及网络和磁盘状况。
           </p>
         </div>
 

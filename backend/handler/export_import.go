@@ -17,6 +17,7 @@ var sensitiveHeaders = []string{"api-key", "authorization", "token", "secret", "
 // @Produce json
 // @Success 200 {object} map[string]interface{}
 // @Failure 500 {object} map[string]interface{}
+// @Security BearerAuth
 // @Router /api/export [post]
 func (h *Handler) ExportRules(c *gin.Context) {
 	sources, err := h.store.ListSources()

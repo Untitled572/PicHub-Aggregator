@@ -11,8 +11,8 @@ export function useHealthCheck() {
   const results = ref<HealthResult[]>([])
   const lastRun = ref('')
   const running = ref(false)
-  const progress = ref(0)
-  const { healthCheck: apiHealthCheck } = useApi()
+  const error = ref('')
+  const { healthCheck: apiHealthCheck, getHealthStatus } = useApi()
 
   const summary = computed(() => {
     const total = results.value.length
@@ -25,27 +25,28 @@ export function useHealthCheck() {
 
   async function loadCached() {
     try {
-      const res = await fetch('/api/health')
-      if (!res.ok) return
-      const data: HealthCache = await res.json()
-      if (data.results && data.results.length > 0) {
+      const data: HealthCache = await getHealthStatus()
+      if (data.results) {
         results.value = data.results
         lastRun.value = data.last_run
       }
-    } catch {}
+      error.value = ''
+    } catch (e) { error.value = e instanceof Error ? e.message : '无法读取检测结果。' }
   }
 
   async function runCheck() {
+    if (running.value) return
     running.value = true
-    progress.value = 0
+    error.value = ''
     try {
       results.value = await apiHealthCheck()
       lastRun.value = new Date().toISOString()
-      progress.value = 100
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : '检测请求失败，请稍后重试。'
     } finally {
       running.value = false
     }
   }
 
-  return { results, lastRun, running, progress, summary, loadCached, runCheck }
+  return { results, lastRun, running, error, summary, loadCached, runCheck }
 }

@@ -101,7 +101,7 @@ async function handleSave() {
       <div class="p-4 sm:p-5 border-b border-morandi-border/60 flex justify-between items-center bg-morandi-bg/50">
         <div>
           <h2 class="font-bold text-base text-morandi-text flex items-center gap-2">
-            <Sliders class="w-4 h-4 text-morandi-sage" /> API 图源衍生分支管理
+            <Sliders class="w-4 h-4 text-morandi-sage" /> 图源参数变体管理
           </h2>
           <p class="text-xs text-morandi-muted mt-0.5 flex items-center gap-1 font-mono truncate max-w-xs sm:max-w-md">
             <Globe class="w-3.5 h-3.5 shrink-0 text-morandi-light" />
@@ -122,7 +122,7 @@ async function handleSave() {
           </p>
           <p class="text-[11px] leading-relaxed text-morandi-text/80">
             支持追加 Query 参数分支（如 <code class="font-mono bg-white px-1 py-0.5 rounded border border-morandi-sage/30">type=pc</code>）、独立子 API 路径（如 <code class="font-mono bg-white px-1 py-0.5 rounded border border-morandi-sage/30">/mobile.php</code>）或完整子 URL 链接。<br/>
-            每个分支可独立指定关联 Tag 与权重并参与分发，总体统一作为一个图源进行连通性探针与健康检测。
+            每个变体可独立绑定 Tag 和权重，并参与分发。健康检测按所属图源进行。
           </p>
         </div>
 

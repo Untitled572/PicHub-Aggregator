@@ -44,6 +44,11 @@ const docTemplate = `{
         },
         "/api/endpoints": {
             "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
                 "produces": [
                     "application/json"
                 ],
@@ -286,6 +291,11 @@ const docTemplate = `{
         },
         "/api/export": {
             "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
                 "description": "scope 含 images 时导出 ZIP (含 manifest.json + 已保存图片)，否则导出 JSON",
                 "produces": [
                     "application/json",
@@ -319,6 +329,11 @@ const docTemplate = `{
                 }
             },
             "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
                 "description": "导出数据源规则，自动剔除敏感 headers",
                 "produces": [
                     "application/json"
@@ -347,6 +362,11 @@ const docTemplate = `{
         },
         "/api/health": {
             "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
                 "description": "返回最近一次健康检查的结果与运行时间；若首次检查未完成则异步触发",
                 "produces": [
                     "application/json"
@@ -375,6 +395,11 @@ const docTemplate = `{
         },
         "/api/images/saved": {
             "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
                 "produces": [
                     "application/json"
                 ],
@@ -717,7 +742,12 @@ const docTemplate = `{
         },
         "/api/settings": {
             "get": {
-                "description": "公开接口，不回显 admin_token / admin_password_hash",
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "管理接口，不回显 admin_token / admin_password_hash",
                 "produces": [
                     "application/json"
                 ],
@@ -795,6 +825,11 @@ const docTemplate = `{
         },
         "/api/sources": {
             "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
                 "description": "返回全部数据源",
                 "produces": [
                     "application/json"
@@ -875,6 +910,11 @@ const docTemplate = `{
         },
         "/api/sources/health-check": {
             "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
                 "description": "对全部启用数据源执行一次健康检查并返回结果",
                 "produces": [
                     "application/json"
@@ -898,6 +938,11 @@ const docTemplate = `{
         },
         "/api/sources/{id}": {
             "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
                 "produces": [
                     "application/json"
                 ],
@@ -1080,6 +1125,11 @@ const docTemplate = `{
         },
         "/api/stats": {
             "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
                 "produces": [
                     "application/json"
                 ],
@@ -1133,6 +1183,11 @@ const docTemplate = `{
         },
         "/api/stats/history": {
             "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
                 "produces": [
                     "application/json"
                 ],
@@ -1176,6 +1231,11 @@ const docTemplate = `{
         },
         "/api/tags": {
             "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
                 "produces": [
                     "application/json"
                 ],
@@ -1451,6 +1511,11 @@ const docTemplate = `{
         },
         "/random/detect": {
             "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
                 "description": "抓取目标 URL 并推断响应类型、headers 与可能的图片 URL 路径",
                 "consumes": [
                     "application/json"
@@ -1958,6 +2023,15 @@ const docTemplate = `{
                 "available": {
                     "type": "boolean"
                 },
+                "available_endpoints": {
+                    "type": "integer"
+                },
+                "checked_at": {
+                    "type": "string"
+                },
+                "checked_endpoints": {
+                    "type": "integer"
+                },
                 "error": {
                     "type": "string"
                 },
@@ -2036,7 +2110,7 @@ var SwaggerInfo = &swag.Spec{
 	BasePath:         "/",
 	Schemes:          []string{},
 	Title:            "PicHub Aggregator API",
-	Description:      "PicHub-Aggregator 图片聚合分发服务。AdminAuth 只保护 POST/PUT/DELETE，所有 GET 端点公开。",
+	Description:      "PicHub-Aggregator 图片聚合分发服务。管理接口支持会话和 Bearer token 鉴权，图片分发接口公开。",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",

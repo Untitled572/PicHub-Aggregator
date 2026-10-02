@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useApi } from '../composables/useApi'
-import type { Source } from '../types'
+import { isHealthResultCurrent } from '../utils/healthStatus'
+import type { Source, HealthResult } from '../types'
 import SourceCard from '../components/SourceCard.vue'
 import SourceForm from '../components/SourceForm.vue'
 import ExportImportModal from '../components/ExportImportModal.vue'
@@ -16,7 +17,7 @@ import {
   Inbox
 } from 'lucide-vue-next'
 
-const { listSources, deleteSource, toggleSource } = useApi()
+const { listSources, deleteSource, toggleSource, getHealthStatus } = useApi()
 import ParamVariantsModal from '../components/ParamVariantsModal.vue'
 import { useTags } from '../composables/useTags'
 
@@ -38,7 +39,7 @@ function handleOpenParams(src: Source) {
 const { tags, getCategoryMap } = useTags()
 const categoryMap = computed(() => getCategoryMap())
 const categories = computed(() => tags.value.map(t => t.id))
-const healthStatusMap = ref<Record<number, boolean>>({})
+const healthStatusMap = ref<Record<number, HealthResult>>({})
 
 onMounted(loadSources)
 
@@ -47,20 +48,15 @@ async function loadSources() {
     const srcs = await listSources()
     sources.value = srcs || []
   } catch {}
-  // 健康状态异步补充: 不影响列表立即渲染
-  fetch('/api/health')
-    .then(r => r.ok ? r.json() : null)
+  healthStatusMap.value = {}
+  getHealthStatus()
     .catch(() => null)
     .then(healthRes => {
-      if (!healthRes || !healthRes.results) return
-      const map: Record<number, boolean> = {}
-      for (const r of healthRes.results) {
-        map[r.id] = r.available
-      }
-      for (const s of sources.value) {
-        if (map[s.id] === undefined) {
-          map[s.id] = s.status !== 'error'
-        }
+      if (!healthRes?.results) return
+      const map: Record<number, HealthResult> = {}
+      for (const result of healthRes.results as HealthResult[]) {
+        const source = sources.value.find(s => s.id === result.id)
+        if (source && isHealthResultCurrent(result.checked_at, source.updated_at)) map[result.id] = result
       }
       healthStatusMap.value = map
     })
@@ -128,7 +124,7 @@ function onFormSaved() {
           <Layers class="w-4 h-4 sm:w-5 sm:h-5" />
         </div>
         <div>
-          <p class="text-[11px] sm:text-xs text-morandi-muted font-medium">总接入源</p>
+          <p class="text-[11px] sm:text-xs text-morandi-muted font-medium">图源总数</p>
           <p class="text-lg sm:text-xl font-bold text-morandi-text mt-0.5">{{ stats.total }} <span class="text-[10px] sm:text-xs font-normal text-morandi-muted">个 API</span></p>
         </div>
       </div>
@@ -138,7 +134,7 @@ function onFormSaved() {
           <CheckCircle2 class="w-4 h-4 sm:w-5 sm:h-5" />
         </div>
         <div>
-          <p class="text-[11px] sm:text-xs text-morandi-muted font-medium">服务中源</p>
+          <p class="text-[11px] sm:text-xs text-morandi-muted font-medium">已启用图源</p>
           <p class="text-lg sm:text-xl font-bold text-morandi-text mt-0.5">{{ stats.enabled }} <span class="text-[10px] sm:text-xs font-normal text-morandi-muted">已启用</span></p>
         </div>
       </div>
@@ -158,7 +154,7 @@ function onFormSaved() {
           <Tag class="w-4 h-4 sm:w-5 sm:h-5" />
         </div>
         <div>
-          <p class="text-[11px] sm:text-xs text-morandi-muted font-medium">平均可用率</p>
+          <p class="text-[11px] sm:text-xs text-morandi-muted font-medium">近期平均成功率</p>
           <p class="text-lg sm:text-xl font-bold text-morandi-text mt-0.5">{{ stats.avgSuccess }}%</p>
         </div>
       </div>
@@ -205,7 +201,7 @@ function onFormSaved() {
           class="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-medium bg-morandi-sage hover:bg-morandi-sage-dark text-white rounded-xl shadow-sm transition-all duration-200 active:scale-95 cursor-pointer"
         >
           <Plus class="w-4 h-4" />
-          添加新图源
+          添加图源
         </button>
       </div>
     </div>
@@ -217,7 +213,8 @@ function onFormSaved() {
         v-for="src in filteredSources"
         :key="src.id"
         :source="src"
-        :available="healthStatusMap[src.id]"
+        :available="healthStatusMap[src.id]?.available"
+        :health-detail="healthStatusMap[src.id] ? '检测时间：' + new Date(healthStatusMap[src.id].checked_at!).toLocaleString() + (healthStatusMap[src.id].error ? '；' + healthStatusMap[src.id].error : '；本次响应检测通过') : undefined"
         @edit="editSource(src)"
         @delete="handleDelete(src.id)"
         @toggle="handleToggle(src.id)"
@@ -232,13 +229,13 @@ function onFormSaved() {
       </div>
       <div>
         <p class="text-sm font-medium text-morandi-text">未找到符合条件的图源 API</p>
-        <p class="text-xs text-morandi-muted mt-1">您可以点击右上角“添加新图源”开始配置</p>
+        <p class="text-xs text-morandi-muted mt-1">您可以点击右上角“添加图源”开始配置</p>
       </div>
       <button
         @click="addSource"
         class="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium bg-morandi-sage text-white rounded-xl shadow-sm hover:bg-morandi-sage-dark transition-colors"
       >
-        <Plus class="w-3.5 h-3.5" /> 立即添加图源
+        <Plus class="w-3.5 h-3.5" /> 添加图源
       </button>
     </div>
 

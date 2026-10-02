@@ -43,12 +43,15 @@ docker pull ghcr.nju.edu.cn/untitled572/pichub-aggregator:latest
 
 ## Manual Build
 
-```bash
-# Build backend
-cd backend && go build -o pichub .
+Use Go 1.26 or later and install a C compiler for CGO. Build the dashboard first so its files are embedded in the backend executable.
 
-# Build dashboard (optional, for dev)
-cd dashboard && npm install && npm run build
+```bash
+cd dashboard
+npm ci
+npm run build
+
+cd ../backend
+go build -o pichub .
 ```
 
 ## Project Structure

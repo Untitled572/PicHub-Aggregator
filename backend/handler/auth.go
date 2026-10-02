@@ -81,16 +81,21 @@ func (h *Handler) Logout(c *gin.Context) {
 // @Router /api/auth/check [get]
 func (h *Handler) CheckAuth(c *gin.Context) {
 	settings, err := h.store.GetSettings()
-	if err != nil || settings == nil || !settings.LoginEnabled {
-		c.JSON(http.StatusOK, gin.H{"valid": true, "login_enabled": false})
+	if err != nil || settings == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load settings"})
 		return
 	}
-	valid := false
+	configured := settings.AdminUsername != "" && settings.AdminPasswordHash != ""
+	required := settings.AdminToken != "" || (settings.LoginEnabled && configured)
+	valid := !required
 	auth := c.GetHeader("Authorization")
 	if strings.HasPrefix(auth, "Bearer ") {
 		token := auth[7:]
-		valid = h.store.Sessions().Validate(token) ||
+		valid = valid || (settings.LoginEnabled && configured && h.store.Sessions().Validate(token)) ||
 			(settings.AdminToken != "" && token == settings.AdminToken)
 	}
-	c.JSON(http.StatusOK, gin.H{"valid": valid, "login_enabled": true})
+	c.Header("Cache-Control", "no-store")
+	c.JSON(http.StatusOK, gin.H{"valid": valid, "login_enabled": settings.LoginEnabled,
+		"configured": configured, "auth_required": required,
+		"token_only": settings.AdminToken != "" && !(settings.LoginEnabled && configured)})
 }

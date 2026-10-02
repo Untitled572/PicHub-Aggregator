@@ -26,7 +26,7 @@ const copiedUrl = ref(false)
 const backendConnected = ref(true)
 const mobileMenuOpen = ref(false)
 const { loadTags } = useTags()
-const { getSettings } = useApi()
+const { checkAuth } = useApi()
 
 // 无布局路由 (如 /login): 全屏渲染, 不显示侧边栏/顶栏
 const isBarePage = computed(() => !!route.meta.bare)
@@ -49,6 +49,7 @@ watch(() => route.path, () => {
   // 登录后从 /login 回跳受保护页面: 组件不重新挂载, 需手动解除渲染锁
   if (!isBarePage.value && !authReady.value) {
     authReady.value = true
+    loadTags()
   }
 })
 
@@ -82,36 +83,16 @@ async function checkBackendHealth() {
 
 async function checkLoginState() {
   try {
-    if (getAuthToken()) {
-      // 有 token: 验证服务端会话是否仍有效 (服务重启后内存会话清空 → 失效)
-      const res = await fetch('/api/auth/check', {
-        headers: { Authorization: `Bearer ${getAuthToken()}` },
-      })
-      if (res.ok) {
-        const r = await res.json()
-        if (r.login_enabled && !r.valid) {
-          setAuthToken('')
-          router.replace('/login')
-          return
-        }
-        authReady.value = true
-        return
-      }
-    } else {
-      const s = await getSettings()
-      if (s.login_enabled) {
-        router.replace('/login')
-        return
-      }
-      authReady.value = true
+    const state = await checkAuth()
+    if (state.auth_required && !state.valid) {
+      setAuthToken('')
+      router.replace('/login')
       return
     }
+    authReady.value = true
   } catch {
-    // 后端不可达: 保持占位, 2 秒后重试 (服务就绪后自动判定登录态)
     setTimeout(checkLoginState, 2000)
-    return
   }
-  authReady.value = true
 }
 
 let healthTimer: any = null
@@ -172,7 +153,7 @@ function copyUserApiUrl() {
             <div class="flex items-center gap-1.5">
               <span class="font-bold text-base tracking-tight text-morandi-text">PicHub</span>
             </div>
-            <p class="text-xs text-morandi-muted">图源聚合中转引擎</p>
+            <p class="text-xs text-morandi-muted">图源聚合与分发</p>
           </div>
         </div>
 
@@ -219,7 +200,7 @@ function copyUserApiUrl() {
               ></span>
             </span>
             <div class="text-xs font-semibold flex items-center gap-1.5" :class="backendConnected ? 'text-morandi-text' : 'text-rose-600'">
-              <span>{{ backendConnected ? '节点就绪' : '未就绪' }}</span>
+              <span>{{ backendConnected ? '后端已连接' : '未就绪' }}</span>
               <span v-if="copiedUrl" class="text-[10px] text-emerald-600 font-medium">已复制!</span>
             </div>
           </div>
@@ -258,7 +239,7 @@ function copyUserApiUrl() {
             </div>
             <div>
               <span class="font-bold text-base tracking-tight text-morandi-text">PicHub</span>
-              <p class="text-[10px] text-morandi-muted">图源聚合中转引擎</p>
+              <p class="text-[10px] text-morandi-muted">图源聚合与分发</p>
             </div>
           </div>
           <button @click="mobileMenuOpen = false" class="p-2 text-morandi-muted hover:text-morandi-text rounded-xl">
@@ -300,7 +281,7 @@ function copyUserApiUrl() {
               <span class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" :class="backendConnected ? 'bg-emerald-400' : 'bg-rose-400'"></span>
               <span class="relative inline-flex rounded-full h-2.5 w-2.5" :class="backendConnected ? 'bg-emerald-500' : 'bg-rose-500'"></span>
             </span>
-            <span class="text-xs font-semibold text-morandi-text">{{ backendConnected ? '节点就绪' : '未就绪' }}</span>
+            <span class="text-xs font-semibold text-morandi-text">{{ backendConnected ? '后端已连接' : '未就绪' }}</span>
           </div>
           <component :is="copiedUrl ? Check : Copy" class="w-4 h-4 text-morandi-muted" />
         </div>
@@ -331,7 +312,7 @@ function copyUserApiUrl() {
             <span class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" :class="backendConnected ? 'bg-emerald-400' : 'bg-rose-400'"></span>
             <span class="relative inline-flex rounded-full h-2 w-2" :class="backendConnected ? 'bg-emerald-500' : 'bg-rose-500'"></span>
           </span>
-          <span class="text-[11px] font-mono">{{ copiedUrl ? '已复制' : (backendConnected ? '节点就绪' : '离线') }}</span>
+          <span class="text-[11px] font-mono">{{ copiedUrl ? '已复制' : (backendConnected ? '后端已连接' : '离线') }}</span>
         </div>
       </header>
 

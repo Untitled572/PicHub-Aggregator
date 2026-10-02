@@ -1,10 +1,14 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/netip"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -21,14 +25,25 @@ type DetectResult struct {
 	Error    string            `json:"error,omitempty"`
 }
 
-const maxDetectRedirects = 5
+const (
+	maxDetectRedirects = 5
+	maxDetectBodyBytes = 2 << 20
+	detectTimeout      = 10 * time.Second
+)
 
 func DetectURL(targetURL string) (*DetectResult, error) {
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
+	client := &http.Client{Transport: newDetectTransport(), Timeout: detectTimeout}
+	return detectURLWithClient(targetURL, client, validateDetectURL)
+}
+
+// detectURLWithClient allows tests to inject a local-only dialer while keeping
+// production URL validation and redirect handling explicit.
+func detectURLWithClient(targetURL string, client *http.Client, validate func(context.Context, *url.URL) error) (*DetectResult, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), detectTimeout)
+	defer cancel()
+	clientCopy := *client
+	clientCopy.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+		return http.ErrUseLastResponse
 	}
 
 	result := &DetectResult{
@@ -40,13 +55,20 @@ func DetectURL(targetURL string) (*DetectResult, error) {
 	redirects := 0
 
 	for {
-		req, err := http.NewRequest("GET", current, nil)
+		parsed, err := url.Parse(current)
+		if err != nil {
+			return nil, fmt.Errorf("parse URL: %w", err)
+		}
+		if err := validate(ctx, parsed); err != nil {
+			return nil, fmt.Errorf("unsafe URL: %w", err)
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
 		if err != nil {
 			return nil, fmt.Errorf("create request: %w", err)
 		}
 		req.Header.Set("User-Agent", "PicHub-Aggregator/1.0")
 
-		resp, err := client.Do(req)
+		resp, err := clientCopy.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("request failed: %w", err)
 		}
@@ -55,14 +77,22 @@ func DetectURL(targetURL string) (*DetectResult, error) {
 		loc := resp.Header.Get("Location")
 		if isRedirectStatus(resp.StatusCode) && loc != "" {
 			resp.Body.Close()
+			nextURL := resolveURL(current, loc)
+			parsedNext, err := url.Parse(nextURL)
+			if err != nil {
+				return nil, fmt.Errorf("parse redirect URL: %w", err)
+			}
+			if err := validate(ctx, parsedNext); err != nil {
+				return nil, fmt.Errorf("unsafe redirect URL: %w", err)
+			}
 			redirects++
 			if redirects > maxDetectRedirects {
 				result.RespType = "redirect"
-				result.URLHints = []string{resolveURL(current, loc)}
+				result.URLHints = []string{parsedNext.String()}
 				result.FinalURL = current
 				return result, nil
 			}
-			current = resolveURL(current, loc)
+			current = parsedNext.String()
 			continue
 		}
 
@@ -80,12 +110,14 @@ func DetectURL(targetURL string) (*DetectResult, error) {
 		// 3xx 但无 Location: 保留现有行为, 直接读 body
 		if isRedirectStatus(resp.StatusCode) {
 			result.RespType = "redirect"
-			body, err := io.ReadAll(resp.Body)
-			if err == nil {
-				text := strings.TrimSpace(string(body))
-				if strings.HasPrefix(text, "http://") || strings.HasPrefix(text, "https://") {
-					result.URLHints = []string{text}
-				}
+			body, err := readDetectBody(resp.Body)
+			if err != nil {
+				result.Error = fmt.Sprintf("read body: %v", err)
+				return result, nil
+			}
+			text := strings.TrimSpace(string(body))
+			if strings.HasPrefix(text, "http://") || strings.HasPrefix(text, "https://") {
+				result.URLHints = []string{text}
 			}
 			return result, nil
 		}
@@ -103,7 +135,7 @@ func DetectURL(targetURL string) (*DetectResult, error) {
 
 		if strings.HasPrefix(ct, "application/json") {
 			result.RespType = "json"
-			body, err := io.ReadAll(resp.Body)
+			body, err := readDetectBody(resp.Body)
 			if err != nil {
 				result.Error = fmt.Sprintf("read body: %v", err)
 				return result, nil
@@ -120,7 +152,7 @@ func DetectURL(targetURL string) (*DetectResult, error) {
 			return result, nil
 		}
 
-		body, err := io.ReadAll(resp.Body)
+		body, err := readDetectBody(resp.Body)
 		if err != nil {
 			result.Error = fmt.Sprintf("read body: %v", err)
 			return result, nil
@@ -138,6 +170,121 @@ func DetectURL(targetURL string) (*DetectResult, error) {
 		}
 
 		return result, nil
+	}
+}
+
+func readDetectBody(body io.Reader) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(body, maxDetectBodyBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxDetectBodyBytes {
+		return nil, fmt.Errorf("response body exceeds %d bytes", maxDetectBodyBytes)
+	}
+	return data, nil
+}
+
+var blockedDetectPrefixes = func() []netip.Prefix {
+	raw := []string{
+		"0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16",
+		"172.16.0.0/12", "192.0.0.0/24", "192.0.2.0/24", "192.88.99.0/24", "192.168.0.0/16",
+		"198.18.0.0/15", "198.51.100.0/24", "203.0.113.0/24", "224.0.0.0/4", "240.0.0.0/4",
+		"::/128", "::1/128", "::ffff:0:0/96", "64:ff9b::/96", "64:ff9b:1::/48", "100::/64", "2001::/23",
+		"2001:db8::/32", "2002::/16", "3fff::/20", "fc00::/7", "fe80::/10", "ff00::/8",
+	}
+	prefixes := make([]netip.Prefix, 0, len(raw))
+	for _, value := range raw {
+		prefixes = append(prefixes, netip.MustParsePrefix(value))
+	}
+	return prefixes
+}()
+
+func validateDetectURL(ctx context.Context, target *url.URL) error {
+	if target == nil || (target.Scheme != "http" && target.Scheme != "https") {
+		return fmt.Errorf("only http and https URLs are allowed")
+	}
+	if target.User != nil {
+		return fmt.Errorf("URL credentials are not allowed")
+	}
+	if target.Hostname() == "" {
+		return fmt.Errorf("URL host is required")
+	}
+	if ip, err := netip.ParseAddr(target.Hostname()); err == nil {
+		return validateDetectIP(ip)
+	}
+	return nil
+}
+
+func validateDetectIP(ip netip.Addr) error {
+	if ip.Is4In6() {
+		return fmt.Errorf("IPv4-mapped IPv6 addresses are not allowed")
+	}
+	if ip.Zone() != "" {
+		return fmt.Errorf("scoped IP addresses are not allowed")
+	}
+	if !ip.IsValid() || !ip.IsGlobalUnicast() {
+		return fmt.Errorf("non-global IP address is not allowed")
+	}
+	for _, prefix := range blockedDetectPrefixes {
+		if prefix.Contains(ip) {
+			return fmt.Errorf("special-use IP address is not allowed")
+		}
+	}
+	if ip.Is6() && !netip.MustParsePrefix("2000::/3").Contains(ip) {
+		return fmt.Errorf("non-global IPv6 address is not allowed")
+	}
+	return nil
+}
+
+func newDetectTransport() *http.Transport {
+	return newDetectTransportWithResolver(func(ctx context.Context, host string) ([]netip.Addr, error) {
+		return net.DefaultResolver.LookupNetIP(ctx, "ip", host)
+	})
+}
+
+func newDetectTransportWithResolver(resolve func(context.Context, string) ([]netip.Addr, error)) *http.Transport {
+	return newDetectTransportWithResolverAndDial(resolve, (&net.Dialer{}).DialContext)
+}
+
+func newDetectTransportWithResolverAndDial(resolve func(context.Context, string) ([]netip.Addr, error), dial func(context.Context, string, string) (net.Conn, error)) *http.Transport {
+	return &http.Transport{
+		Proxy: nil, // Prevent environment proxy settings from bypassing destination checks.
+		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(address)
+			if err != nil {
+				return nil, err
+			}
+			if ip, err := netip.ParseAddr(host); err == nil {
+				if err := validateDetectIP(ip); err != nil {
+					return nil, err
+				}
+				return dial(ctx, network, net.JoinHostPort(ip.String(), port))
+			}
+			ips, err := resolve(ctx, host)
+			if err != nil {
+				return nil, fmt.Errorf("resolve destination: %w", err)
+			}
+			if len(ips) == 0 {
+				return nil, fmt.Errorf("destination has no IP addresses")
+			}
+			// Validate the complete DNS answer set before choosing any candidate.
+			// This prevents an allowed answer from masking a private one.
+			for _, ip := range ips {
+				if err := validateDetectIP(ip); err != nil {
+					return nil, err
+				}
+			}
+			var lastErr error
+			for _, ip := range ips {
+				conn, err := dial(ctx, network, net.JoinHostPort(ip.String(), port))
+				if err == nil {
+					return conn, nil
+				}
+				lastErr = err
+			}
+			return nil, lastErr
+		},
+		DisableKeepAlives: true,
 	}
 }
 

@@ -2,13 +2,13 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import AutoImport from 'unplugin-auto-import/vite'
 import compression from 'vite-plugin-compression'
-import { execSync } from 'child_process'
+import { execFileSync } from 'child_process'
 
 const version = (() => {
   const explicit = process.env.VITE_APP_VERSION
   if (explicit) return explicit
   try {
-    return execSync('git describe --tags --abbrev=0 2>/dev/null || echo "dev"').toString().trim()
+    return execFileSync('git', ['describe', '--tags', '--abbrev=0'], { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim()
   } catch {
     return 'dev'
   }

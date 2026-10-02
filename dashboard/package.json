@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc --noEmit && vite build && rm -rf ../backend/embed/dist/* && cp -r dist/* ../backend/embed/dist/",
+    "build": "vue-tsc --noEmit && vite build && node scripts/sync-dist.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

@@ -152,6 +152,7 @@ func (h *Handler) UnsaveImage(c *gin.Context) {
 // @Param offset query int false "偏移量" default(0)
 // @Success 200 {object} map[string]interface{}
 // @Failure 500 {object} map[string]interface{}
+// @Security BearerAuth
 // @Router /api/images/saved [get]
 func (h *Handler) ListSavedImages(c *gin.Context) {
 	limit := 20

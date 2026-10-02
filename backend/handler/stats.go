@@ -17,6 +17,7 @@ import (
 // @Param range query string false "快捷区间" Enums(today,7d,30d,all)
 // @Success 200 {object} map[string]interface{}
 // @Failure 500 {object} map[string]interface{}
+// @Security BearerAuth
 // @Router /api/stats [get]
 func (h *Handler) GetStats(c *gin.Context) {
 	todayStr := time.Now().Format("2006-01-02")
@@ -75,6 +76,7 @@ func (h *Handler) GetStats(c *gin.Context) {
 // @Param offset query int false "偏移量" default(0)
 // @Success 200 {object} map[string]interface{}
 // @Failure 500 {object} map[string]interface{}
+// @Security BearerAuth
 // @Router /api/stats/history [get]
 func (h *Handler) GetImageHistory(c *gin.Context) {
 	limit := 20

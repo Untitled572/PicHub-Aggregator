@@ -1,6 +1,6 @@
 // @title PicHub Aggregator API
 // @version 0.6.5
-// @description PicHub-Aggregator 图片聚合分发服务。AdminAuth 只保护 POST/PUT/DELETE，所有 GET 端点公开。
+// @description PicHub-Aggregator 图片聚合分发服务。管理接口支持会话和 Bearer token 鉴权，图片分发接口公开。
 // @termsOfService https://github.com/untitled572/pichub-aggregator
 // @contact.name PicHub
 // @license.name MIT
@@ -11,12 +11,17 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"io/fs"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	swaggerFiles "github.com/swaggo/files"
@@ -79,7 +84,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to initialize store: %v", err)
 	}
-	defer st.Close()
+	defer func() {
+		if err := st.Close(); err != nil {
+			logger.Error("failed to flush and close store: %v", err)
+		}
+	}()
 
 	// seed config.json sources into DB (if not already seeded)
 	if cfg != nil {
@@ -102,15 +111,15 @@ func main() {
 		}
 	}
 
-	checker := service.NewHealthChecker(st)
-	checker.Start()
-	defer checker.Stop()
-
 	proxyConfig := service.NewProxyConfig()
 	settings, _ := st.GetSettings()
 	if settings != nil {
 		proxyConfig.Update(settings.ProxyEnabled, settings.ProxyURL)
 	}
+
+	checker := service.NewHealthChecker(st, proxyConfig)
+	checker.Start()
+	defer checker.Stop()
 
 	proxyCache := service.NewProxyCache(st, "./cache")
 	imageStore := service.NewImageStore(st, "./data/images", proxyConfig)
@@ -157,44 +166,8 @@ func main() {
 	r.GET("/ping", h.HealthCheck)
 	r.GET("/random", rateLimitMW, h.RandomImage)
 	r.GET("/e/:name", rateLimitMW, h.EndpointImage)
-	r.POST("/random/detect", h.DetectURL)
-	r.POST("/api/sources/health-check", h.BatchHealthCheck)
 	r.GET("/images/:file_id", h.ServeImage)
-
-	api := r.Group("/api")
-	{
-		api.POST("/login", h.Login)
-		api.POST("/logout", middleware.AdminAuth(st), h.Logout)
-		api.GET("/auth/check", h.CheckAuth)
-		api.GET("/sources", h.ListSources)
-		api.GET("/sources/:id", h.GetSource)
-		api.POST("/sources", middleware.AdminAuth(st), h.CreateSource)
-		api.PUT("/sources/:id", middleware.AdminAuth(st), h.UpdateSource)
-		api.DELETE("/sources/:id", middleware.AdminAuth(st), h.DeleteSource)
-		api.POST("/sources/:id/toggle", middleware.AdminAuth(st), h.ToggleSource)
-		api.GET("/settings", h.GetSettings)
-		api.PUT("/settings", middleware.AdminAuth(st), h.UpdateSettings)
-		api.GET("/tags", h.GetTags)
-		api.PUT("/tags", middleware.AdminAuth(st), h.UpdateTags)
-		api.GET("/endpoints", h.ListEndpoints)
-		api.POST("/endpoints", middleware.AdminAuth(st), h.CreateEndpoint)
-		api.PUT("/endpoints/:id", middleware.AdminAuth(st), h.UpdateEndpoint)
-		api.DELETE("/endpoints/:id", middleware.AdminAuth(st), h.DeleteEndpoint)
-		api.POST("/endpoints/:id/toggle", middleware.AdminAuth(st), h.ToggleEndpoint)
-		api.GET("/health", h.GetHealthStatus)
-		api.GET("/stats", h.GetStats)
-		api.GET("/stats/history", h.GetImageHistory)
-		api.GET("/images/saved", h.ListSavedImages)
-		api.POST("/images/:id/save", middleware.AdminAuth(st), h.SaveImage)
-		api.POST("/images/:id/like", middleware.AdminAuth(st), h.LikeImage)
-		api.POST("/images/:id/dislike", middleware.AdminAuth(st), h.DislikeImage)
-
-		api.DELETE("/images/:id/save", middleware.AdminAuth(st), h.UnsaveImage)
-		api.GET("/export", h.ExportData)
-		api.POST("/export", middleware.AdminAuth(st), h.ExportRules)
-		api.POST("/import", middleware.AdminAuth(st), h.ImportData)
-
-	}
+	registerManagementRoutes(r, h, st)
 
 	distFS := embed.GetDistFS()
 	assetsFS := embed.GetAssetsFS()
@@ -225,7 +198,65 @@ func main() {
 	}
 
 	logger.System("PicHub-Aggregator starting on :%s", port)
-	if err := r.Run(":" + port); err != nil {
-		log.Fatalf("failed to start server: %v", err)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	server := &http.Server{Addr: ":" + port, Handler: r, ReadHeaderTimeout: 10 * time.Second}
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- server.ListenAndServe() }()
+	select {
+	case err := <-serveErr:
+		if !errors.Is(err, http.ErrServerClosed) {
+			logger.Error("HTTP server stopped: %v", err)
+		}
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			logger.Error("HTTP shutdown: %v", err)
+			_ = server.Close()
+		}
+	}
+
+}
+
+// Keep management routes together so new endpoints inherit authentication.
+func registerManagementRoutes(r *gin.Engine, h *handler.Handler, st *store.Store) {
+	r.POST("/random/detect", middleware.AdminAuth(st), h.DetectURL)
+
+	api := r.Group("/api")
+	{
+		api.POST("/login", h.Login)
+		api.GET("/auth/check", h.CheckAuth)
+		api.Use(middleware.AdminAuth(st))
+		api.POST("/logout", h.Logout)
+		api.POST("/sources/health-check", h.BatchHealthCheck)
+		api.GET("/sources", h.ListSources)
+		api.GET("/sources/:id", h.GetSource)
+		api.POST("/sources", h.CreateSource)
+		api.PUT("/sources/:id", h.UpdateSource)
+		api.DELETE("/sources/:id", h.DeleteSource)
+		api.POST("/sources/:id/toggle", h.ToggleSource)
+		api.GET("/settings", h.GetSettings)
+		api.PUT("/settings", h.UpdateSettings)
+		api.GET("/tags", h.GetTags)
+		api.PUT("/tags", h.UpdateTags)
+		api.GET("/endpoints", h.ListEndpoints)
+		api.POST("/endpoints", h.CreateEndpoint)
+		api.PUT("/endpoints/:id", h.UpdateEndpoint)
+		api.DELETE("/endpoints/:id", h.DeleteEndpoint)
+		api.POST("/endpoints/:id/toggle", h.ToggleEndpoint)
+		api.GET("/health", h.GetHealthStatus)
+		api.GET("/stats", h.GetStats)
+		api.GET("/stats/history", h.GetImageHistory)
+		api.GET("/images/saved", h.ListSavedImages)
+		api.POST("/images/:id/save", h.SaveImage)
+		api.POST("/images/:id/like", h.LikeImage)
+		api.POST("/images/:id/dislike", h.DislikeImage)
+
+		api.DELETE("/images/:id/save", h.UnsaveImage)
+		api.GET("/export", h.ExportData)
+		api.POST("/export", h.ExportRules)
+		api.POST("/import", h.ImportData)
+
 	}
 }

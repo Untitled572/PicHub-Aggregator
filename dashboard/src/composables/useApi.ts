@@ -41,15 +41,22 @@ export function useApi() {
   async function request<T>(url: string, options?: RequestInit): Promise<T> {
     loading.value = true
     error.value = null
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    const headers = new Headers({ 'Content-Type': 'application/json' })
     const token = getAuthToken()
     if (token) {
-      headers['Authorization'] = `Bearer ${token}`
+      headers.set('Authorization', `Bearer ${token}`)
+    }
+    if (options?.headers) {
+      new Headers(options.headers).forEach((value, key) => headers.set(key, value))
+    }
+    if (options?.body instanceof FormData) {
+      // The browser must add the multipart boundary for FormData requests.
+      headers.delete('Content-Type')
     }
     try {
       const res = await fetch(`${API_BASE}${url}`, {
-        headers: { ...headers, ...options?.headers as Record<string, string> },
         ...options,
+        headers,
       })
       checkTimeDrift(res.headers.get('x-server-time'))
       if (res.status === 401 && url !== '/api/login') {
@@ -65,6 +72,7 @@ export function useApi() {
         throw new Error(body.error || `HTTP ${res.status}`)
       }
       if (res.status === 204) return undefined as T
+      if (url.startsWith('/api/export?')) return res.blob() as Promise<T>
       if (res.headers.get('content-type')?.includes('json')) return res.json()
       return undefined as T
     } catch (e: any) {
@@ -73,6 +81,10 @@ export function useApi() {
     } finally {
       loading.value = false
     }
+  }
+
+  function checkAuth() {
+    return request<{ valid: boolean; login_enabled: boolean; configured: boolean; auth_required: boolean; token_only: boolean }>('/api/auth/check')
   }
 
   function login(username: string, password: string) {
@@ -162,6 +174,10 @@ export function useApi() {
     return request<DetectResult>('/random/detect', { method: 'POST', body: JSON.stringify({ url }) })
   }
 
+  function getHealthStatus() {
+    return request<{ results: HealthResult[]; last_run: string }>('/api/health')
+  }
+
   function healthCheck() {
     return request<HealthResult[]>('/api/sources/health-check', { method: 'POST' })
   }
@@ -210,9 +226,14 @@ export function useApi() {
   }
 
 
-  function exportCustomData(scopes: string[]) {
-    const scopeParam = scopes.join(',')
-    return window.open(`/api/export?scope=${scopeParam}`, '_blank')
+  async function exportCustomData(scopes: string[]) {
+    const blob = await request<Blob>('/api/export?scope=' + encodeURIComponent(scopes.join(',')))
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = blob.type.includes('zip') ? 'pichub-backup.zip' : 'pichub-backup.json'
+    link.click()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
 
   function importCustomData(payload: FormData | object) {
@@ -229,11 +250,11 @@ export function useApi() {
 
   return {
     loading, error,
-    login, logout,
+    login, logout, checkAuth,
     listSources, getSource, createSource, updateSource, deleteSource, toggleSource,
     getSettings, updateSettings, getTags, updateTags,
     listEndpoints, createEndpoint, updateEndpoint, deleteEndpoint, toggleEndpoint,
-    detectURL, healthCheck,
+    detectURL, healthCheck, getHealthStatus,
     exportRules, importRules, exportCustomData, importCustomData,
     getStats, getImageHistory,
     saveImage, unsaveImage, likeImage, dislikeImage, listSavedImages,

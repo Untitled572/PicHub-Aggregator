@@ -7,13 +7,15 @@ import { useApi, getAuthToken, setAuthToken } from '../composables/useApi'
 import type { Settings } from '../types'
 
 const router = useRouter()
-const { login, getSettings, updateSettings } = useApi()
+const { login, getSettings, updateSettings, checkAuth } = useApi()
 
 const username = ref('')
 const password = ref('')
 const loading = ref(false)
 const errorMsg = ref('')
 const loginNotEnabled = ref(false)
+const tokenOnly = ref(false)
+const adminToken = ref('')
 
 // 首次运行设置模式: 登录已启用但未配置账号密码
 const setupMode = ref(false)
@@ -24,15 +26,11 @@ const setupConfirm = ref('')
 const remember = useLocalStorage('pichub_remember_login', { remember: false, username: '', password: '' })
 
 onMounted(async () => {
-  // 已登录直接进控制台
-  if (getAuthToken()) {
-    router.replace('/')
-    return
-  }
   try {
-    const s = await getSettings()
-    loginNotEnabled.value = !s.login_enabled
-    setupMode.value = !!s.login_enabled && !s.admin_username
+    const s = await checkAuth()
+    tokenOnly.value = s.token_only
+    loginNotEnabled.value = !s.auth_required && !s.login_enabled
+    setupMode.value = s.login_enabled && !s.configured && !s.auth_required
   } catch {
     // 后端不可达时仍展示登录表单
   }
@@ -43,6 +41,22 @@ onMounted(async () => {
 })
 
 async function doLogin() {
+  if (tokenOnly.value) {
+    loading.value = true
+    errorMsg.value = ''
+    try {
+      setAuthToken(adminToken.value.trim())
+      const state = await checkAuth()
+      if (!state.valid) throw new Error('管理令牌无效')
+      await router.replace('/')
+    } catch (e: any) {
+      setAuthToken('')
+      errorMsg.value = e.message || '登录失败'
+    } finally {
+      loading.value = false
+    }
+    return
+  }
   if (!username.value.trim() || !password.value) {
     errorMsg.value = '请输入用户名与密码'
     return
@@ -111,7 +125,7 @@ async function doSetup() {
           <Sparkles class="w-7 h-7" />
         </div>
         <h1 class="text-xl font-bold text-morandi-text tracking-tight">PicHub</h1>
-        <p class="text-xs text-morandi-muted mt-1">图源聚合中转引擎 · 管理控制台</p>
+        <p class="text-xs text-morandi-muted mt-1">图片 API 聚合与管理控制台</p>
       </div>
 
       <!-- Card -->
@@ -194,6 +208,14 @@ async function doSetup() {
             </button>
           </form>
         </div>
+
+        <form v-else-if="tokenOnly" @submit.prevent="doLogin" class="space-y-4">
+          <p class="text-sm text-morandi-muted">请输入已配置的管理令牌。</p>
+          <p v-if="errorMsg" class="text-sm text-rose-600">{{ errorMsg }}</p>
+          <label class="block text-xs text-morandi-text" for="admin-token">管理令牌</label>
+          <input id="admin-token" v-model="adminToken" type="password" autocomplete="off" class="w-full px-3 py-2.5 border border-morandi-border rounded-xl" />
+          <button type="submit" :disabled="loading" class="w-full py-2.5 rounded-xl bg-morandi-sage text-white disabled:opacity-60">{{ loading ? '验证中…' : '登录' }}</button>
+        </form>
 
         <!-- 正常登录 -->
         <form v-else @submit.prevent="doLogin" class="space-y-4">

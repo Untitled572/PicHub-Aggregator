@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import { useApi } from './useApi'
 import type { Tag } from '../types'
 
 const DEFAULT_TAGS: Tag[] = [
@@ -15,24 +16,19 @@ export function useTags() {
   async function loadTags() {
     if (loaded) return
     try {
-      const res = await fetch('/api/tags')
-      if (res.ok) {
-        const data = await res.json()
+      const data = await useApi().getTags()
+      {
         if (Array.isArray(data) && data.length > 0) {
           tags.value = data
         }
       }
+      loaded = true
     } catch {}
-    loaded = true
   }
 
   async function saveTags() {
     try {
-      await fetch('/api/tags', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(tags.value),
-      })
+      await useApi().updateTags(tags.value)
     } catch {}
   }
 

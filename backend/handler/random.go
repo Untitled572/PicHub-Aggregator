@@ -103,6 +103,7 @@ func (h *Handler) serveRandom(c *gin.Context, category string) {
 // @Success 200 {object} service.DetectResult
 // @Failure 400 {object} map[string]interface{} "请求体无效"
 // @Failure 500 {object} map[string]interface{} "探测失败"
+// @Security BearerAuth
 // @Router /random/detect [post]
 func (h *Handler) DetectURL(c *gin.Context) {
 	var req DetectURLRequest
@@ -128,6 +129,7 @@ func (h *Handler) DetectURL(c *gin.Context) {
 // @Tags Health
 // @Produce json
 // @Success 200 {array} service.HealthResult
+// @Security BearerAuth
 // @Router /api/sources/health-check [post]
 func (h *Handler) BatchHealthCheck(c *gin.Context) {
 	if h.healthChecker != nil {
@@ -147,6 +149,7 @@ func (h *Handler) BatchHealthCheck(c *gin.Context) {
 // @Produce json
 // @Success 200 {object} map[string]interface{}
 // @Failure 503 {object} map[string]interface{} "健康检查器不可用"
+// @Security BearerAuth
 // @Router /api/health [get]
 func (h *Handler) GetHealthStatus(c *gin.Context) {
 	if h.healthChecker == nil {

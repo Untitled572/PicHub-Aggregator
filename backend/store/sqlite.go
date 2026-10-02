@@ -43,7 +43,9 @@ func New(dbPath string) (*Store, error) {
 
 func (s *Store) Close() error {
 	if s.batcher != nil {
-		s.batcher.Close()
+		if err := s.batcher.Close(); err != nil {
+			return fmt.Errorf("flush stats before closing store: %w", err)
+		}
 	}
 	return s.db.Close()
 }
@@ -216,8 +218,8 @@ func (s *Store) ListSources() ([]model.Source, error) {
 		json.Unmarshal([]byte(categoriesJSON), &src.Categories)
 		json.Unmarshal([]byte(headersJSON), &src.Headers)
 		json.Unmarshal([]byte(paramsJSON), &src.Params)
-		src.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
-		src.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAt)
+		src.CreatedAt = parseSourceTimestamp(createdAt)
+		src.UpdatedAt = parseSourceTimestamp(updatedAt)
 		sources = append(sources, src)
 	}
 	return sources, nil
@@ -237,8 +239,8 @@ func (s *Store) GetSource(id int64) (*model.Source, error) {
 	json.Unmarshal([]byte(categoriesJSON), &src.Categories)
 	json.Unmarshal([]byte(headersJSON), &src.Headers)
 	json.Unmarshal([]byte(paramsJSON), &src.Params)
-	src.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
-	src.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAt)
+	src.CreatedAt = parseSourceTimestamp(createdAt)
+	src.UpdatedAt = parseSourceTimestamp(updatedAt)
 	return &src, nil
 }
 
@@ -261,7 +263,7 @@ func (s *Store) UpdateSource(src *model.Source) error {
 	headersJSON, _ := json.Marshal(src.Headers)
 	paramsJSON, _ := json.Marshal(src.Params)
 	_, err := s.db.Exec(
-		"UPDATE sources SET name=?, url=?, resp_type=?, json_path=?, weight=?, categories=?, headers=?, params=?, default_query=?, enabled=?, fail_count=?, success_rate=?, avg_latency=?, status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+		"UPDATE sources SET name=?, url=?, resp_type=?, json_path=?, weight=?, categories=?, headers=?, params=?, default_query=?, enabled=?, fail_count=?, success_rate=?, avg_latency=?, status=?, updated_at=STRFTIME('%Y-%m-%d %H:%M:%f', 'now') WHERE id=?",
 		src.Name, src.URL, src.RespType, src.JsonPath, src.Weight, string(categoriesJSON), string(headersJSON), string(paramsJSON), src.DefaultQuery, src.Enabled, src.FailCount, src.SuccessRate, src.AvgLatency, src.Status, src.ID,
 	)
 	return err
@@ -553,7 +555,7 @@ func (s *Store) GetEnabledSources() ([]model.Source, error) {
 
 func (s *Store) RecordStats(queryCats []string, src model.Source, imageURL string, imageID *int64, fileID string) error {
 	if s.batcher != nil {
-		s.batcher.Record(StatsEvent{
+		return s.batcher.Record(StatsEvent{
 			QueryCats: queryCats,
 			Source:    src,
 			ImageURL:  imageURL,
@@ -1094,4 +1096,24 @@ func (s *Store) EndpointNameExists(name string, excludeID int64) (bool, error) {
 	var count int
 	err := s.db.QueryRow("SELECT COUNT(*) FROM endpoints WHERE name=? AND id<>?", name, excludeID).Scan(&count)
 	return count > 0, err
+}
+
+// RecordHealthResult only changes health fields; a probe must not overwrite edited configuration.
+func (s *Store) RecordHealthResult(id int64, available bool, latencyMS int64) error {
+	if available {
+		_, err := s.db.Exec("UPDATE sources SET fail_count=0, status='normal', avg_latency=CASE WHEN avg_latency>0 THEN (avg_latency+?)/2 ELSE ? END, success_rate=CASE WHEN success_rate>0 THEN success_rate*0.9+10 ELSE 100 END WHERE id=?", latencyMS, latencyMS, id)
+		return err
+	}
+	_, err := s.db.Exec("UPDATE sources SET fail_count=fail_count+1, avg_latency=CASE WHEN avg_latency>0 THEN (avg_latency+?)/2 ELSE ? END, success_rate=success_rate*0.9 WHERE id=?", latencyMS, latencyMS, id)
+	return err
+}
+
+// SQLite DATETIME columns may be returned as RFC3339 by the driver.
+func parseSourceTimestamp(value string) time.Time {
+	for _, layout := range []string{time.RFC3339Nano, "2006-01-02 15:04:05"} {
+		if parsed, err := time.Parse(layout, value); err == nil {
+			return parsed
+		}
+	}
+	return time.Time{}
 }

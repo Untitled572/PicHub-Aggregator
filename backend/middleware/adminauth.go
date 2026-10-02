@@ -20,8 +20,8 @@ func AdminAuth(st *store.Store) gin.HandlerFunc {
 		}
 
 		if settings.LoginEnabled {
-			// 首次初始化: 登录已启用但未配置账号密码 → 放行写操作 (允许设置凭据)
-			if settings.AdminUsername == "" || settings.AdminPasswordHash == "" {
+			// 首次初始化: 账号密码未配齐且没有管理令牌时，允许访问以设置凭据
+			if (settings.AdminUsername == "" || settings.AdminPasswordHash == "") && settings.AdminToken == "" {
 				c.Next()
 				return
 			}

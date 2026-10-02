@@ -24,6 +24,7 @@ const { exportCustomData, importCustomData, exportRules } = useApi()
 const tab = ref<'export' | 'import'>('export')
 const loading = ref(false)
 const copied = ref(false)
+const exportError = ref('')
 
 // Export Scope Checkboxes State
 const exportScope = ref({
@@ -50,7 +51,7 @@ function toggleScope(key: 'config' | 'stats' | 'images') {
   exportScope.value[key] = !exportScope.value[key]
 }
 
-function handleExport() {
+async function handleExport() {
   const selectedScopes: string[] = []
   if (exportScope.value.config) selectedScopes.push('config')
   if (exportScope.value.stats) selectedScopes.push('stats')
@@ -58,7 +59,15 @@ function handleExport() {
 
   if (selectedScopes.length === 0) return
 
-  exportCustomData(selectedScopes)
+  loading.value = true
+  exportError.value = ''
+  try {
+    await exportCustomData(selectedScopes)
+  } catch (e: any) {
+    exportError.value = e.message || '导出失败'
+  } finally {
+    loading.value = false
+  }
 }
 
 const exportedJsonText = ref('')
@@ -130,6 +139,7 @@ async function handleImport() {
     @click.self="emit('close')"
   >
     <div class="bg-white rounded-2xl shadow-2xl w-full max-w-xl border border-morandi-borderSoft overflow-hidden flex flex-col max-h-[90vh]">
+      <p v-if="exportError" class="px-5 pt-4 text-sm text-rose-600">{{ exportError }}</p>
       <!-- Modal Header -->
       <div class="p-5 border-b border-morandi-border/60 flex justify-between items-center bg-morandi-bg/50">
         <div class="flex items-center gap-3">

@@ -16,6 +16,7 @@ import (
 // @Produce json
 // @Success 200 {array} model.Source
 // @Failure 500 {object} map[string]interface{}
+// @Security BearerAuth
 // @Router /api/sources [get]
 func (h *Handler) ListSources(c *gin.Context) {
 	sources, err := h.store.ListSources()
@@ -34,6 +35,7 @@ func (h *Handler) ListSources(c *gin.Context) {
 // @Success 200 {object} model.Source
 // @Failure 400 {object} map[string]interface{}
 // @Failure 404 {object} map[string]interface{}
+// @Security BearerAuth
 // @Router /api/sources/{id} [get]
 func (h *Handler) GetSource(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)

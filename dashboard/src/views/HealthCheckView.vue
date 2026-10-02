@@ -4,11 +4,11 @@ import { useHealthCheck } from '../composables/useHealthCheck'
 import HealthStatusBadge from '../components/HealthStatusBadge.vue'
 import { Activity, RefreshCw, CheckCircle2, AlertTriangle, Clock, Layers } from 'lucide-vue-next'
 
-const { results, lastRun, running, progress, summary, loadCached, runCheck } = useHealthCheck()
+const { results, lastRun, running, error, summary, loadCached, runCheck } = useHealthCheck()
 
 onMounted(async () => {
   await loadCached()
-  if (results.value.length === 0) runCheck()
+
 })
 </script>
 
@@ -18,9 +18,9 @@ onMounted(async () => {
     <div class="morandi-card p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
       <div>
         <h2 class="font-bold text-base text-morandi-text flex items-center gap-2">
-          <Activity class="w-5 h-5 text-morandi-sage" /> 全局图源健康度与延迟排查
+          <Activity class="w-5 h-5 text-morandi-sage" /> 图源检测
         </h2>
-        <p class="text-xs text-morandi-muted mt-0.5">并发检测所有开启状态图源的响应延迟、HTTP 状态码及连通性</p>
+        <p class="text-xs text-morandi-muted mt-0.5">按图源的参数、请求头和代理设置，检查主地址与分支的响应。</p>
       </div>
 
       <button
@@ -29,20 +29,17 @@ onMounted(async () => {
         class="w-full sm:w-auto px-4 py-2 text-xs font-semibold bg-white hover:bg-morandi-hover text-morandi-text rounded-xl border border-morandi-borderSoft shadow-xs flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50 shrink-0 whitespace-nowrap"
       >
         <RefreshCw class="w-3.5 h-3.5 text-morandi-sage" :class="{ 'animate-spin': running }" />
-        <span class="whitespace-nowrap">{{ running ? '检测诊断中...' : '重新发起检测' }}</span>
+        <span class="whitespace-nowrap">{{ running ? '检测中…' : '重新检测' }}</span>
       </button>
     </div>
 
-    <!-- Progress bar -->
-    <div v-if="running" class="morandi-card p-4 space-y-2">
-      <div class="flex justify-between text-xs text-morandi-muted">
-        <span>健康探测进度</span>
-        <span class="font-mono font-semibold text-morandi-sage-dark">{{ progress }}%</span>
-      </div>
-      <div class="w-full bg-morandi-sidebar rounded-full h-2 overflow-hidden">
-        <div class="bg-morandi-sage h-2 rounded-full transition-all duration-300" :style="{ width: progress + '%' }"></div>
-      </div>
+    <p class="text-xs text-morandi-muted" v-if="lastRun && !lastRun.startsWith('0001')">
+      上次检测：{{ new Date(lastRun).toLocaleString() }}。结果仅反映检测当时的响应；主地址或部分分支通过，不代表所有图片均可下载。
+    </p>
+    <div v-if="running" role="status" class="morandi-card p-4 text-xs text-morandi-muted flex items-center gap-2">
+      <RefreshCw class="w-4 h-4 animate-spin" /> 正在检查已启用图源，请稍候…
     </div>
+    <div v-if="error" role="alert" class="morandi-card p-4 text-xs text-rose-700">{{ error }}</div>
 
     <!-- Summary KPI Cards -->
     <div class="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
@@ -51,7 +48,7 @@ onMounted(async () => {
           <Layers class="w-4 h-4 sm:w-5 sm:h-5" />
         </div>
         <div>
-          <p class="text-[11px] sm:text-xs text-morandi-muted font-medium whitespace-nowrap">节点总数</p>
+          <p class="text-[11px] sm:text-xs text-morandi-muted font-medium whitespace-nowrap">已检测图源</p>
           <p class="text-lg sm:text-xl font-bold text-morandi-text mt-0.5 font-mono">{{ summary.total }}</p>
         </div>
       </div>
@@ -61,7 +58,7 @@ onMounted(async () => {
           <CheckCircle2 class="w-4 h-4 sm:w-5 sm:h-5" />
         </div>
         <div>
-          <p class="text-[11px] sm:text-xs text-morandi-muted font-medium whitespace-nowrap">健康正常</p>
+          <p class="text-[11px] sm:text-xs text-morandi-muted font-medium whitespace-nowrap">检测通过</p>
           <p class="text-lg sm:text-xl font-bold text-morandi-sage-dark mt-0.5 font-mono">{{ summary.available }}</p>
         </div>
       </div>
@@ -71,7 +68,7 @@ onMounted(async () => {
           <AlertTriangle class="w-4 h-4 sm:w-5 sm:h-5" />
         </div>
         <div>
-          <p class="text-[11px] sm:text-xs text-morandi-muted font-medium whitespace-nowrap">异常挂起</p>
+          <p class="text-[11px] sm:text-xs text-morandi-muted font-medium whitespace-nowrap">本次未通过</p>
           <p class="text-lg sm:text-xl font-bold text-morandi-rose-dark mt-0.5 font-mono">{{ summary.failed }}</p>
         </div>
       </div>
@@ -91,9 +88,9 @@ onMounted(async () => {
     <div class="morandi-card overflow-x-auto">
       <div class="min-w-[640px]">
         <div class="p-4 border-b border-morandi-border/60 bg-morandi-bg/40 font-medium text-xs text-morandi-muted grid grid-cols-12 gap-2">
-          <div class="col-span-3">节点名称</div>
-          <div class="col-span-4">目标 API URL</div>
-          <div class="col-span-2">连通状态</div>
+          <div class="col-span-3">图源名称</div>
+          <div class="col-span-4">检测地址</div>
+          <div class="col-span-2">检测结果</div>
           <div class="col-span-1 text-right">HTTP 状态</div>
           <div class="col-span-2 text-right">响应延迟</div>
         </div>
@@ -107,7 +104,7 @@ onMounted(async () => {
             <div class="col-span-3 font-semibold text-morandi-text truncate">{{ r.name }}</div>
             <div class="col-span-4 text-morandi-muted font-mono truncate text-[11px]">{{ r.url }}</div>
             <div class="col-span-2">
-              <HealthStatusBadge :available="r.available" />
+              <HealthStatusBadge :available="r.available" :detail="r.error" />
             </div>
             <div class="col-span-1 text-right font-mono text-morandi-text font-medium">
               {{ r.status_code || '-' }}
@@ -115,11 +112,13 @@ onMounted(async () => {
             <div class="col-span-2 text-right font-mono text-morandi-text font-bold">
               {{ r.latency_ms }} <span class="text-[10px] font-normal text-morandi-muted">ms</span>
             </div>
+            <p v-if="r.error" class="col-span-12 text-amber-700 break-words mt-1">{{ r.error }}</p>
+            <p v-if="r.checked_endpoints && r.checked_endpoints > 1" class="col-span-12 text-morandi-muted">通过 {{ r.available_endpoints }} / {{ r.checked_endpoints }} 个地址</p>
           </div>
         </div>
 
         <div v-else class="p-12 text-center text-xs text-morandi-muted">
-          正在获取健康诊断数据或尚未配置开启的图源...
+          暂无检测结果。启用图源后，点击“重新检测”。
         </div>
       </div>
     </div>

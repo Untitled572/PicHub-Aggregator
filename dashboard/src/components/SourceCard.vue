@@ -5,7 +5,7 @@ import HealthStatusBadge from './HealthStatusBadge.vue'
 import { Edit3, Trash2, Globe, Sliders, Check, X } from 'lucide-vue-next'
 import { useTags } from '../composables/useTags'
 
-defineProps<{ source: Source; available?: boolean }>()
+defineProps<{ source: Source; available?: boolean; healthDetail?: string }>()
 const emit = defineEmits<{ edit: [], delete: [], toggle: [], openParams: [source: Source] }>()
 
 
@@ -31,7 +31,7 @@ function handleDeleteConfirm() {
     <div class="flex-1 min-w-0 space-y-2">
       <div class="flex items-center gap-2.5 flex-wrap">
         <h3 class="font-semibold text-sm sm:text-base text-morandi-text truncate">{{ source.name }}</h3>
-        <HealthStatusBadge :status="source.status" :available="available" :fail-count="source.fail_count" />
+        <HealthStatusBadge :status="source.status" :available="available" :fail-count="source.fail_count" :enabled="source.enabled" :detail="healthDetail" />
 
         <span
           class="text-[11px] px-2 py-0.5 rounded-full border font-medium"
@@ -94,7 +94,7 @@ function handleDeleteConfirm() {
         </div>
 
         <div class="text-right">
-          <div class="text-[10px] text-morandi-muted whitespace-nowrap">成功率</div>
+          <div class="text-[10px] text-morandi-muted whitespace-nowrap">近期成功率</div>
           <div class="font-bold text-morandi-text text-sm mt-0.5 font-mono">
             {{ Math.round(source.success_rate || 0) }}%
           </div>

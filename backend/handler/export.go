@@ -25,6 +25,7 @@ import (
 // @Produce application/zip
 // @Param scope query string false "导出范围(逗号分隔)" default(config,stats,images) Enums(config,stats,images)
 // @Success 200 {object} model.ExportManifest "备份文件(JSON 或 ZIP)"
+// @Security BearerAuth
 // @Router /api/export [get]
 func (h *Handler) ExportData(c *gin.Context) {
 	scopeStr := c.DefaultQuery("scope", "config,stats,images")
@@ -42,8 +43,12 @@ func (h *Handler) ExportData(c *gin.Context) {
 
 	if scopeMap["config"] {
 		if settings, err := h.store.GetSettings(); err == nil {
-			settings.AdminToken = ""
-			manifest.Settings = settings
+			// GetSettings returns the shared cache pointer. Redact a copy so a
+			// public export cannot change the token used by AdminAuth.
+			sanitized := *settings
+			sanitized.AdminToken = ""
+			sanitized.AdminPassword = ""
+			manifest.Settings = &sanitized
 		}
 		if sources, err := h.store.ListSources(); err == nil {
 			sanitized := make([]model.Source, 0, len(sources))
@@ -201,17 +206,24 @@ func (h *Handler) ImportData(c *gin.Context) {
 
 	// Restore Settings (skip admin_token / admin_password_hash)
 	if manifest.Settings != nil {
-		localSettings, _ := h.store.GetSettings()
-		var localToken, localPasswordHash string
-		if localSettings != nil {
-			localToken = localSettings.AdminToken
-			localPasswordHash = localSettings.AdminPasswordHash
+		localSettings, err := h.store.GetSettings()
+		if err != nil || localSettings == nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load local settings"})
+			return
 		}
-		manifest.Settings.AdminToken = ""
-		manifest.Settings.AdminPasswordHash = localPasswordHash
-		manifest.Settings.AdminPassword = ""
-		_ = h.store.UpdateSettings(manifest.Settings)
-		manifest.Settings.AdminToken = localToken
+		// Importing a backup may restore application configuration, but local
+		// authentication credentials and login policy belong to this instance.
+		settings := *manifest.Settings
+		settings.AdminToken = localSettings.AdminToken
+		settings.AdminPasswordHash = localSettings.AdminPasswordHash
+		settings.AdminUsername = localSettings.AdminUsername
+		settings.LoginEnabled = localSettings.LoginEnabled
+		settings.SessionHours = localSettings.SessionHours
+		settings.AdminPassword = ""
+		if err := h.store.UpdateSettings(&settings); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save imported settings"})
+			return
+		}
 	}
 
 	// Restore Tags

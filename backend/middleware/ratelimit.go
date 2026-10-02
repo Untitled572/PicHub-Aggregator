@@ -23,17 +23,13 @@ func RateLimit(st *store.Store) gin.HandlerFunc {
 	}
 
 	go func() {
-		ticker := time.NewTicker(10 * time.Minute)
+		ticker := time.NewTicker(time.Minute)
 		for range ticker.C {
+			_, window := rl.config()
+			cutoff := time.Now().Add(-window)
 			rl.mu.Lock()
-			cutoff := time.Now().Add(-5 * time.Minute)
 			for ip, times := range rl.visits {
-				var active []time.Time
-				for _, t := range times {
-					if t.After(cutoff) {
-						active = append(active, t)
-					}
-				}
+				active := recentVisits(times, cutoff)
 				if len(active) == 0 {
 					delete(rl.visits, ip)
 				} else {
@@ -45,35 +41,53 @@ func RateLimit(st *store.Store) gin.HandlerFunc {
 	}()
 
 	return func(c *gin.Context) {
-		settings, _ := rl.store.GetSettings()
-		limit := 60
-		windowSecs := 60
-		if settings != nil {
-			if settings.RateLimit > 0 {
-				limit = settings.RateLimit
-			}
-			if settings.RateLimitWindow > 0 {
-				windowSecs = settings.RateLimitWindow
-			}
-		}
+		limit, window := rl.config()
 
 		ip := c.ClientIP()
-		rl.mu.Lock()
-		now := time.Now()
-		window := now.Add(-time.Duration(windowSecs) * time.Second)
-		var recent []time.Time
-		for _, t := range rl.visits[ip] {
-			if t.After(window) {
-				recent = append(recent, t)
-			}
-		}
-		rl.visits[ip] = append(recent, now)
-		rl.mu.Unlock()
-		if len(recent) >= limit {
-			logger.Error("rate limit exceeded: %s (%d/%d)", ip, len(recent)+1, limit)
+		count, allowed := rl.allow(ip, time.Now(), limit, window)
+		if !allowed {
+			logger.Error("rate limit exceeded: %s (%d/%d)", ip, count+1, limit)
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "rate limit exceeded"})
 			return
 		}
 		c.Next()
 	}
+}
+
+func (rl *RateLimitMiddleware) config() (int, time.Duration) {
+	limit := 60
+	window := time.Minute
+	settings, _ := rl.store.GetSettings()
+	if settings != nil {
+		if settings.RateLimit > 0 {
+			limit = settings.RateLimit
+		}
+		if settings.RateLimitWindow > 0 {
+			window = time.Duration(settings.RateLimitWindow) * time.Second
+		}
+	}
+	return limit, window
+}
+
+func (rl *RateLimitMiddleware) allow(ip string, now time.Time, limit int, window time.Duration) (int, bool) {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	recent := recentVisits(rl.visits[ip], now.Add(-window))
+	rl.visits[ip] = recent
+	if len(recent) >= limit {
+		return len(recent), false
+	}
+	rl.visits[ip] = append(recent, now)
+	return len(recent), true
+}
+
+func recentVisits(visits []time.Time, cutoff time.Time) []time.Time {
+	active := make([]time.Time, 0, len(visits))
+	for _, visit := range visits {
+		if visit.After(cutoff) {
+			active = append(active, visit)
+		}
+	}
+	return active
 }

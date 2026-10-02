@@ -1,28 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
-// 登录态缓存: 守卫内避免每次导航都请求 /api/settings
-let loginCache = { checkedAt: 0, enabled: false, configured: false }
-const CACHE_TTL = 30 * 1000
-
-async function getLoginState() {
-  const now = Date.now()
-  if (now - loginCache.checkedAt < CACHE_TTL) return loginCache
-  try {
-    const res = await fetch('/api/settings')
-    if (res.ok) {
-      const s = await res.json()
-      loginCache = {
-        checkedAt: now,
-        enabled: !!s.login_enabled,
-        configured: !!(s.admin_username && s.login_enabled),
-      }
-    }
-  } catch {
-    // 后端不可达: 不缓存失败, 下次导航立即重试
-    // (否则会错误放行 30 秒, 导致登录保护延迟生效)
-  }
-  return loginCache
-}
+import { useApi, setAuthToken } from '../composables/useApi'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -38,21 +16,17 @@ const router = createRouter({
 })
 
 router.beforeEach(async (to) => {
-  const token = localStorage.getItem('pichub_admin_token') || ''
-  const state = await getLoginState()
-
-  if (!state.enabled) return true
-
-  if (to.path === '/login') {
-    // 已登录访问登录页 → 回主页
-    if (token) return '/'
-    return true
+  try {
+    const state = await useApi().checkAuth()
+    if (state.auth_required && !state.valid) {
+      setAuthToken('')
+      return to.path === '/login' ? true : '/login'
+    }
+    if (to.path === '/login' && state.auth_required && state.valid) return '/'
+  } catch {
+    // 连接恢复后，下次导航会重新检查登录态。
   }
-  // 受保护页面: 未登录 → 登录页
-  if (!token) return '/login'
   return true
 })
-
-
 
 export default router

@@ -301,6 +301,12 @@ definitions:
     properties:
       available:
         type: boolean
+      available_endpoints:
+        type: integer
+      checked_at:
+        type: string
+      checked_endpoints:
+        type: integer
       error:
         type: string
       id:
@@ -344,7 +350,7 @@ definitions:
 info:
   contact:
     name: PicHub
-  description: PicHub-Aggregator 图片聚合分发服务。AdminAuth 只保护 POST/PUT/DELETE，所有 GET 端点公开。
+  description: PicHub-Aggregator 图片聚合分发服务。管理接口支持会话和 Bearer token 鉴权，图片分发接口公开。
   license:
     name: MIT
   termsOfService: https://github.com/untitled572/pichub-aggregator
@@ -381,6 +387,8 @@ paths:
           schema:
             additionalProperties: true
             type: object
+      security:
+      - BearerAuth: []
       summary: 自定义端点列表
       tags:
       - Endpoints
@@ -543,6 +551,8 @@ paths:
           description: 备份文件(JSON 或 ZIP)
           schema:
             $ref: '#/definitions/model.ExportManifest'
+      security:
+      - BearerAuth: []
       summary: 导出备份
       tags:
       - Export
@@ -561,6 +571,8 @@ paths:
           schema:
             additionalProperties: true
             type: object
+      security:
+      - BearerAuth: []
       summary: 导出规则
       tags:
       - Export
@@ -580,6 +592,8 @@ paths:
           schema:
             additionalProperties: true
             type: object
+      security:
+      - BearerAuth: []
       summary: 健康检查结果
       tags:
       - Health
@@ -714,6 +728,8 @@ paths:
           schema:
             additionalProperties: true
             type: object
+      security:
+      - BearerAuth: []
       summary: 已保存图片列表
       tags:
       - Images
@@ -807,7 +823,7 @@ paths:
       - Auth
   /api/settings:
     get:
-      description: 公开接口，不回显 admin_token / admin_password_hash
+      description: 管理接口，不回显 admin_token / admin_password_hash
       produces:
       - application/json
       responses:
@@ -820,6 +836,8 @@ paths:
           schema:
             additionalProperties: true
             type: object
+      security:
+      - BearerAuth: []
       summary: 读取设置
       tags:
       - Settings
@@ -873,6 +891,8 @@ paths:
           schema:
             additionalProperties: true
             type: object
+      security:
+      - BearerAuth: []
       summary: 数据源列表
       tags:
       - Sources
@@ -958,6 +978,8 @@ paths:
           schema:
             additionalProperties: true
             type: object
+      security:
+      - BearerAuth: []
       summary: 单个数据源
       tags:
       - Sources
@@ -1038,6 +1060,8 @@ paths:
             items:
               $ref: '#/definitions/service.HealthResult'
             type: array
+      security:
+      - BearerAuth: []
       summary: 批量健康检查
       tags:
       - Health
@@ -1074,6 +1098,8 @@ paths:
           schema:
             additionalProperties: true
             type: object
+      security:
+      - BearerAuth: []
       summary: 请求统计
       tags:
       - Stats
@@ -1103,6 +1129,8 @@ paths:
           schema:
             additionalProperties: true
             type: object
+      security:
+      - BearerAuth: []
       summary: 分发历史
       tags:
       - Stats
@@ -1122,6 +1150,8 @@ paths:
           schema:
             additionalProperties: true
             type: object
+      security:
+      - BearerAuth: []
       summary: 标签列表
       tags:
       - Tags
@@ -1318,6 +1348,8 @@ paths:
           schema:
             additionalProperties: true
             type: object
+      security:
+      - BearerAuth: []
       summary: 探测数据源结构
       tags:
       - Distribution

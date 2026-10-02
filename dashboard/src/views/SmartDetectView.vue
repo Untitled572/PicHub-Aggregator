@@ -45,7 +45,7 @@ function onJsonPathSelected(path: string) {
 const respTypeMap: Record<string, string> = {
   image: '图片二进制流 (Image)',
   redirect: '302 重定向直链 (Redirect)',
-  json: 'JSON 结构化节点 (JSON Body)',
+  json: 'JSON 响应 (JSON Body)',
 }
 </script>
 
@@ -58,9 +58,9 @@ const respTypeMap: Record<string, string> = {
           <Sparkles class="w-6 h-6" />
         </div>
         <div>
-          <h2 class="text-base font-bold text-morandi-text">API 智能探测引擎</h2>
+          <h2 class="text-base font-bold text-morandi-text">API 响应检测</h2>
           <p class="text-xs text-morandi-muted mt-1 leading-relaxed">
-            粘贴任意第三方 API 链接，系统将自动检测响应标头与 Body 结构。若返回 JSON，可直接点击路径节点，系统将自动绑定并生成提取规则。
+            输入第三方 API 链接，查看响应类型和内容。若返回 JSON，可在数据树中选择图片地址对应的路径，并将其用于图源配置。
           </p>
         </div>
       </div>
@@ -69,7 +69,7 @@ const respTypeMap: Record<string, string> = {
     <!-- Search / Input Section -->
     <div class="morandi-card p-5 space-y-3">
       <label class="text-xs font-medium text-morandi-text flex items-center gap-1.5">
-        <Search class="w-4 h-4 text-morandi-sage" /> 输入需探测的第三方 API 目标 URL
+        <Search class="w-4 h-4 text-morandi-sage" /> 输入图源 API 地址
       </label>
 
       <div class="flex flex-col sm:flex-row gap-3">
@@ -88,7 +88,7 @@ const respTypeMap: Record<string, string> = {
           class="flex items-center justify-center gap-2 px-6 py-2.5 bg-morandi-sage hover:bg-morandi-sage-dark text-white rounded-xl text-xs font-semibold shadow-sm transition-all disabled:opacity-50 shrink-0"
         >
           <Sparkles class="w-4 h-4" />
-          {{ detecting ? '探测分析中...' : '一键智能识别' }}
+          {{ detecting ? '检测中…' : '检测响应' }}
         </button>
       </div>
     </div>
@@ -105,10 +105,10 @@ const respTypeMap: Record<string, string> = {
         <div class="flex items-center justify-between border-b border-morandi-border/60 pb-3">
           <div class="flex items-center gap-2">
             <CheckCircle class="w-5 h-5 text-morandi-sage-dark" />
-            <h3 class="font-bold text-sm text-morandi-text">分析检测成功</h3>
+            <h3 class="font-bold text-sm text-morandi-text">响应分析完成</h3>
           </div>
           <span class="text-xs px-2.5 py-1 bg-morandi-sidebar rounded-full text-morandi-muted font-medium">
-            HTTP Status Code: 200 OK
+            响应已收到
           </span>
         </div>
 
@@ -119,9 +119,9 @@ const respTypeMap: Record<string, string> = {
           </div>
 
           <div class="bg-morandi-bg p-3.5 rounded-xl border border-morandi-borderSoft">
-            <span class="text-morandi-muted block text-[11px] mb-1">图片 URL 候选提示 (Hints)</span>
+            <span class="text-morandi-muted block text-[11px] mb-1">图片 URL 提示</span>
             <span class="font-mono text-morandi-text text-xs break-all">
-              {{ result.url_hints?.length ? result.url_hints.join(', ') : '无自动提示节点' }}
+              {{ result.url_hints?.length ? result.url_hints.join(', ') : '暂无图片 URL 提示' }}
             </span>
           </div>
         </div>
@@ -130,9 +130,9 @@ const respTypeMap: Record<string, string> = {
         <div v-if="result.resp_type === 'json' && result.body_tree" class="pt-2">
           <div class="flex items-center justify-between mb-3">
             <h4 class="text-xs font-semibold text-morandi-text flex items-center gap-1.5">
-              <Code class="w-4 h-4 text-morandi-ocean" /> 点击 JSON 树状节点以绑定图片路径
+              <Code class="w-4 h-4 text-morandi-ocean" /> 选择 JSON 路径以指定图片地址
             </h4>
-            <span class="text-[11px] text-morandi-muted">高亮节点为系统智能判定的 URL 候选</span>
+            <span class="text-[11px] text-morandi-muted">高亮项是系统检测到的 URL 候选</span>
           </div>
 
           <div class="bg-morandi-bg p-4 rounded-xl border border-morandi-borderSoft max-h-96 overflow-auto">
@@ -146,7 +146,7 @@ const respTypeMap: Record<string, string> = {
             @click="showForm = true"
             class="flex items-center gap-2 px-5 py-2.5 bg-morandi-sage hover:bg-morandi-sage-dark text-white rounded-xl text-xs font-medium shadow-sm transition-all"
           >
-            <span>填充并一键保存图源</span>
+            <span>填写图源配置</span>
             <ArrowRight class="w-4 h-4" />
           </button>
         </div>

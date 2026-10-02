@@ -1,7 +1,7 @@
 {
     "swagger": "2.0",
     "info": {
-        "description": "PicHub-Aggregator 图片聚合分发服务。AdminAuth 只保护 POST/PUT/DELETE，所有 GET 端点公开。",
+        "description": "PicHub-Aggregator 图片聚合分发服务。管理接口支持会话和 Bearer token 鉴权，图片分发接口公开。",
         "title": "PicHub Aggregator API",
         "termsOfService": "https://github.com/untitled572/pichub-aggregator",
         "contact": {
@@ -37,6 +37,11 @@
         },
         "/api/endpoints": {
             "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
                 "produces": [
                     "application/json"
                 ],
@@ -279,6 +284,11 @@
         },
         "/api/export": {
             "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
                 "description": "scope 含 images 时导出 ZIP (含 manifest.json + 已保存图片)，否则导出 JSON",
                 "produces": [
                     "application/json",
@@ -312,6 +322,11 @@
                 }
             },
             "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
                 "description": "导出数据源规则，自动剔除敏感 headers",
                 "produces": [
                     "application/json"
@@ -340,6 +355,11 @@
         },
         "/api/health": {
             "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
                 "description": "返回最近一次健康检查的结果与运行时间；若首次检查未完成则异步触发",
                 "produces": [
                     "application/json"
@@ -368,6 +388,11 @@
         },
         "/api/images/saved": {
             "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
                 "produces": [
                     "application/json"
                 ],
@@ -710,7 +735,12 @@
         },
         "/api/settings": {
             "get": {
-                "description": "公开接口，不回显 admin_token / admin_password_hash",
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "管理接口，不回显 admin_token / admin_password_hash",
                 "produces": [
                     "application/json"
                 ],
@@ -788,6 +818,11 @@
         },
         "/api/sources": {
             "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
                 "description": "返回全部数据源",
                 "produces": [
                     "application/json"
@@ -868,6 +903,11 @@
         },
         "/api/sources/health-check": {
             "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
                 "description": "对全部启用数据源执行一次健康检查并返回结果",
                 "produces": [
                     "application/json"
@@ -891,6 +931,11 @@
         },
         "/api/sources/{id}": {
             "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
                 "produces": [
                     "application/json"
                 ],
@@ -1073,6 +1118,11 @@
         },
         "/api/stats": {
             "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
                 "produces": [
                     "application/json"
                 ],
@@ -1126,6 +1176,11 @@
         },
         "/api/stats/history": {
             "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
                 "produces": [
                     "application/json"
                 ],
@@ -1169,6 +1224,11 @@
         },
         "/api/tags": {
             "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
                 "produces": [
                     "application/json"
                 ],
@@ -1444,6 +1504,11 @@
         },
         "/random/detect": {
             "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
                 "description": "抓取目标 URL 并推断响应类型、headers 与可能的图片 URL 路径",
                 "consumes": [
                     "application/json"
@@ -1950,6 +2015,15 @@
             "properties": {
                 "available": {
                     "type": "boolean"
+                },
+                "available_endpoints": {
+                    "type": "integer"
+                },
+                "checked_at": {
+                    "type": "string"
+                },
+                "checked_endpoints": {
+                    "type": "integer"
                 },
                 "error": {
                     "type": "string"

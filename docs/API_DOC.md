@@ -46,7 +46,7 @@ GET /e/{name}?category=landscape&format=json&orientation=horizontal
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/endpoints` | List all endpoints (public read) |
+| GET | `/api/endpoints` | List all endpoints (auth) |
 | POST | `/api/endpoints` | Create endpoint (auth) |
 | PUT | `/api/endpoints/:id` | Update endpoint: rename / bound_tags / enabled (auth) |
 | DELETE | `/api/endpoints/:id` | Delete endpoint (auth) |
@@ -64,7 +64,7 @@ Content-Type: application/json
 {"url": "https://api.example.com/image"}
 ```
 
-Response examines the URL and returns type, headers, and JSON tree if applicable.
+返回响应类型、响应头及 JSON 结构。需要管理权限（开放模式除外）。只接受不含账号密码的 HTTP/HTTPS 公网地址；DNS 解析结果会在实际连接前校验，重定向目标也受相同限制。整个探测最多 10 秒，非图片响应体最多 2 MiB，不使用系统环境代理。私网和回环地址不能通过此入口探测；已配置图源的取图和健康检测沿用原有网络配置。
 
 ## API Sources CRUD
 
@@ -98,7 +98,7 @@ Response examines the URL and returns type, headers, and JSON tree if applicable
 
 **Sub-API & Query Params (子 API 链接与参数分支说明):**
 - 支持在 `params` 中定义参数分支（如 `key: "type", value: "pc"`）或独立的子 API 链接（如 `key: "/mobile.php", value: "手机专区"` 或完整 URL `https://...`）。
-- 子分支自动继承主图源属性，同时支持独立的 Tag 绑定与 50 初始基准权重设定。在分发历史流水中将精准记录如 `My Source › 手机专区 (/mobile.php)`。
+- 参数变体继承主图源设置，可单独绑定 Tag 和权重。分发记录会标明实际使用的图源和变体，例如 `My Source › 手机专区 (/mobile.php)`。
 
 ## Health Check
 
@@ -106,7 +106,7 @@ Response examines the URL and returns type, headers, and JSON tree if applicable
 POST /api/sources/health-check
 ```
 
-Returns array of health results with status code, latency, and availability.
+Checks enabled sources by requesting the main URL and each deduplicated parameter variant with the same default parameters, headers, and proxy settings used for distribution. A source passes when at least one address returns an image response or a valid HTTP/HTTPS image URL in a redirect, JSON field, or text response. Results include the number of passing requests and failure reasons. The request timeout uses the configured `timeout` setting. A pass does not guarantee that a later image download will succeed; a failed request means only that this check failed.
 
 ## Settings
 
@@ -142,7 +142,7 @@ Returns array of health results with status code, latency, and availability.
 **Note:** `min_resolution` 仅在 `proxy_mode=true` 时生效，输入 `0` 关闭分辨率过滤。`proxy_enabled` 与 `proxy_url` 用于配置抓取图源时的 HTTP/HTTPS 代理。
 
 **登录保护相关字段:**
-- `login_enabled` (bool): 启用用户名+密码登录保护（默认关闭）。启用后所有写操作（POST/PUT/DELETE）需携带登录会话 token 或旧版 admin_token；GET 接口保持公开。
+- `login_enabled` (bool): 启用用户名+密码登录保护（默认关闭）。配置账号后，所有管理接口（包括 GET 读取、导出和检测）需携带登录会话 token 或旧版 admin_token。
 - `admin_username` (string): 登录用户名。
 - `admin_password` (string, 仅写): 设置新密码时提交（**明文即可，前端自动转 MD5 摘要**），留空表示不修改。不会在响应中回显。
 - `session_hours` (number): 会话有效时长（默认 3 小时），每次请求自动滑动续期；服务重启后会话清空需重新登录。
@@ -171,8 +171,10 @@ Authorization: Bearer <token>
 
 ### 鉴权规则
 
-- **写操作**（POST/PUT/DELETE）：携带 `Authorization: Bearer <token>`。token 为登录会话令牌，或旧版 `admin_token`（`login_enabled=true` 时仍兼容）。
-- **首次初始化**：`login_enabled=true` 但尚未配置用户名/密码（`admin_username` 为空）时，写操作临时放行，便于首次运行设置账号；配置完成后立即恢复校验。
+- **管理接口**（/api/*，不含登录和登录状态查询；以及 /random/detect）：携带 `Authorization: Bearer <token>`。token 为登录会话令牌，或旧版 `admin_token`（`login_enabled=true` 时仍兼容）。
+- **开放模式与首次初始化**：未配置管理令牌，且登录关闭或账号密码尚未配齐时，管理接口保持开放，便于初始化。公网部署前应完成账号设置并启用登录。已有管理令牌时，即使账号未配齐也必须验证令牌。
+- **公共接口**：/ping、/random、/e/:name、/images/:file_id 保持公开。
+- **登录状态**：GET /api/auth/check 公开返回 valid、login_enabled、configured、auth_required、token_only，不返回账号和配置内容。仅配置管理令牌时，登录页可直接验证令牌。
 - **凭据变更**（修改密码/用户名/开关登录）：所有已签发会话立即失效，需重新登录。
 - **会话存储**：内存实现，重启失效；单实例部署限制。
 - **前端行为**：收到 401 自动清除本地 token 并跳转 `/login` 登录页。
@@ -196,7 +198,7 @@ Authorization: Bearer <token>
 ```
 
 **Tags 分类说明：**
-- `system: true`：系统内置硬编程只读规则标签（`横屏`、`竖屏`、`自适应`），前端归集于【系统内置标签框】展示。
+- `system: true`：系统内置的只读标签（`横屏`、`竖屏`、`自适应`），前端归集于【系统内置标签框】展示。
 - `exclusive: true`：独占隔离标签（如 `square`），仅在明确指定该标签时触发抽中分发。独占标签由用户自行添加/标记。
 
 ## Health Status
@@ -211,8 +213,8 @@ Returns cached health check results with last run timestamp.
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| GET | `/api/stats` | Public | 获取统计数据（日请求量、命中图源排行、Tag分布） |
-| GET | `/api/stats/history` | Public | 获取分发历史流水日志（包含 `is_saved` 实时保存高亮标记） |
+| GET | `/api/stats` | Admin | 获取统计数据（日请求量、命中图源排行、Tag分布） |
+| GET | `/api/stats/history` | Admin | 获取分发历史流水日志（包含 `is_saved` 实时保存高亮标记） |
 | POST | `/api/images/:id/like` | Admin | 喜欢/提升权重 (+1 权重，钳位 30-70) |
 | POST | `/api/images/:id/dislike` | Admin | 不喜欢/降低权重 (-1 权重，钳位 30-70) |
 
@@ -272,7 +274,7 @@ Serves a cached image file directly. Returns `image/jpeg`, `image/png`, `image/g
 |--------|------|------|-------------|
 | POST | `/api/images/:id/save` | Admin | 纯文件转存（复制到 saved_images_dir，不改变权重，支持 `file_id` / `image_id`） |
 | DELETE | `/api/images/:id/save` | Admin | 取消保存 |
-| GET | `/api/images/saved` | Public | 已保存图片列表（分页/无限滚动） |
+| GET | `/api/images/saved` | Admin | 已保存图片列表（分页/无限滚动） |
 
 **前端视图模式 (Saved Gallery Views):**
 - 📋 **列表视图**：经典表格呈现，适合精细化管理与信息比对。
@@ -305,5 +307,6 @@ Serves a cached image file directly. Returns `image/jpeg`, `image/png`, `image/g
 
 | Method | Path | Description |
 |--------|------|-------------|
+| GET | `/api/export?scope=config,stats,images` | Download backup with Bearer authentication (JSON, or ZIP when images are included) |
 | POST | `/api/export` | Export all rules (filters sensitive headers) |
 | POST | `/api/import` | Import rules from JSON |
