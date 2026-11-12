@@ -70,6 +70,8 @@ jobs:
         run: |
           set -euo pipefail
           source_image="${SOURCE_IMAGE,,}@${SOURCE_DIGEST}"
+          platform_digest=$(docker buildx imagetools inspect --raw "$source_image" | jq -er '.manifests[] | select(.platform.os == "linux" and .platform.architecture == "amd64") | .digest')
+          source_image="${SOURCE_IMAGE,,}@${platform_digest}"
           docker pull --platform linux/amd64 "$source_image"
           docker tag "$source_image" "$ACR_IMAGE:$IMAGE_TAG"
           docker push "$ACR_IMAGE:$IMAGE_TAG"

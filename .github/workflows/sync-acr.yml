@@ -1,0 +1,46 @@
+name: Sync published release image to ACR
+on:
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/sync-acr.yml']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing GHCR tag to sync (dev or vX.Y.Z)
+        required: true
+        default: v0.6.6
+        type: string
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: read
+    steps:
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/login-action@v3
+        with:
+          registry: crpi-1ml0uqt093yc1v96.cn-beijing.personal.cr.aliyuncs.com
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+      - name: Sync runnable manifest
+        env:
+          IMAGE_TAG: ${{ inputs.tag || 'v0.6.6' }}
+        run: |
+          set -euo pipefail
+          [[ "$IMAGE_TAG" == dev || "$IMAGE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          source_repo=ghcr.io/untitled572/pichub-aggregator
+          target_repo=crpi-1ml0uqt093yc1v96.cn-beijing.personal.cr.aliyuncs.com/untitled572/pichub
+          platform_digest=$(docker buildx imagetools inspect --raw "$source_repo:$IMAGE_TAG" | jq -er '.manifests[] | select(.platform.os == "linux" and .platform.architecture == "amd64") | .digest')
+          source_image="$source_repo@$platform_digest"
+          docker pull --platform linux/amd64 "$source_image"
+          docker tag "$source_image" "$target_repo:$IMAGE_TAG"
+          docker push "$target_repo:$IMAGE_TAG"
+          if [[ "$IMAGE_TAG" != dev ]]; then
+            docker tag "$source_image" "$target_repo:latest"
+            docker push "$target_repo:latest"
+          fi
