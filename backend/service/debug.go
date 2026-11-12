@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pichub/backend/logger"
 	"github.com/tidwall/gjson"
 )
 
@@ -63,11 +64,18 @@ func readDebugBody(r io.Reader, limit int64) ([]byte, error) {
 	return data, nil
 }
 
-func (e *Engine) debugImage(format, ua string) (*Result, int, error) {
+func (e *Engine) debugImage(format, ua string) (result *Result, code int, err error) {
 	src, err := e.store.GetSource(e.debugSourceID)
 	if err != nil {
 		return nil, 0, fmt.Errorf("调试图源不存在，请退出调试或重新选择图源")
 	}
+	defer func() {
+		if err == nil && result != nil {
+			if statErr := e.store.RecordStats(src.Categories, *src, result.URL, nil, ""); statErr != nil {
+				logger.Error("record debug stats: %v", statErr)
+			}
+		}
+	}()
 	settings, err := e.store.GetSettings()
 	if err != nil {
 		return nil, 0, err
@@ -117,14 +125,14 @@ func (e *Engine) debugImage(format, ua string) (*Result, int, error) {
 			imageURL = resolveURL(selected.URL, strings.TrimSpace(string(body)))
 		}
 	}
-	result := &Result{Debug: true, URL: imageURL, SourceID: src.ID, SourceName: src.Name, Categories: src.Categories}
+	result = &Result{Debug: true, URL: imageURL, SourceID: src.ID, SourceName: src.Name, Categories: src.Categories}
 	if format == "json" {
 		return result, http.StatusOK, nil
 	}
 	if !settings.ProxyMode {
 		return result, http.StatusFound, nil
 	}
-	// Proxy into memory only: no disk cache, metadata, statistics, monitor or pool writes.
+	// Proxy into memory only: no disk cache, image metadata, monitor or pool writes.
 	imageResponse := resp
 	if !direct {
 		imageReq, err := http.NewRequestWithContext(ctx, http.MethodGet, imageURL, nil)

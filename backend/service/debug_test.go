@@ -36,7 +36,7 @@ func debugFiles(t *testing.T, dir string) map[string]string {
 	}
 	return out
 }
-func TestDebugPreservesCachePoolAndStatistics(t *testing.T) {
+func TestDebugRecordsHistoryWithoutChangingCacheOrPool(t *testing.T) {
 	st, images, path, upstream := newTestImageStore(t)
 	cached, err := images.DownloadAndStore(upstream.URL, upstream.URL, 42, "existing", nil, nil, true)
 	if err != nil {
@@ -100,15 +100,6 @@ func TestDebugPreservesCachePoolAndStatistics(t *testing.T) {
 	if e.distPool.Size() != 1 || !reflect.DeepEqual(before, debugFiles(t, images.cacheDir)) {
 		t.Fatal("cache or pool changed")
 	}
-	db, _ := sql.Open("sqlite3", path)
-	defer db.Close()
-	for _, table := range []string{"stats_requests", "image_history"} {
-		var n int
-		err := db.QueryRow("SELECT count(*) FROM " + table).Scan(&n)
-		if err != nil || n != 0 {
-			t.Fatalf("debug wrote %s", table)
-		}
-	}
 	e.ClearDebugSource()
 	settings, _ = st.GetSettings()
 	settings.ProxyMode = false
@@ -122,6 +113,41 @@ func TestDebugPreservesCachePoolAndStatistics(t *testing.T) {
 	}
 	if _, err = e.SetDebugSource(99999); err == nil {
 		t.Fatal("missing source accepted")
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite3", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	rows, err := db.Query("SELECT image_url, image_id, file_id FROM image_history WHERE source_id = ?", src.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	count := 0
+	for rows.Next() {
+		var url, file string
+		var imageID int64
+		if err := rows.Scan(&url, &imageID, &file); err != nil {
+			t.Fatal(err)
+		}
+		if url != server.URL+"/image" || imageID != 0 || file != "" {
+			t.Fatalf("wrong debug history %s %d %s", url, imageID, file)
+		}
+		count++
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	rows.Close()
+	if count != 2 {
+		t.Fatalf("debug history count=%d, want 2 successes and no failure", count)
+	}
+	var total int
+	if err := db.QueryRow("SELECT COALESCE(SUM(count),0) FROM stats_requests").Scan(&total); err != nil || total != 3 {
+		t.Fatalf("request stats=%d err=%v", total, err)
 	}
 }
 func TestDebugSwitchWaitsForDistribution(t *testing.T) {
