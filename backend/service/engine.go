@@ -115,7 +115,7 @@ func (e *Engine) RandomImage(category string, format string, orientation string,
 	e.modeMu.RLock()
 	defer e.modeMu.RUnlock()
 	if e.debugSourceID != 0 {
-		return e.debugImage(format, clientUA)
+		return e.debugImage(category, format, orientation, clientUA)
 	}
 	return e.randomImage(category, format, orientation, clientUA)
 }

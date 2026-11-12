@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/pichub/backend/logger"
+	"github.com/pichub/backend/model"
 	"github.com/tidwall/gjson"
 )
 
@@ -64,30 +65,45 @@ func readDebugBody(r io.Reader, limit int64) ([]byte, error) {
 	return data, nil
 }
 
-func (e *Engine) debugImage(format, ua string) (result *Result, code int, err error) {
+func (e *Engine) debugImage(category, format, orientation, ua string) (result *Result, code int, err error) {
 	src, err := e.store.GetSource(e.debugSourceID)
 	if err != nil {
 		return nil, 0, fmt.Errorf("调试图源不存在，请退出调试或重新选择图源")
 	}
-	defer func() {
-		if err == nil && result != nil {
-			if statErr := e.store.RecordStats(src.Categories, *src, result.URL, nil, ""); statErr != nil {
-				logger.Error("record debug stats: %v", statErr)
-			}
-		}
-	}()
 	settings, err := e.store.GetSettings()
 	if err != nil {
 		return nil, 0, err
 	}
+	queryCats := splitCategory(category)
+	tags, err := e.store.GetTags()
+	if err != nil {
+		return nil, 0, err
+	}
+	// Allow explicit debugging of stopped sources, while reusing normal tag/branch selection.
+	debugSource := *src
+	debugSource.Enabled = true
+	debugSource.Status = "normal"
+	candidates := filterSources([]model.Source{debugSource}, queryCats, tags)
+	if len(candidates) == 0 {
+		return nil, 0, fmt.Errorf("调试图源没有匹配分类的主地址或分支")
+	}
+	selected := weightedPick(candidates)
+	if orientation == "" && (len(queryCats) == 0 || (len(queryCats) == 1 && queryCats[0] == "adaptive")) {
+		orientation = detectOrientationFromUA(ua)
+	}
+	defer func() {
+		if err == nil && result != nil {
+			if statErr := e.store.RecordStats(queryCats, selected, result.URL, nil, ""); statErr != nil {
+				logger.Error("record debug stats: %v", statErr)
+			}
+		}
+	}()
 	timeout := time.Duration(settings.Timeout) * time.Millisecond
 	if timeout <= 0 {
 		timeout = 3 * time.Second
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	selected := *src
-	selected.URL = appendDefaultQuery(src.URL, src.DefaultQuery)
 	req, err := newSourceRequest(ctx, selected, ua)
 	if err != nil {
 		return nil, 0, err
@@ -125,12 +141,14 @@ func (e *Engine) debugImage(format, ua string) (result *Result, code int, err er
 			imageURL = resolveURL(selected.URL, strings.TrimSpace(string(body)))
 		}
 	}
-	result = &Result{Debug: true, URL: imageURL, SourceID: src.ID, SourceName: src.Name, Categories: src.Categories}
-	if format == "json" {
-		return result, http.StatusOK, nil
-	}
-	if !settings.ProxyMode {
-		return result, http.StatusFound, nil
+	result = &Result{Debug: true, URL: imageURL, SourceID: src.ID, SourceName: selected.Name, Categories: selected.Categories}
+	if orientation == "" {
+		if format == "json" {
+			return result, http.StatusOK, nil
+		}
+		if !settings.ProxyMode {
+			return result, http.StatusFound, nil
+		}
 	}
 	// Proxy into memory only: no disk cache, image metadata, monitor or pool writes.
 	imageResponse := resp
@@ -164,10 +182,20 @@ func (e *Engine) debugImage(format, ua string) (result *Result, code int, err er
 	if err != nil || cfg.Width < 1 || cfg.Height < 1 {
 		return nil, 0, fmt.Errorf("调试响应不是有效图片")
 	}
-	result.ImageData = data
-	result.ContentType = http.DetectContentType(data)
+	result.Orientation = GetOrientation(cfg.Width, cfg.Height)
+	if orientation != "" && result.Orientation != orientation {
+		return nil, 0, fmt.Errorf("调试图片方向不匹配：实际 %s，请求 %s", result.Orientation, orientation)
+	}
 	result.Width = cfg.Width
 	result.Height = cfg.Height
 	result.Format = kind
+	if format == "json" {
+		return result, http.StatusOK, nil
+	}
+	if !settings.ProxyMode {
+		return result, http.StatusFound, nil
+	}
+	result.ImageData = data
+	result.ContentType = http.DetectContentType(data)
 	return result, http.StatusOK, nil
 }

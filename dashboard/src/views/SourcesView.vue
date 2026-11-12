@@ -176,8 +176,8 @@ function onFormSaved() {
           <div class="w-9 h-9 rounded-xl bg-amber-200/70 text-amber-800 flex items-center justify-center shrink-0"><Bug class="w-4 h-4" /></div>
           <div class="min-w-0">
             <p class="text-sm font-bold text-amber-950">全局图源调试已开启：{{ debugSource?.name || sourceDebug.source_name || `图源 #${sourceDebug.source_id ?? '未知'}` }}</p>
-            <p class="text-xs text-amber-900/80 mt-1">/random 和 /e 将统一使用此图源的主图地址与默认参数；分类与方向参数会被忽略。预取池补充已暂停，不读取已有缓存，也不写入新缓存；成功取图会计入使用统计和图片历史。退出或服务重启后恢复普通分发。</p>
-            <p v-if="debugSource?.url" class="mt-2 text-xs font-mono text-amber-950 break-all">主图地址：{{ debugSource.url }}</p>
+            <p class="text-xs text-amber-900/80 mt-1">/random 和 /e 只使用此图源，按分类选择主地址或匹配分支，并应用方向筛选。预取池补充已暂停，不读取已有缓存，也不写入新缓存；成功取图会计入使用统计和图片历史。退出或服务重启后恢复普通分发。</p>
+            <p v-if="debugSource?.url" class="mt-2 text-xs font-mono text-amber-950 break-all">主地址：{{ debugSource.url }}</p>
           </div>
         </div>
         <div class="flex items-center gap-2 sm:shrink-0 pl-12 sm:pl-0">

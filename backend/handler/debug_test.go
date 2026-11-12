@@ -17,13 +17,13 @@ func TestDebugHTTPModeAndMemoryImage(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	st := newExportTestStore(t)
 	var data bytes.Buffer
-	png.Encode(&data, image.NewRGBA(image.Rect(0, 0, 2, 2)))
+	png.Encode(&data, image.NewRGBA(image.Rect(0, 0, 4, 2)))
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/png")
 		w.Write(data.Bytes())
 	}))
 	defer upstream.Close()
-	src := &model.Source{Name: "disabled test source", URL: upstream.URL, Enabled: false, Status: "error"}
+	src := &model.Source{Name: "disabled test source", URL: upstream.URL, Categories: []string{"test"}, Enabled: false, Status: "error"}
 	id, err := st.CreateSource(src)
 	if err != nil {
 		t.Fatal(err)
@@ -39,7 +39,7 @@ func TestDebugHTTPModeAndMemoryImage(t *testing.T) {
 	r.DELETE("/api/debug/source", h.ClearDebugSource)
 	r.GET("/random", h.RandomImage)
 	r.GET("/e/:name", h.EndpointImage)
-	endpoint := &model.Endpoint{Name: "test", Enabled: true, BoundTags: []string{"unrelated"}}
+	endpoint := &model.Endpoint{Name: "test", Enabled: true, BoundTags: []string{"test"}}
 	if _, err := st.CreateEndpoint(endpoint); err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +49,7 @@ func TestDebugHTTPModeAndMemoryImage(t *testing.T) {
 	if res.Code != 200 {
 		t.Fatalf("enable: %d %s", res.Code, res.Body)
 	}
-	for _, path := range []string{"/random?category=other&orientation=vertical", "/e/test?category=other"} {
+	for _, path := range []string{"/random?category=test&orientation=horizontal", "/e/test?orientation=horizontal"} {
 		res = httptest.NewRecorder()
 		r.ServeHTTP(res, httptest.NewRequest("GET", path, nil))
 		if res.Code != 200 || res.Header().Get("Cache-Control") != "no-store" || !bytes.Equal(res.Body.Bytes(), data.Bytes()) {

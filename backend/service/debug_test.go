@@ -1,9 +1,12 @@
 package service
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"github.com/pichub/backend/model"
+	"image"
+	"image/png"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
@@ -81,7 +84,7 @@ func TestDebugRecordsHistoryWithoutChangingCacheOrPool(t *testing.T) {
 	if _, err := e.SetDebugSource(src.ID); err != nil {
 		t.Fatal(err)
 	}
-	result, _, err := e.RandomImage("absent", "json", "vertical", "")
+	result, _, err := e.RandomImage("", "json", "", "")
 	if err != nil || result.SourceID != src.ID || !result.Debug || result.FileID != "" {
 		t.Fatalf("wrong debug result %+v %v", result, err)
 	}
@@ -173,5 +176,64 @@ func TestDebugSwitchWaitsForDistribution(t *testing.T) {
 	case <-switched:
 	case <-time.After(time.Second):
 		t.Fatal("switch stuck")
+	}
+}
+
+func TestDebugHonorsCategoryBranchesAndOrientation(t *testing.T) {
+	st := healthTestStore(t)
+	var horizontal, vertical bytes.Buffer
+	png.Encode(&horizontal, image.NewRGBA(image.Rect(0, 0, 4, 2)))
+	png.Encode(&vertical, image.NewRGBA(image.Rect(0, 0, 2, 4)))
+	var calls, otherCalls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api":
+			calls.Add(1)
+			if r.URL.Query().Get("default") != "yes" {
+				t.Error("default parameter lost")
+			}
+			w.Header().Set("Content-Type", "application/json")
+			target := "/horizontal"
+			if r.URL.Query().Get("type") == "phone" {
+				target = "/vertical"
+			}
+			json.NewEncoder(w).Encode(map[string]string{"url": target})
+		case "/horizontal":
+			w.Header().Set("Content-Type", "image/png")
+			w.Write(horizontal.Bytes())
+		case "/vertical":
+			w.Header().Set("Content-Type", "image/png")
+			w.Write(vertical.Bytes())
+		case "/other":
+			otherCalls.Add(1)
+			w.Header().Set("Content-Type", "image/png")
+			w.Write(vertical.Bytes())
+		}
+	}))
+	defer upstream.Close()
+	src := addHealthSource(t, st, model.Source{Name: "debug", URL: upstream.URL + "/api", Enabled: false, Status: "error", RespType: "json", Categories: []string{"pc"}, DefaultQuery: "default=yes", Params: []model.QueryParam{{Key: "type", Value: "phone", Categories: []string{"phone"}, Weight: 10}}})
+	addHealthSource(t, st, model.Source{Name: "other", URL: upstream.URL + "/other", Enabled: true, Status: "normal", Categories: []string{"absent"}})
+	e := &Engine{store: st, httpClient: upstream.Client()}
+	e.SetDebugSource(src.ID)
+	for _, tc := range []struct {
+		category, orientation, suffix string
+		success                       bool
+	}{
+		{"phone", "vertical", "/vertical", true}, {"pc", "horizontal", "/horizontal", true},
+		{"phone", "horizontal", "", false}, {"pc", "vertical", "", false}, {"absent", "vertical", "", false},
+	} {
+		result, code, err := e.RandomImage(tc.category, "json", tc.orientation, "")
+		if !tc.success {
+			if err == nil {
+				t.Fatalf("unexpected success for %s %s", tc.category, tc.orientation)
+			}
+			continue
+		}
+		if err != nil || code != 200 || result.URL != upstream.URL+tc.suffix || result.Orientation != tc.orientation || result.SourceID != src.ID || len(result.ImageData) != 0 {
+			t.Fatalf("category=%s orientation=%s result=%+v err=%v", tc.category, tc.orientation, result, err)
+		}
+	}
+	if calls.Load() != 4 || otherCalls.Load() != 0 {
+		t.Fatalf("wrong selection calls=%d other=%d", calls.Load(), otherCalls.Load())
 	}
 }

@@ -125,7 +125,8 @@ func TestDetectURLValidatesRedirectTargetBeforeRequest(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		requests.Add(1)
-		http.Redirect(w, nil, "http://127.0.0.1/private", http.StatusFound)
+		w.Header().Set("Location", "http://127.0.0.1/private")
+		w.WriteHeader(http.StatusFound)
 	}))
 	defer server.Close()
 
@@ -157,7 +158,8 @@ func TestDetectURLRejectsCredentialRedirectBeforeRequest(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		requests.Add(1)
-		http.Redirect(w, nil, "http://user:secret@redirect-target.example/private", http.StatusFound)
+		w.Header().Set("Location", "http://user:secret@redirect-target.example/private")
+		w.WriteHeader(http.StatusFound)
 	}))
 	defer server.Close()
 	_, port, err := net.SplitHostPort(server.Listener.Addr().String())
