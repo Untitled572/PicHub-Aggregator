@@ -36,6 +36,7 @@ export interface SourceDebugState {
   enabled: boolean
   source_id?: number
   source_name?: string
+  switching?: boolean
 }
 
 

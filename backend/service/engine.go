@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/tidwall/gjson"
@@ -32,6 +33,8 @@ const (
 type Engine struct {
 	modeMu        sync.RWMutex
 	debugSourceID int64
+	debugState    atomic.Pointer[DebugSourceState]
+	debugSwitches atomic.Int32
 	store         *store.Store
 	proxyCache    *ProxyCache
 	imageStore    *ImageStore

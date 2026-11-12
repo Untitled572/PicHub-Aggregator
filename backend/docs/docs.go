@@ -2091,6 +2091,9 @@ const docTemplate = `{
                 },
                 "source_name": {
                     "type": "string"
+                },
+                "switching": {
+                    "type": "boolean"
                 }
             }
         },

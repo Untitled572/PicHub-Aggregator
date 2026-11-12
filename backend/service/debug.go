@@ -3,10 +3,12 @@ package service
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"image"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -17,20 +19,18 @@ import (
 
 type DebugSourceState struct {
 	Enabled    bool   `json:"enabled"`
+	Switching  bool   `json:"switching"`
 	SourceID   int64  `json:"source_id,omitempty"`
 	SourceName string `json:"source_name,omitempty"`
 }
 
 // Debug state is deliberately absent from settings, imports and the database.
 func (e *Engine) DebugSource() DebugSourceState {
-	e.modeMu.RLock()
-	defer e.modeMu.RUnlock()
-	state := DebugSourceState{Enabled: e.debugSourceID != 0, SourceID: e.debugSourceID}
-	if state.Enabled {
-		if src, err := e.store.GetSource(state.SourceID); err == nil {
-			state.SourceName = src.Name
-		}
+	state := DebugSourceState{}
+	if current := e.debugState.Load(); current != nil {
+		state = *current
 	}
+	state.Switching = e.debugSwitches.Load() > 0
 	return state
 }
 
@@ -38,6 +38,9 @@ func (e *Engine) SetDebugSource(id int64) (DebugSourceState, error) {
 	if id <= 0 {
 		return DebugSourceState{}, fmt.Errorf("请选择有效的图源")
 	}
+	// Status reads use a separate immutable snapshot and never wait for this gate.
+	e.debugSwitches.Add(1)
+	defer e.debugSwitches.Add(-1)
 	// Wait for existing distribution/cache writes before acknowledging the switch.
 	e.modeMu.Lock()
 	defer e.modeMu.Unlock()
@@ -46,12 +49,17 @@ func (e *Engine) SetDebugSource(id int64) (DebugSourceState, error) {
 		return DebugSourceState{}, fmt.Errorf("图源不存在")
 	}
 	e.debugSourceID = id
-	return DebugSourceState{Enabled: true, SourceID: id, SourceName: src.Name}, nil
+	state := DebugSourceState{Enabled: true, SourceID: id, SourceName: src.Name}
+	e.debugState.Store(&state)
+	return state, nil
 }
 func (e *Engine) ClearDebugSource() {
+	e.debugSwitches.Add(1)
+	defer e.debugSwitches.Add(-1)
 	e.modeMu.Lock()
 	defer e.modeMu.Unlock()
 	e.debugSourceID = 0
+	e.debugState.Store(&DebugSourceState{})
 }
 
 func readDebugBody(r io.Reader, limit int64) ([]byte, error) {
@@ -114,7 +122,12 @@ func (e *Engine) debugImage(category, format, orientation, ua string) (result *R
 	}
 	defer resp.Body.Close()
 	if (resp.StatusCode < 200 || resp.StatusCode >= 300) && !isRedirectStatus(resp.StatusCode) {
-		return nil, 0, fmt.Errorf("调试图源返回 HTTP %d", resp.StatusCode)
+		var upstream struct{ Error struct{ Code string } }
+		body, _ := readDebugBody(resp.Body, 64<<10)
+		if resp.StatusCode == http.StatusNotFound && json.Unmarshal(body, &upstream) == nil && upstream.Error.Code == "NO_MATCH" {
+			return nil, 0, fmt.Errorf("调试图源 #%d（%s）没有符合当前筛选条件的图片（上游 HTTP 404 / NO_MATCH），请求地址：%s", src.ID, src.Name, debugRequestAddress(selected.URL))
+		}
+		return nil, 0, fmt.Errorf("调试图源 #%d（%s）返回 HTTP %d，请求地址：%s", src.ID, src.Name, resp.StatusCode, debugRequestAddress(selected.URL))
 	}
 	direct := strings.HasPrefix(strings.ToLower(resp.Header.Get("Content-Type")), "image/") && !isRedirectStatus(resp.StatusCode)
 	imageURL := selected.URL
@@ -198,4 +211,24 @@ func (e *Engine) debugImage(category, format, orientation, ua string) (result *R
 	result.ImageData = data
 	result.ContentType = http.DetectContentType(data)
 	return result, http.StatusOK, nil
+}
+
+// Keep credentials and query values out of errors returned by public distribution APIs.
+func debugRequestAddress(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "地址格式不正确"
+	}
+	u.User = nil
+	safe := url.Values{}
+	for _, key := range []string{"orientation", "r18", "format", "delivery"} {
+		value := u.Query().Get(key)
+		switch value {
+		case "landscape", "portrait", "square", "horizontal", "vertical", "0", "1", "json", "proxy", "original":
+			safe.Set(key, value)
+		}
+	}
+	u.RawQuery = safe.Encode()
+	u.Fragment = ""
+	return u.String()
 }

@@ -129,16 +129,16 @@ export function useApi() {
     return request<Source>(`/api/sources/${id}/toggle`, { method: 'POST' })
   }
 
-  function getSourceDebug() {
-    return request<SourceDebugState>('/api/debug/source')
+  function getSourceDebug(signal?: AbortSignal) {
+    return request<SourceDebugState>('/api/debug/source', { signal })
   }
 
   function enableSourceDebug(source_id: number) {
-    return request<void>('/api/debug/source', { method: 'PUT', body: JSON.stringify({ source_id }) })
+    return request<SourceDebugState>('/api/debug/source', { method: 'PUT', body: JSON.stringify({ source_id }) })
   }
 
   function disableSourceDebug() {
-    return request<void>('/api/debug/source', { method: 'DELETE' })
+    return request<SourceDebugState>('/api/debug/source', { method: 'DELETE' })
   }
 
   function getSettings() {

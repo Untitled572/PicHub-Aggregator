@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { RouterView, RouterLink, useRoute, useRouter } from 'vue-router'
 import { useTags } from './composables/useTags'
 import { useApi, getAuthToken, setAuthToken } from './composables/useApi'
+import SourceDebugBanner from './components/SourceDebugBanner.vue'
 import {
   Layers,
   Activity,
@@ -318,6 +319,7 @@ function copyUserApiUrl() {
 
       <!-- Page Content Area -->
       <main class="flex-1 p-3 sm:p-5 md:p-8 max-w-7xl w-full mx-auto pb-20 md:pb-8">
+        <SourceDebugBanner />
         <RouterView />
       </main>
 

@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -235,5 +236,52 @@ func TestDebugHonorsCategoryBranchesAndOrientation(t *testing.T) {
 	}
 	if calls.Load() != 4 || otherCalls.Load() != 0 {
 		t.Fatalf("wrong selection calls=%d other=%d", calls.Load(), otherCalls.Load())
+	}
+}
+
+func TestDebugStatusDoesNotWaitForSwitch(t *testing.T) {
+	st := healthTestStore(t)
+	src := addHealthSource(t, st, model.Source{Name: "selected", URL: "https://example.test/image"})
+	e := &Engine{store: st}
+	e.modeMu.RLock()
+	done := make(chan struct{})
+	go func() { e.SetDebugSource(src.ID); close(done) }()
+	deadline := time.Now().Add(time.Second)
+	for e.debugSwitches.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	stateCh := make(chan DebugSourceState, 1)
+	go func() { stateCh <- e.DebugSource() }()
+	select {
+	case state := <-stateCh:
+		if !state.Switching || state.Enabled {
+			t.Error("pending switch state incorrect")
+		}
+	case <-time.After(time.Second):
+		t.Error("status waited on the distribution lock")
+	}
+	e.modeMu.RUnlock()
+	<-done
+	state := e.DebugSource()
+	if !state.Enabled || state.Switching || state.SourceName != "selected" {
+		t.Fatalf("committed state %+v", state)
+	}
+}
+func TestDebugReportsNoMatchAndRedactsCredentials(t *testing.T) {
+	st := healthTestStore(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(404)
+		w.Write([]byte(`{"error":{"code":"NO_MATCH","message":"Not Found"}}`))
+	}))
+	defer server.Close()
+	src := addHealthSource(t, st, model.Source{Name: "r18 source", URL: server.URL + "/random?token=secret&format=json&r18=1"})
+	e := &Engine{store: st, httpClient: server.Client()}
+	e.SetDebugSource(src.ID)
+	_, _, err := e.RandomImage("", "json", "", "")
+	if err == nil || !strings.Contains(err.Error(), "NO_MATCH") || !strings.Contains(err.Error(), "r18=1") || strings.Contains(err.Error(), "secret") {
+		t.Fatalf("wrong debug error: %v", err)
+	}
+	if strings.Contains(debugRequestAddress("https://name:password@example.test/random?token=secret&r18=1"), "password") {
+		t.Fatal("credentials exposed")
 	}
 }

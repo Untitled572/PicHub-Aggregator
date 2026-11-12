@@ -292,6 +292,8 @@ definitions:
         type: integer
       source_name:
         type: string
+      switching:
+        type: boolean
     type: object
   service.DetectResult:
     properties:
