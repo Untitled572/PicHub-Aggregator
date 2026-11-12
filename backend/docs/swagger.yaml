@@ -355,7 +355,7 @@ info:
     name: MIT
   termsOfService: https://github.com/untitled572/pichub-aggregator
   title: PicHub Aggregator API
-  version: 0.6.5
+  version: 0.6.6
 paths:
   /api/auth/check:
     get:
