@@ -2,11 +2,11 @@
 import { ref, computed } from 'vue'
 import type { Source } from '../types'
 import HealthStatusBadge from './HealthStatusBadge.vue'
-import { Edit3, Trash2, Globe, Sliders, Check, X } from 'lucide-vue-next'
+import { Edit3, Trash2, Globe, Sliders, Check, X, Bug } from 'lucide-vue-next'
 import { useTags } from '../composables/useTags'
 
-defineProps<{ source: Source; available?: boolean; healthDetail?: string }>()
-const emit = defineEmits<{ edit: [], delete: [], toggle: [], openParams: [source: Source] }>()
+defineProps<{ source: Source; available?: boolean; healthDetail?: string; debugSelected?: boolean; debugLoading?: boolean }>()
+const emit = defineEmits<{ edit: [], delete: [], toggle: [], openParams: [source: Source]; debug: [source: Source] }>()
 
 
 const confirmingDelete = ref(false)
@@ -108,6 +108,19 @@ function handleDeleteConfirm() {
 
       <!-- Toggle Switch & Action Buttons -->
       <div class="flex items-center gap-2.5">
+        <button
+          @click="$emit('debug', source)"
+          :disabled="debugLoading"
+          class="flex items-center gap-1 px-2 py-1 text-xs rounded-lg border transition-colors font-medium cursor-pointer shrink-0 whitespace-nowrap"
+          :class="debugSelected
+            ? 'text-amber-800 bg-amber-100 border-amber-300'
+            : 'text-morandi-sage-dark bg-morandi-sage-light/70 hover:bg-morandi-sage-light border-morandi-sage/20'"
+          :title="debugSelected ? '当前全局调试图源' : '将此图源设为全局调试图源'"
+        >
+          <Bug class="w-3.5 h-3.5" />
+          {{ debugSelected ? '正在调试' : '调试' }}
+        </button>
+
         <!-- Switch Toggle -->
         <label class="relative inline-flex items-center cursor-pointer shrink-0" title="启用/禁用图源">
           <input

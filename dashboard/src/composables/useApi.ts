@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 import CryptoJS from 'crypto-js'
-import type { Source, Settings, DetectResult, ExportData, ImportResult, HealthResult, Tag, StatsResponse, ImageHistoryRecord, SavedImage, Endpoint } from '../types'
+import type { Source, Settings, DetectResult, ExportData, ImportResult, HealthResult, Tag, StatsResponse, ImageHistoryRecord, SavedImage, Endpoint, SourceDebugState } from '../types'
 
 
 const API_BASE = ''
@@ -129,6 +129,18 @@ export function useApi() {
     return request<Source>(`/api/sources/${id}/toggle`, { method: 'POST' })
   }
 
+  function getSourceDebug() {
+    return request<SourceDebugState>('/api/debug/source')
+  }
+
+  function enableSourceDebug(source_id: number) {
+    return request<void>('/api/debug/source', { method: 'PUT', body: JSON.stringify({ source_id }) })
+  }
+
+  function disableSourceDebug() {
+    return request<void>('/api/debug/source', { method: 'DELETE' })
+  }
+
   function getSettings() {
     return request<Settings>('/api/settings')
   }
@@ -252,6 +264,7 @@ export function useApi() {
     loading, error,
     login, logout, checkAuth,
     listSources, getSource, createSource, updateSource, deleteSource, toggleSource,
+    getSourceDebug, enableSourceDebug, disableSourceDebug,
     getSettings, updateSettings, getTags, updateTags,
     listEndpoints, createEndpoint, updateEndpoint, deleteEndpoint, toggleEndpoint,
     detectURL, healthCheck, getHealthStatus,

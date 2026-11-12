@@ -32,6 +32,12 @@ export interface Source {
   updated_at: string
 }
 
+export interface SourceDebugState {
+  enabled: boolean
+  source_id?: number
+  source_name?: string
+}
+
 
 export interface Settings {
   proxy_mode: boolean

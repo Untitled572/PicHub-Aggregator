@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/tidwall/gjson"
@@ -29,6 +30,8 @@ const (
 )
 
 type Engine struct {
+	modeMu        sync.RWMutex
+	debugSourceID int64
 	store         *store.Store
 	proxyCache    *ProxyCache
 	imageStore    *ImageStore
@@ -67,6 +70,9 @@ func NewEngine(st *store.Store, pc *ProxyCache, imgStore *ImageStore, proxyCfg *
 }
 
 type Result struct {
+	Debug       bool     `json:"debug,omitempty"`
+	ImageData   []byte   `json:"-"`
+	ContentType string   `json:"-"`
 	URL         string   `json:"url"`
 	LocalURL    string   `json:"local_url,omitempty"`
 	SourceName  string   `json:"source"`
@@ -106,6 +112,20 @@ func detectOrientationFromUA(ua string) string {
 }
 
 func (e *Engine) RandomImage(category string, format string, orientation string, clientUA string) (*Result, int, error) {
+	e.modeMu.RLock()
+	defer e.modeMu.RUnlock()
+	if e.debugSourceID != 0 {
+		return e.debugImage(format, clientUA)
+	}
+	return e.randomImage(category, format, orientation, clientUA)
+}
+
+func (e *Engine) randomImage(category string, format string, orientation string, clientUA string) (result *Result, code int, err error) {
+	defer func() {
+		if result != nil && result.FileID != "" && result.SourceID > 0 && e.imageStore != nil {
+			e.imageStore.MoveToRoot(result.FileID, result.SourceID)
+		}
+	}()
 	settings, err := e.store.GetSettings()
 	if err != nil {
 		return nil, 0, fmt.Errorf("get settings: %w", err)
@@ -163,9 +183,7 @@ func (e *Engine) RandomImage(category string, format string, orientation string,
 				Name: poolResult.SourceName,
 			}
 			imgID := poolResult.ImageID
-			go func() {
-				e.store.SetImagePooled(imgID, false)
-			}()
+			e.store.SetImagePooled(imgID, false)
 			if err := e.store.RecordStats(queryCats, src, poolResult.LocalURL, &imgID, poolResult.FileID); err != nil {
 				logger.Error("record pool stats: %v", err)
 			}
@@ -765,6 +783,11 @@ func (e *Engine) RemoveSourceFromPool(sourceID int64) {
 }
 
 func (e *Engine) replenishPool() {
+	e.modeMu.RLock()
+	defer e.modeMu.RUnlock()
+	if e.debugSourceID != 0 {
+		return
+	}
 	settings, err := e.store.GetSettings()
 	if err != nil || !settings.ProxyMode || settings.PoolSize <= 0 || e.distPool == nil {
 		return

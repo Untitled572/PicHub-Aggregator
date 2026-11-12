@@ -60,6 +60,7 @@ func (h *Handler) EndpointImage(c *gin.Context) {
 }
 
 func (h *Handler) serveRandom(c *gin.Context, category string) {
+	c.Header("Cache-Control", "no-store")
 	format := c.Query("format")
 	orientation := c.Query("orientation")
 	clientUA := c.GetHeader("User-Agent")
@@ -75,9 +76,13 @@ func (h *Handler) serveRandom(c *gin.Context, category string) {
 		redirectURL = result.LocalURL
 	}
 
-	// 分发后异步移动文件：从子目录移到根目录
-	if result.FileID != "" && result.SourceID > 0 && h.imageStore != nil {
-		go h.imageStore.MoveToRoot(result.FileID, result.SourceID)
+	if result.Debug {
+		c.Header("Cache-Control", "no-store")
+		c.Header("X-PicHub-Debug", "true")
+		if len(result.ImageData) > 0 {
+			c.Data(http.StatusOK, result.ContentType, result.ImageData)
+			return
+		}
 	}
 
 	if format == "json" {

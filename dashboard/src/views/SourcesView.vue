@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useApi } from '../composables/useApi'
 import { isHealthResultCurrent } from '../utils/healthStatus'
-import type { Source, HealthResult } from '../types'
+import type { Source, HealthResult, SourceDebugState } from '../types'
 import SourceCard from '../components/SourceCard.vue'
 import SourceForm from '../components/SourceForm.vue'
 import ExportImportModal from '../components/ExportImportModal.vue'
@@ -14,10 +14,13 @@ import {
   CheckCircle2,
   Zap,
   Tag,
-  Inbox
+  Inbox,
+  Bug,
+  ExternalLink,
+  X
 } from 'lucide-vue-next'
 
-const { listSources, deleteSource, toggleSource, getHealthStatus } = useApi()
+const { listSources, deleteSource, toggleSource, getHealthStatus, getSourceDebug, enableSourceDebug, disableSourceDebug } = useApi()
 import ParamVariantsModal from '../components/ParamVariantsModal.vue'
 import { useTags } from '../composables/useTags'
 
@@ -29,6 +32,11 @@ const editingSource = ref<Source | undefined>()
 const showExportImport = ref(false)
 const showParamsModal = ref(false)
 const paramsSource = ref<Source | null>(null)
+const sourceDebug = ref<SourceDebugState>({ enabled: false })
+const debugLoading = ref(false)
+const debugStateLoading = ref(true)
+const debugError = ref('')
+const debugSource = computed(() => sources.value.find(s => s.id === sourceDebug.value.source_id))
 
 function handleOpenParams(src: Source) {
   paramsSource.value = src
@@ -41,7 +49,52 @@ const categoryMap = computed(() => getCategoryMap())
 const categories = computed(() => tags.value.map(t => t.id))
 const healthStatusMap = ref<Record<number, HealthResult>>({})
 
-onMounted(loadSources)
+onMounted(() => {
+  loadSources()
+  loadSourceDebug()
+})
+
+async function loadSourceDebug() {
+  debugStateLoading.value = true
+  debugError.value = ''
+  try {
+    sourceDebug.value = await getSourceDebug()
+  } catch (e: any) {
+    debugError.value = `读取调试状态失败：${e.message || '请求失败'}`
+  } finally {
+    debugStateLoading.value = false
+  }
+}
+
+async function handleDebug(src: Source) {
+  debugLoading.value = true
+  debugError.value = ''
+  try {
+    await enableSourceDebug(src.id)
+    sourceDebug.value = { enabled: true, source_id: src.id, source_name: src.name }
+  } catch (e: any) {
+    debugError.value = `开启调试失败：${e.message || '请求失败'}`
+  } finally {
+    debugLoading.value = false
+  }
+}
+
+async function handleDisableDebug() {
+  debugLoading.value = true
+  debugError.value = ''
+  try {
+    await disableSourceDebug()
+    sourceDebug.value = { enabled: false }
+  } catch (e: any) {
+    debugError.value = `退出调试失败：${e.message || '请求失败'}`
+  } finally {
+    debugLoading.value = false
+  }
+}
+
+function openDebugImage() {
+  window.open('/random', '_blank', 'noopener,noreferrer')
+}
 
 async function loadSources() {
   try {
@@ -117,6 +170,30 @@ function onFormSaved() {
 
 <template>
   <div class="space-y-6">
+    <div v-if="sourceDebug.enabled" class="rounded-2xl border border-amber-300 bg-amber-50 px-4 py-4 sm:px-5 shadow-sm">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div class="flex gap-3 min-w-0">
+          <div class="w-9 h-9 rounded-xl bg-amber-200/70 text-amber-800 flex items-center justify-center shrink-0"><Bug class="w-4 h-4" /></div>
+          <div class="min-w-0">
+            <p class="text-sm font-bold text-amber-950">全局图源调试已开启：{{ debugSource?.name || sourceDebug.source_name || `图源 #${sourceDebug.source_id ?? '未知'}` }}</p>
+            <p class="text-xs text-amber-900/80 mt-1">/random 和 /e 将统一使用此图源的主图地址与默认参数；分类与方向参数会被忽略。预取池补充已暂停，不读取已有缓存，也不写入新缓存或正常统计。退出或服务重启后恢复普通分发。</p>
+            <p v-if="debugSource?.url" class="mt-2 text-xs font-mono text-amber-950 break-all">主图地址：{{ debugSource.url }}</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2 sm:shrink-0 pl-12 sm:pl-0">
+          <button @click="openDebugImage" class="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-white hover:bg-amber-100 text-amber-950 rounded-xl border border-amber-300 transition-colors cursor-pointer">
+            <ExternalLink class="w-3.5 h-3.5" /> 调试取图
+          </button>
+          <button @click="handleDisableDebug" :disabled="debugLoading" class="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-amber-700 hover:bg-amber-800 disabled:opacity-50 text-white rounded-xl transition-colors cursor-pointer">
+            <X class="w-3.5 h-3.5" /> {{ debugLoading ? '处理中…' : '退出调试' }}
+          </button>
+        </div>
+      </div>
+    </div>
+    <div v-else-if="debugError" role="alert" class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs text-rose-800">{{ debugError }}</div>
+    <div v-if="sourceDebug.enabled && debugError" role="alert" class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs text-rose-800">{{ debugError }}</div>
+    <div v-if="debugStateLoading" class="text-xs text-morandi-muted" role="status">正在读取调试状态…</div>
+
     <!-- Stat Overview Banner -->
     <div class="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
       <div class="morandi-card p-3.5 sm:p-4 flex items-center gap-3">
@@ -213,12 +290,15 @@ function onFormSaved() {
         v-for="src in filteredSources"
         :key="src.id"
         :source="src"
+        :debug-selected="sourceDebug.enabled && sourceDebug.source_id === src.id"
+        :debug-loading="debugLoading || debugStateLoading"
         :available="healthStatusMap[src.id]?.available"
         :health-detail="healthStatusMap[src.id] ? '检测时间：' + new Date(healthStatusMap[src.id].checked_at!).toLocaleString() + (healthStatusMap[src.id].error ? '；' + healthStatusMap[src.id].error : '；本次响应检测通过') : undefined"
         @edit="editSource(src)"
         @delete="handleDelete(src.id)"
         @toggle="handleToggle(src.id)"
         @open-params="handleOpenParams"
+        @debug="handleDebug"
       />
     </div>
 

@@ -1,5 +1,10 @@
 basePath: /
 definitions:
+  handler.DebugSourceRequest:
+    properties:
+      source_id:
+        type: integer
+    type: object
   handler.DetectURLRequest:
     properties:
       url:
@@ -279,6 +284,15 @@ definitions:
       system:
         type: boolean
     type: object
+  service.DebugSourceState:
+    properties:
+      enabled:
+        type: boolean
+      source_id:
+        type: integer
+      source_name:
+        type: string
+    type: object
   service.DetectResult:
     properties:
       body_tree: {}
@@ -326,6 +340,8 @@ definitions:
         items:
           type: string
         type: array
+      debug:
+        type: boolean
       file_id:
         type: string
       format:
@@ -371,6 +387,55 @@ paths:
       summary: 校验登录态
       tags:
       - Auth
+  /api/debug/source:
+    delete:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/service.DebugSourceState'
+      security:
+      - BearerAuth: []
+      summary: 退出临时图源调试
+      tags:
+      - Debug
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/service.DebugSourceState'
+      security:
+      - BearerAuth: []
+      summary: 读取临时图源调试状态
+      tags:
+      - Debug
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: 图源 ID
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.DebugSourceRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/service.DebugSourceState'
+      security:
+      - BearerAuth: []
+      summary: 开启临时图源调试
+      tags:
+      - Debug
   /api/endpoints:
     get:
       produces:

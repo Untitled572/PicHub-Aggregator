@@ -42,6 +42,88 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/debug/source": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Debug"
+                ],
+                "summary": "读取临时图源调试状态",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/service.DebugSourceState"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Debug"
+                ],
+                "summary": "开启临时图源调试",
+                "parameters": [
+                    {
+                        "description": "图源 ID",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.DebugSourceRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/service.DebugSourceState"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Debug"
+                ],
+                "summary": "退出临时图源调试",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/service.DebugSourceState"
+                        }
+                    }
+                }
+            }
+        },
         "/api/endpoints": {
             "get": {
                 "security": [
@@ -1564,6 +1646,14 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "handler.DebugSourceRequest": {
+            "type": "object",
+            "properties": {
+                "source_id": {
+                    "type": "integer"
+                }
+            }
+        },
         "handler.DetectURLRequest": {
             "type": "object",
             "properties": {
@@ -1990,6 +2080,20 @@ const docTemplate = `{
                 }
             }
         },
+        "service.DebugSourceState": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "source_id": {
+                    "type": "integer"
+                },
+                "source_name": {
+                    "type": "string"
+                }
+            }
+        },
         "service.DetectResult": {
             "type": "object",
             "properties": {
@@ -2060,6 +2164,9 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                },
+                "debug": {
+                    "type": "boolean"
                 },
                 "file_id": {
                     "type": "string"

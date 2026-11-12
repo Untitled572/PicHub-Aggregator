@@ -310,3 +310,11 @@ Serves a cached image file directly. Returns `image/jpeg`, `image/png`, `image/g
 | GET | `/api/export?scope=config,stats,images` | Download backup with Bearer authentication (JSON, or ZIP when images are included) |
 | POST | `/api/export` | Export all rules (filters sensitive headers) |
 | POST | `/api/import` | Import rules from JSON |
+
+## 临时图源调试
+
+管理接口（沿用管理鉴权）：GET /api/debug/source 读取状态；PUT /api/debug/source，提交 {"source_id": 123} 开启或切换；DELETE /api/debug/source 退出。
+
+开启后，/random 与已有自定义分发接口只请求指定图源的主地址及默认参数，忽略分类和方向筛选。不读取任何已有图片缓存或预取池，不回退到其他图源，不写入新的图片缓存或正常统计；后台补池暂停。开启时等待已开始的取图/补池任务结束，原有缓存保留。中转模式用内存转发图片（上限 32 MiB），format=json 返回本次提取的上游地址而不生成 local_url。已知 file_id 的 /images/ 地址仍可访问，此功能不禁止直接查看已有缓存。
+
+可用于调试已停用或暂停分发的图源，不改变启停状态和权重。状态只存于当前进程，退出或服务重启后恢复普通分发；多实例各自生效。其他管理操作如手动删除缓存仍按原有行为执行。
