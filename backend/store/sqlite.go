@@ -162,7 +162,7 @@ func (s *Store) seedDefaults() error {
 		"min_resolution":        "1920x1080",
 		"rate_limit":            "60",
 		"timeout":               "3000",
-		"health_check_interval": "360",
+		"health_check_interval": "-1",
 		"admin_token":           "",
 		"saved_images_dir":      "./data/saved",
 		"login_enabled":         "false",
@@ -374,7 +374,7 @@ func (s *Store) GetSettings() (*model.Settings, error) {
 			_ = v
 		case "health_check_interval":
 			if n, err := fmt.Sscanf(v, "%d", &settings.HealthCheckInterval); err != nil || n != 1 {
-				settings.HealthCheckInterval = 360
+				settings.HealthCheckInterval = -1
 			}
 		case "max_history_records":
 			if n, err := fmt.Sscanf(v, "%d", &settings.MaxHistoryRecords); err != nil || n != 1 {
@@ -403,7 +403,7 @@ func (s *Store) GetSettings() (*model.Settings, error) {
 		}
 	}
 	if settings.HealthCheckInterval <= 0 {
-		settings.HealthCheckInterval = 360
+		settings.HealthCheckInterval = -1
 	}
 	if settings.MaxHistoryRecords <= 0 {
 		settings.MaxHistoryRecords = 60

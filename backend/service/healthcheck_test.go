@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -177,4 +178,155 @@ func TestNewSourceRequestDefaultUA(t *testing.T) {
 	if err != nil || req.Header.Get("User-Agent") != defaultBrowserUA {
 		t.Fatalf("req=%v err=%v", req, err)
 	}
+}
+
+func setupPrefetch(t *testing.T, st *store.Store, images *ImageStore, hc *HealthChecker, apiURL string) *Engine {
+	t.Helper()
+	settings, err := st.GetSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings.ProxyMode = true
+	settings.PoolSize = 1
+	settings.MinResolution = "0"
+	if err := st.UpdateSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+	addHealthSource(t, st, model.Source{Name: "prefetch", URL: apiURL, Enabled: true, Weight: 1, Status: "normal"})
+	e := NewEngine(st, nil, images, nil, nil, hc)
+	e.httpClient = http.DefaultClient
+	return e
+}
+
+func TestPrefetchHealthSuccessAppearsInHealthResults(t *testing.T) {
+	st, images, _, server := newTestImageStore(t)
+	hc := NewHealthChecker(st)
+	e := setupPrefetch(t, st, images, hc, server.URL)
+	e.replenishPool()
+	results := hc.GetLastResult()
+	if e.distPool.Size() != 1 || len(results) != 1 || !results[0].Available || results[0].Origin != "cache" || results[0].Reason != "分发池预取成功" || results[0].CheckedAt.IsZero() {
+		t.Fatalf("pool=%d results=%+v", e.distPool.Size(), results)
+	}
+	if results[0].LatencyMs < 0 {
+		t.Fatalf("invalid elapsed time: %+v", results[0])
+	}
+	saved, err := st.GetSource(results[0].ID)
+	if err != nil || saved.FailCount != 0 || saved.Status != "normal" {
+		t.Fatalf("source=%+v err=%v", saved, err)
+	}
+	encoded, err := json.Marshal(results[0])
+	if err != nil || !strings.Contains(string(encoded), `"origin":"cache"`) {
+		t.Fatalf("cache origin not serialized: %s err=%v", encoded, err)
+	}
+}
+
+func TestPrefetchHealthFailureAndNoSampleCases(t *testing.T) {
+	t.Run("download validation failure", func(t *testing.T) {
+		st := healthTestStore(t)
+		api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/api" {
+				w.Header().Set("Content-Type", "application/json")
+				fmt.Fprint(w, `{"url":"/image"}`)
+				return
+			}
+			w.Header().Set("Content-Type", "text/plain")
+			fmt.Fprint(w, "not an image")
+		}))
+		defer api.Close()
+		imageStore := NewImageStore(st, filepath.Join(t.TempDir(), "cache"), nil)
+		hc := NewHealthChecker(st)
+		e := setupPrefetch(t, st, imageStore, hc, api.URL+"/api")
+		e.replenishPool()
+		results := hc.GetLastResult()
+		if e.distPool.Size() != 0 || len(results) != 1 || results[0].Available || results[0].Origin != "cache" || !strings.Contains(results[0].Error, "校验图片失败") {
+			t.Fatalf("pool=%d results=%+v", e.distPool.Size(), results)
+		}
+		saved, _ := st.GetSource(results[0].ID)
+		if saved.FailCount != 1 {
+			t.Fatalf("failed cache validation did not update health fields: %+v", saved)
+		}
+	})
+	t.Run("no candidate", func(t *testing.T) {
+		st := healthTestStore(t)
+		settings, _ := st.GetSettings()
+		settings.ProxyMode = true
+		settings.PoolSize = 1
+		st.UpdateSettings(settings)
+		hc := NewHealthChecker(st)
+		e := NewEngine(st, nil, nil, nil, nil, hc)
+		e.replenishPool()
+		if got := hc.GetLastResult(); len(got) != 0 {
+			t.Fatalf("no candidate recorded sample: %+v", got)
+		}
+	})
+	t.Run("existing pool has capacity", func(t *testing.T) {
+		st := healthTestStore(t)
+		settings, _ := st.GetSettings()
+		settings.ProxyMode = true
+		settings.PoolSize = 1
+		st.UpdateSettings(settings)
+		hc := NewHealthChecker(st)
+		e := NewEngine(st, nil, nil, nil, nil, hc)
+		e.distPool.Push(&PoolEntry{FileID: "already-there", SourceID: 1, SourceName: "old pool"})
+		result, _, err := e.randomImage("", "json", "", "")
+		if err != nil || result == nil || result.SourceName != "old pool" {
+			t.Fatalf("old pool hit failed: result=%+v err=%v", result, err)
+		}
+		if got := hc.GetLastResult(); len(got) != 0 {
+			t.Fatalf("old pool hit recorded sample: %+v", got)
+		}
+	})
+}
+
+func TestCheckAllKeepsNewerCacheResult(t *testing.T) {
+	st := healthTestStore(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Header().Set("Content-Type", "image/png") }))
+	defer server.Close()
+	src := addHealthSource(t, st, model.Source{Name: "probe", URL: server.URL, Enabled: true})
+	hc := NewHealthChecker(st)
+	newer := HealthResult{ID: src.ID, Name: src.Name, URL: server.URL, Available: true, CheckedAt: time.Now().Add(time.Second), Origin: "cache", Reason: "分发池预取成功"}
+	hc.RecordCacheResult(newer)
+	hc.CheckAll()
+	got := hc.GetLastResult()
+	if len(got) != 1 || got[0].Origin != "cache" || got[0].Reason != newer.Reason {
+		t.Fatalf("active run overwrote cache result: %+v", got)
+	}
+}
+
+func TestDisabledPeriodicHealthKeepsStartupCheck(t *testing.T) {
+	st := healthTestStore(t)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Header().Set("Content-Type", "image/png") }))
+	defer upstream.Close()
+	addHealthSource(t, st, model.Source{Name: "source", URL: upstream.URL, Enabled: true})
+	settings, _ := st.GetSettings()
+	settings.HealthCheckInterval = -1
+	st.UpdateSettings(settings)
+	hc := NewHealthChecker(st)
+	hc.Start()
+	defer hc.Stop()
+	if hc.ticker != nil {
+		t.Fatal("-1 created periodic ticker")
+	}
+	deadline := time.Now().Add(time.Second)
+	for hc.GetLastResult() == nil && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if len(hc.GetLastResult()) != 1 {
+		t.Fatal("startup check was removed")
+	}
+	settings, _ = st.GetSettings()
+	settings.HealthCheckInterval = 15
+	st.UpdateSettings(settings)
+	positive := NewHealthChecker(st)
+	positive.Start()
+	defer positive.Stop()
+	if positive.ticker == nil {
+		t.Fatal("positive interval no longer schedules checks")
+	}
+	deadline = time.Now().Add(time.Second)
+	for positive.GetLastResult() == nil && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	positive.CheckAll()
+	hc.CheckAll()
 }

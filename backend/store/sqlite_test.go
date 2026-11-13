@@ -44,3 +44,38 @@ func TestSourceTimestampsSurviveSQLiteRoundTrip(t *testing.T) {
 		t.Fatalf("want %v got %v / %v", want, src.UpdatedAt, list[0].UpdatedAt)
 	}
 }
+
+func TestHealthIntervalDefaultsAndRoundTrip(t *testing.T) {
+	for _, interval := range []int{-1, 15} {
+		path := filepath.Join(t.TempDir(), "settings.db")
+		st, err := New(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		settings, err := st.GetSettings()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if settings.HealthCheckInterval != -1 {
+			t.Fatalf("default interval=%d", settings.HealthCheckInterval)
+		}
+		copySettings := *settings
+		copySettings.HealthCheckInterval = interval
+		if err := st.UpdateSettings(&copySettings); err != nil {
+			t.Fatal(err)
+		}
+		st.Close()
+		st, err = New(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		settings, err = st.GetSettings()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if settings.HealthCheckInterval != interval {
+			t.Fatalf("stored interval=%d, want %d", settings.HealthCheckInterval, interval)
+		}
+		st.Close()
+	}
+}

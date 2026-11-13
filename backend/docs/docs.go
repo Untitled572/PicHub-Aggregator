@@ -2151,6 +2151,12 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
+                "origin": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string"
+                },
                 "status_code": {
                     "type": "integer"
                 },

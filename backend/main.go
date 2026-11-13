@@ -138,7 +138,7 @@ func main() {
 		}
 	}
 	sourceMonitor := monitor.NewSourceMonitor(st)
-	engine := service.NewEngine(st, proxyCache, imageStore, proxyConfig, sourceMonitor)
+	engine := service.NewEngine(st, proxyCache, imageStore, proxyConfig, sourceMonitor, checker)
 	h := handler.NewHandlerWithImageStore(st, engine, checker, imageStore, proxyConfig)
 	r := gin.New()
 	r.SetTrustedProxies(strings.Split(os.Getenv("TRUSTED_PROXIES"), ","))

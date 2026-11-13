@@ -128,7 +128,7 @@ Checks enabled sources by requesting the main URL and each deduplicated paramete
   "min_resolution": "1920x1080",
   "rate_limit": 60,
   "timeout": 3000,
-  "health_check_interval": 360,
+  "health_check_interval": -1,
   "max_history_records": 60,
   "bound_tags": ["horizontal"],
   "admin_token": "",
@@ -322,3 +322,5 @@ Serves a cached image file directly. Returns `image/jpeg`, `image/png`, `image/g
 调试状态读取使用独立快照，不等待正在进行的取图/补池任务。返回的 switching 表示正在等待切换完成；enabled 和 source_id 仍代表已生效的状态。控制台各页共享调试横幅并定期同步状态，读取失败或超时后显示错误及重试入口，不无限显示加载中。上游返回 404 NO_MATCH 时表示没有符合条件的图片，取图错误会指出图源及已脱敏的请求地址。
 
 调试取图分阶段计时：图源接口的响应头及 JSON/文本响应使用系统 timeout；图片响应头和完整图片下载使用独立的 30 秒时限。若图源直接返回图片，响应头收到后会给响应体独立的 30 秒下载时间，复用同一响应，不重复随机选图。客户端断开会取消调试请求。失败信息及日志标明图源接口、图片下载或图片校验阶段，并用请求 ID 关联访问日志。上游分发历史只证明选图完成，不证明 Hub 已下载或已送达浏览器。
+
+健康检测的默认定时间隔为 -1，表示不安排定时检测；正数表示分钟数。启动检测、新增图源触发和手动检测保持原有行为，间隔修改后重启生效。新图片预取的获取、下载或校验失败会产生失败反馈，只有实际加入缓存池后才产生成功反馈；命中已有池库存、容量已满或没有可请求的候选不产生新样本。健康结果 origin=cache 表示缓存入池反馈，未标注该来源的结果为主动检测。

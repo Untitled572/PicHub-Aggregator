@@ -38,6 +38,8 @@ type HealthResult struct {
 	CheckedAt          time.Time `json:"checked_at"`
 	CheckedEndpoints   int       `json:"checked_endpoints"`
 	AvailableEndpoints int       `json:"available_endpoints"`
+	Origin             string    `json:"origin,omitempty"`
+	Reason             string    `json:"reason,omitempty"`
 }
 
 func NewHealthChecker(st *store.Store, proxyConfig ...*ProxyConfig) *HealthChecker {
@@ -50,9 +52,12 @@ func NewHealthChecker(st *store.Store, proxyConfig ...*ProxyConfig) *HealthCheck
 
 func (hc *HealthChecker) Start() {
 	go hc.CheckAll()
-	interval := 360
+	interval := -1
 	if settings, err := hc.store.GetSettings(); err == nil && settings.HealthCheckInterval > 0 {
 		interval = settings.HealthCheckInterval
+	}
+	if interval <= 0 {
+		return
 	}
 	hc.ticker = time.NewTicker(time.Duration(interval) * time.Minute)
 	go func() {
@@ -115,6 +120,31 @@ func (hc *HealthChecker) CheckAll() []HealthResult {
 	close(jobs)
 	workers.Wait()
 	hc.mu.Lock()
+	// A pool download can finish while this run is probing. Keep that newer
+	// cache event for its source instead of replacing it with an older probe.
+	for i := range results {
+		for _, previous := range hc.lastResult {
+			if previous.ID == results[i].ID && previous.Origin == "cache" && previous.CheckedAt.After(results[i].CheckedAt) {
+				results[i] = previous
+				break
+			}
+		}
+	}
+	for _, previous := range hc.lastResult {
+		if previous.Origin != "cache" {
+			continue
+		}
+		found := false
+		for _, current := range results {
+			if current.ID == previous.ID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			results = append(results, previous)
+		}
+	}
 	hc.lastResult = results
 	hc.lastRunAt = time.Now()
 	hc.mu.Unlock()
@@ -126,6 +156,36 @@ func (hc *HealthChecker) CheckAll() []HealthResult {
 	}
 	logger.System("health check: %d/%d enabled sources passed", available, len(results))
 	return results
+}
+
+// RecordCacheResult publishes a passive prefetch result to the health API.
+func (hc *HealthChecker) RecordCacheResult(result HealthResult) {
+	if hc == nil || result.ID == 0 {
+		return
+	}
+	hc.mu.Lock()
+	defer hc.mu.Unlock()
+	for _, previous := range hc.lastResult {
+		if previous.ID == result.ID && previous.CheckedAt.After(result.CheckedAt) {
+			return
+		}
+	}
+	if err := hc.store.RecordHealthResult(result.ID, result.Available, result.LatencyMs); err != nil {
+		logger.Error("record cache health result for source %d: %v", result.ID, err)
+	}
+	if result.CheckedAt.After(hc.lastRunAt) {
+		hc.lastRunAt = result.CheckedAt
+	}
+	for i := range hc.lastResult {
+		if hc.lastResult[i].ID == result.ID {
+			if hc.lastResult[i].CheckedAt.After(result.CheckedAt) {
+				return
+			}
+			hc.lastResult[i] = result
+			return
+		}
+	}
+	hc.lastResult = append(hc.lastResult, result)
 }
 func (hc *HealthChecker) GetLastResult() []HealthResult {
 	hc.mu.Lock()
@@ -185,6 +245,13 @@ func (hc *HealthChecker) checkSource(src model.Source) HealthResult {
 		result.Error = failures[0]
 		if result.CheckedEndpoints > 1 {
 			result.Error = fmt.Sprintf("%d/%d 个地址检测通过；首个失败原因：%s", result.AvailableEndpoints, result.CheckedEndpoints, failures[0])
+		}
+	}
+	hc.mu.Lock()
+	defer hc.mu.Unlock()
+	for _, cached := range hc.lastResult {
+		if cached.ID == src.ID && cached.Origin == "cache" && cached.CheckedAt.After(result.CheckedAt) {
+			return cached
 		}
 	}
 	if err := hc.store.RecordHealthResult(src.ID, result.Available, result.LatencyMs); err != nil {

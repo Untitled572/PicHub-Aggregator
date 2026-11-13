@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { healthBadge } from '../utils/healthStatus'
-const props = withDefaults(defineProps<{ status?: string; available?: boolean; failCount?: number; enabled?: boolean; detail?: string }>(), { enabled: true, available: undefined })
+const props = withDefaults(defineProps<{ status?: string; available?: boolean; failCount?: number; enabled?: boolean; detail?: string; origin?: string }>(), { enabled: true, available: undefined })
 const badge = computed(() => healthBadge(props))
 const colors = {
  success: 'bg-emerald-50 text-emerald-700 border-emerald-300/80',

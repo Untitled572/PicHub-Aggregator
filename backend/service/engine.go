@@ -44,9 +44,10 @@ type Engine struct {
 	sourceDemand  *SourceDemandTracker
 	httpClient    *http.Client
 	monitor       *monitor.SourceMonitor
+	healthChecker *HealthChecker
 }
 
-func NewEngine(st *store.Store, pc *ProxyCache, imgStore *ImageStore, proxyCfg *ProxyConfig, mon *monitor.SourceMonitor) *Engine {
+func NewEngine(st *store.Store, pc *ProxyCache, imgStore *ImageStore, proxyCfg *ProxyConfig, mon *monitor.SourceMonitor, healthChecker ...*HealthChecker) *Engine {
 	transport := &http.Transport{}
 	if proxyCfg != nil {
 		transport.Proxy = proxyCfg.Proxy
@@ -68,25 +69,29 @@ func NewEngine(st *store.Store, pc *ProxyCache, imgStore *ImageStore, proxyCfg *
 			},
 		},
 	}
+	if len(healthChecker) > 0 {
+		eng.healthChecker = healthChecker[0]
+	}
 	go eng.StartDistributionWorker()
 	return eng
 }
 
 type Result struct {
-	Debug       bool     `json:"debug,omitempty"`
-	ImageData   []byte   `json:"-"`
-	ContentType string   `json:"-"`
-	URL         string   `json:"url"`
-	LocalURL    string   `json:"local_url,omitempty"`
-	SourceName  string   `json:"source"`
-	SourceID    int64    `json:"source_id,omitempty"`
-	Categories  []string `json:"categories"`
-	Orientation string   `json:"orientation,omitempty"`
-	FileID      string   `json:"file_id,omitempty"`
-	Width       int      `json:"width,omitempty"`
-	Height      int      `json:"height,omitempty"`
-	Format      string   `json:"format,omitempty"`
-	ImageID     int64    `json:"image_id,omitempty"`
+	Debug       bool          `json:"debug,omitempty"`
+	ImageData   []byte        `json:"-"`
+	ContentType string        `json:"-"`
+	URL         string        `json:"url"`
+	LocalURL    string        `json:"local_url,omitempty"`
+	SourceName  string        `json:"source"`
+	SourceID    int64         `json:"source_id,omitempty"`
+	Categories  []string      `json:"categories"`
+	Orientation string        `json:"orientation,omitempty"`
+	FileID      string        `json:"file_id,omitempty"`
+	Width       int           `json:"width,omitempty"`
+	Height      int           `json:"height,omitempty"`
+	Format      string        `json:"format,omitempty"`
+	ImageID     int64         `json:"image_id,omitempty"`
+	cacheHealth *HealthResult `json:"-"`
 }
 
 func detectOrientationFromUA(ua string) string {
@@ -789,6 +794,16 @@ func (e *Engine) RemoveSourceFromPool(sourceID int64) {
 	}
 }
 
+func (e *Engine) recordCacheHealth(result HealthResult) {
+	if e.healthChecker != nil {
+		e.healthChecker.RecordCacheResult(result)
+		return
+	}
+	if err := e.store.RecordHealthResult(result.ID, result.Available, result.LatencyMs); err != nil {
+		logger.Error("record cache health result for source %d: %v", result.ID, err)
+	}
+}
+
 func (e *Engine) replenishPool() {
 	e.modeMu.RLock()
 	defer e.modeMu.RUnlock()
@@ -826,6 +841,9 @@ func (e *Engine) replenishPool() {
 			return false
 		}
 		e.distPool.Push(poolEntryFromResult(res))
+		if res.cacheHealth != nil {
+			e.recordCacheHealth(*res.cacheHealth)
+		}
 		sourceCounts[res.SourceID]++
 		fetched++
 		return true
@@ -956,29 +974,39 @@ func (e *Engine) fetchSingleForTag(tag string, sourceCounts map[int64]int, caps 
 	}
 
 	selected := weightedPick(filtered)
+	started := time.Now()
+	failed := func(target string, statusCode int, reason string) *Result {
+		e.recordCacheHealth(HealthResult{ID: selected.ID, Name: selected.Name, URL: target, StatusCode: statusCode, LatencyMs: time.Since(started).Milliseconds(), Available: false, Error: "缓存预取失败：" + reason, Reason: "分发池预取", Origin: "cache", CheckedAt: time.Now()})
+		return nil
+	}
 
 	settings, err := e.store.GetSettings()
 	if err != nil {
-		return nil
+		return failed(selected.URL, 0, "读取设置失败："+err.Error())
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(settings.Timeout)*time.Millisecond)
 	defer cancel()
 	req, err := e.newFetchRequest(ctx, selected, "")
 	if err != nil {
-		return nil
+		return failed(selected.URL, 0, "接口地址无效："+err.Error())
 	}
 	resp, err := e.httpClient.Do(req)
-	if err != nil || resp.StatusCode >= 400 {
+	if err != nil {
 		if resp != nil {
 			resp.Body.Close()
 		}
-		return nil
+		return failed(selected.URL, 0, "接口请求失败："+err.Error())
+	}
+	if resp.StatusCode >= 400 {
+		status := resp.StatusCode
+		resp.Body.Close()
+		return failed(selected.URL, status, fmt.Sprintf("接口返回 HTTP %d", status))
 	}
 
 	imageURL, err := extractImageURL(resp, selected)
 	resp.Body.Close()
 	if err != nil {
-		return nil
+		return failed(selected.URL, resp.StatusCode, "解析图片地址失败："+err.Error())
 	}
 
 	if e.imageStore != nil {
@@ -989,7 +1017,7 @@ func (e *Engine) fetchSingleForTag(tag string, sourceCounts map[int64]int, caps 
 		origURL := imageURL
 		cached, cacheErr := e.imageStore.DownloadAndStore(origURL, selected.URL, selected.ID, selected.Name, srcCats, selected.Headers, true)
 		if cacheErr != nil {
-			return nil
+			return failed(origURL, resp.StatusCode, "下载或校验图片失败："+cacheErr.Error())
 		}
 		return &Result{
 			URL:         origURL,
@@ -1003,9 +1031,10 @@ func (e *Engine) fetchSingleForTag(tag string, sourceCounts map[int64]int, caps 
 			Height:      cached.Height,
 			Format:      cached.Format,
 			ImageID:     cached.ID,
+			cacheHealth: &HealthResult{ID: selected.ID, Name: selected.Name, URL: origURL, StatusCode: resp.StatusCode, LatencyMs: time.Since(started).Milliseconds(), Available: true, CheckedAt: time.Now(), Origin: "cache", Reason: "分发池预取成功"},
 		}
 	}
-	return nil
+	return failed(imageURL, resp.StatusCode, "图片缓存服务未启用")
 }
 
 func poolEntryFromResult(res *Result) *PoolEntry {

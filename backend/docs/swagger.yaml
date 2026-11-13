@@ -331,6 +331,10 @@ definitions:
         type: integer
       name:
         type: string
+      origin:
+        type: string
+      reason:
+        type: string
       status_code:
         type: integer
       url:

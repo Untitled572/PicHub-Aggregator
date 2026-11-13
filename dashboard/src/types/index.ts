@@ -78,6 +78,7 @@ export interface DetectResult {
 }
 
 export interface HealthResult {
+  origin?: string
   checked_at?: string
   checked_endpoints?: number
   available_endpoints?: number

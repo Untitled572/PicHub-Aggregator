@@ -20,7 +20,7 @@ onMounted(async () => {
         <h2 class="font-bold text-base text-morandi-text flex items-center gap-2">
           <Activity class="w-5 h-5 text-morandi-sage" /> 图源检测
         </h2>
-        <p class="text-xs text-morandi-muted mt-0.5">按图源的参数、请求头和代理设置，检查主地址与分支的响应。</p>
+        <p class="text-xs text-morandi-muted mt-0.5">查看新图片入池的健康反馈；也可手动检测主地址与分支的响应。</p>
       </div>
 
       <button
@@ -34,7 +34,7 @@ onMounted(async () => {
     </div>
 
     <p class="text-xs text-morandi-muted" v-if="lastRun && !lastRun.startsWith('0001')">
-      上次检测：{{ new Date(lastRun).toLocaleString() }}。结果仅反映检测当时的响应；主地址或部分分支通过，不代表所有图片均可下载。
+      最近健康反馈：{{ new Date(lastRun).toLocaleString() }}。入池反馈代表实际预取结果；主动检测只反映接口当时的响应。
     </p>
     <div v-if="running" role="status" class="morandi-card p-4 text-xs text-morandi-muted flex items-center gap-2">
       <RefreshCw class="w-4 h-4 animate-spin" /> 正在检查已启用图源，请稍候…
@@ -101,10 +101,10 @@ onMounted(async () => {
             :key="r.id"
             class="p-4 grid grid-cols-12 gap-2 text-xs items-center hover:bg-morandi-bg/50 transition-colors"
           >
-            <div class="col-span-3 font-semibold text-morandi-text truncate">{{ r.name }}</div>
+            <div class="col-span-3 font-semibold text-morandi-text truncate">{{ r.name }}<span class="block text-[10px] font-normal text-morandi-muted">{{ r.origin === 'cache' ? '缓存入池' : '主动检测' }}</span></div>
             <div class="col-span-4 text-morandi-muted font-mono truncate text-[11px]">{{ r.url }}</div>
             <div class="col-span-2">
-              <HealthStatusBadge :available="r.available" :detail="r.error" />
+              <HealthStatusBadge :available="r.available" :detail="r.error" :origin="r.origin" />
             </div>
             <div class="col-span-1 text-right font-mono text-morandi-text font-medium">
               {{ r.status_code || '-' }}
@@ -118,7 +118,7 @@ onMounted(async () => {
         </div>
 
         <div v-else class="p-12 text-center text-xs text-morandi-muted">
-          暂无检测结果。启用图源后，点击“重新检测”。
+          暂无健康结果。等待图片预取入池，或点击“重新检测”主动检查。
         </div>
       </div>
     </div>

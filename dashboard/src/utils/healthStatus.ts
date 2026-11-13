@@ -1,6 +1,8 @@
-export function healthBadge(props: { status?: string; available?: boolean; failCount?: number; enabled?: boolean }) {
+export function healthBadge(props: { status?: string; available?: boolean; failCount?: number; enabled?: boolean; origin?: string }) {
   if (props.enabled === false) return { label: '已停用', tone: 'muted' as const, detail: '该图源未参与分发。' }
   if (props.status === 'error') return { label: '暂停分发', tone: 'warning' as const, detail: '近期取图失败较多，已暂时停止分发。可重新检测图源。' }
+  if (props.origin === 'cache' && props.available === true) return { label: '入池成功', tone: 'success' as const, detail: '最近一次新图片已完成下载、校验并加入预取池。' }
+  if (props.origin === 'cache' && props.available === false) return { label: '入池失败', tone: 'warning' as const, detail: '最近一次新图片预取失败，请查看具体原因。' }
   if (props.available === false) return { label: '本次检测失败', tone: 'warning' as const, detail: '本次请求未通过，可能与超时、鉴权、代理或响应格式有关。请查看检测详情。' }
   if (props.available === true) return { label: '检测通过', tone: 'success' as const, detail: '最近一次检测至少有一个地址通过，不保证所有图片都能下载。' }
   if ((props.failCount ?? 0) > 0) return { label: '最近请求失败', tone: 'warning' as const, detail: '存在失败记录，尚无有效检测结果。' }

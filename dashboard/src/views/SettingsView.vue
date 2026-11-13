@@ -50,7 +50,7 @@ const settings = ref<Settings>({
   rate_limit: 60,
   rate_limit_window: 60,
   timeout: 3000,
-  health_check_interval: 360,
+  health_check_interval: -1,
   max_history_records: 60,
   saved_images_dir: './data/saved',
   admin_token: '',
@@ -233,8 +233,8 @@ async function handleSave() {
           <label class="font-medium text-morandi-text block mb-1.5 flex items-center gap-1">
             <Clock class="w-3.5 h-3.5 text-morandi-light" /> 后台检测间隔 (分钟)
           </label>
-          <input v-model.number="settings.health_check_interval" type="number" class="morandi-input w-full px-3 py-2 font-mono text-xs" />
-          <p class="text-[10px] text-morandi-muted mt-1">后台定期检测启用的图源（主 URL 和参数变体）的间隔</p>
+          <input v-model.number="settings.health_check_interval" type="number" min="-1" step="1" class="morandi-input w-full px-3 py-2 font-mono text-xs" />
+          <p class="text-[10px] text-morandi-muted mt-1">-1 关闭定时检测；启动、新增图源和手动检测保留。修改后重启生效。</p>
         </div>
       </div>
     </div>

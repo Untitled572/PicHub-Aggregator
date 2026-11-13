@@ -6,6 +6,8 @@ const source = readFileSync(new URL('../src/utils/healthStatus.ts', import.meta.
 const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext } }).outputText
 const { healthBadge, isHealthResultCurrent } = await import('data:text/javascript;base64,' + Buffer.from(js).toString('base64'))
 assert.equal(healthBadge({}).label, '未检测')
+assert.equal(healthBadge({ available: true, origin: 'cache' }).label, '入池成功')
+assert.equal(healthBadge({ available: false, origin: 'cache' }).label, '入池失败')
 assert.equal(healthBadge({ status: 'normal', failCount: 0 }).label, '未检测')
 assert.equal(healthBadge({ available: false }).label, '本次检测失败')
 assert.equal(healthBadge({ status: 'error', failCount: 0, available: true }).label, '暂停分发')
