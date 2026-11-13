@@ -2,8 +2,10 @@ package service
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"github.com/pichub/backend/model"
 	"image"
 	"image/png"
@@ -283,5 +285,71 @@ func TestDebugReportsNoMatchAndRedactsCredentials(t *testing.T) {
 	}
 	if strings.Contains(debugRequestAddress("https://name:password@example.test/random?token=secret&r18=1"), "password") {
 		t.Fatal("credentials exposed")
+	}
+}
+
+func TestDebugDownloadHasIndependentTimeout(t *testing.T) {
+	st := healthTestStore(t)
+	settings, _ := st.GetSettings()
+	settings.Timeout = 80
+	settings.ProxyMode = true
+	if err := st.UpdateSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+	var photo bytes.Buffer
+	png.Encode(&photo, image.NewRGBA(image.Rect(0, 0, 4, 2)))
+	var directCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api":
+			time.Sleep(20 * time.Millisecond)
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]string{"url": "/photo"})
+		case "/slow-api":
+			time.Sleep(180 * time.Millisecond)
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"url":"/photo"}`))
+		case "/photo", "/direct":
+			if r.URL.Path == "/direct" {
+				directCalls.Add(1)
+			}
+			w.Header().Set("Content-Type", "image/png")
+			w.WriteHeader(200)
+			w.(http.Flusher).Flush()
+			time.Sleep(180 * time.Millisecond)
+			w.Write(photo.Bytes())
+		}
+	}))
+	defer server.Close()
+	client := server.Client()
+	client.Timeout = 50 * time.Millisecond
+	e := &Engine{store: st, httpClient: client}
+	for _, path := range []string{"/api", "/direct"} {
+		src := addHealthSource(t, st, model.Source{Name: path, URL: server.URL + path, RespType: "json"})
+		e.SetDebugSource(src.ID)
+		result, code, err := e.RandomImage("", "", "", "")
+		if err != nil || code != 200 || !bytes.Equal(result.ImageData, photo.Bytes()) {
+			t.Fatalf("%s body longer than API timeout must succeed: result=%+v err=%v", path, result, err)
+		}
+	}
+	if directCalls.Load() != 1 {
+		t.Fatal("direct random image was fetched more than once")
+	}
+	src := addHealthSource(t, st, model.Source{Name: "slow", URL: server.URL + "/slow-api", RespType: "json"})
+	e.SetDebugSource(src.ID)
+	_, _, err := e.RandomImage("", "", "", "")
+	var fetchError *DebugFetchError
+	if !errors.As(err, &fetchError) || fetchError.Phase != "图源接口" || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("wrong API timeout error: %v", err)
+	}
+	src = addHealthSource(t, st, model.Source{Name: "cancel", URL: server.URL + "/api", RespType: "json"})
+	e.SetDebugSource(src.ID)
+	ctx, cancel := context.WithCancel(context.Background())
+	timer := time.AfterFunc(60*time.Millisecond, cancel)
+	defer timer.Stop()
+	defer cancel()
+	_, _, err = e.RandomImageContext(ctx, "", "", "", "")
+	if !errors.As(err, &fetchError) || fetchError.Phase != "图片下载" || !errors.Is(err, context.Canceled) {
+		t.Fatalf("caller cancellation lost: %v", err)
 	}
 }

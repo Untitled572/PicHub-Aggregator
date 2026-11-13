@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	"io"
@@ -73,7 +74,7 @@ func readDebugBody(r io.Reader, limit int64) ([]byte, error) {
 	return data, nil
 }
 
-func (e *Engine) debugImage(category, format, orientation, ua string) (result *Result, code int, err error) {
+func (e *Engine) debugImage(parent context.Context, category, format, orientation, ua string) (result *Result, code int, err error) {
 	src, err := e.store.GetSource(e.debugSourceID)
 	if err != nil {
 		return nil, 0, fmt.Errorf("调试图源不存在，请退出调试或重新选择图源")
@@ -110,13 +111,34 @@ func (e *Engine) debugImage(category, format, orientation, ua string) (result *R
 	if timeout <= 0 {
 		timeout = 3 * time.Second
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	req, err := newSourceRequest(ctx, selected, ua)
+	phase := "图源接口"
+	budget := timeout
+	target := selected.URL
+	requestCtx, cancelRequest := context.WithCancelCause(parent)
+	activeCtx := requestCtx
+	timer := time.AfterFunc(timeout, func() { cancelRequest(context.DeadlineExceeded) })
+	defer func() { timer.Stop(); cancelRequest(context.Canceled) }()
+	defer func() {
+		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				if cause := context.Cause(activeCtx); cause != nil {
+					err = cause
+				}
+			}
+			var urlError *url.Error
+			if errors.As(err, &urlError) {
+				err = urlError.Err
+			}
+			err = &DebugFetchError{Phase: phase, SourceID: src.ID, Address: debugRequestAddress(target), Budget: budget, Err: err}
+		}
+	}()
+	client := *e.httpClient
+	client.Timeout = 0
+	req, err := newSourceRequest(requestCtx, selected, ua)
 	if err != nil {
 		return nil, 0, err
 	}
-	resp, err := e.httpClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, 0, fmt.Errorf("调试图源 %s 请求失败：%w", src.Name, err)
 	}
@@ -131,6 +153,14 @@ func (e *Engine) debugImage(category, format, orientation, ua string) (result *R
 	}
 	direct := strings.HasPrefix(strings.ToLower(resp.Header.Get("Content-Type")), "image/") && !isRedirectStatus(resp.StatusCode)
 	imageURL := selected.URL
+	if direct {
+		if !timer.Stop() {
+			return nil, 0, context.DeadlineExceeded
+		}
+		phase = "图片下载"
+		budget = debugImageDownloadTimeout
+		timer = time.AfterFunc(budget, func() { cancelRequest(context.DeadlineExceeded) })
+	}
 	if !direct {
 		body, err := readDebugBody(resp.Body, 1<<20)
 		if err != nil {
@@ -154,6 +184,13 @@ func (e *Engine) debugImage(category, format, orientation, ua string) (result *R
 			imageURL = resolveURL(selected.URL, strings.TrimSpace(string(body)))
 		}
 	}
+	if !direct {
+		if !timer.Stop() {
+			return nil, 0, context.DeadlineExceeded
+		}
+		resp.Body.Close()
+		cancelRequest(context.Canceled)
+	}
 	result = &Result{Debug: true, URL: imageURL, SourceID: src.ID, SourceName: selected.Name, Categories: selected.Categories}
 	if orientation == "" {
 		if format == "json" {
@@ -166,12 +203,17 @@ func (e *Engine) debugImage(category, format, orientation, ua string) (result *R
 	// Proxy into memory only: no disk cache, image metadata, monitor or pool writes.
 	imageResponse := resp
 	if !direct {
-		imageReq, err := http.NewRequestWithContext(ctx, http.MethodGet, imageURL, nil)
+		phase = "图片下载"
+		budget = debugImageDownloadTimeout
+		target = imageURL
+		downloadCtx, cancelDownload := context.WithTimeout(parent, budget)
+		defer cancelDownload()
+		activeCtx = downloadCtx
+		imageReq, err := http.NewRequestWithContext(downloadCtx, http.MethodGet, imageURL, nil)
 		if err != nil {
 			return nil, 0, err
 		}
 		imageReq.Header = buildImageRequestHeaders(selected.URL, selected.Headers)
-		client := *e.httpClient
 		client.CheckRedirect = func(_ *http.Request, via []*http.Request) error {
 			if len(via) >= 5 {
 				return fmt.Errorf("图片重定向过多")
@@ -191,6 +233,7 @@ func (e *Engine) debugImage(category, format, orientation, ua string) (result *R
 	if err != nil {
 		return nil, 0, err
 	}
+	phase = "图片校验"
 	cfg, kind, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil || cfg.Width < 1 || cfg.Height < 1 {
 		return nil, 0, fmt.Errorf("调试响应不是有效图片")
@@ -232,3 +275,18 @@ func debugRequestAddress(raw string) string {
 	u.Fragment = ""
 	return u.String()
 }
+
+const debugImageDownloadTimeout = 30 * time.Second
+
+type DebugFetchError struct {
+	Phase    string
+	SourceID int64
+	Address  string
+	Budget   time.Duration
+	Err      error
+}
+
+func (e *DebugFetchError) Error() string {
+	return fmt.Sprintf("调试取图%s失败（图源 #%d，阶段时限 %s，请求地址：%s）：%v", e.Phase, e.SourceID, e.Budget, e.Address, e.Err)
+}
+func (e *DebugFetchError) Unwrap() error { return e.Err }

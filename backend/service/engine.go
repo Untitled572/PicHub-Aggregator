@@ -115,10 +115,14 @@ func detectOrientationFromUA(ua string) string {
 }
 
 func (e *Engine) RandomImage(category string, format string, orientation string, clientUA string) (*Result, int, error) {
+	return e.RandomImageContext(context.Background(), category, format, orientation, clientUA)
+}
+
+func (e *Engine) RandomImageContext(ctx context.Context, category, format, orientation, clientUA string) (*Result, int, error) {
 	e.modeMu.RLock()
 	defer e.modeMu.RUnlock()
 	if e.debugSourceID != 0 {
-		return e.debugImage(category, format, orientation, clientUA)
+		return e.debugImage(ctx, category, format, orientation, clientUA)
 	}
 	return e.randomImage(category, format, orientation, clientUA)
 }

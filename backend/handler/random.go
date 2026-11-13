@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"github.com/pichub/backend/common/ctxkey"
+	"github.com/pichub/backend/logger"
 	"net/http"
 	"strings"
 
@@ -65,8 +67,9 @@ func (h *Handler) serveRandom(c *gin.Context, category string) {
 	orientation := c.Query("orientation")
 	clientUA := c.GetHeader("User-Agent")
 
-	result, statusCode, err := h.engine.RandomImage(category, format, orientation, clientUA)
+	result, statusCode, err := h.engine.RandomImageContext(c.Request.Context(), category, format, orientation, clientUA)
 	if err != nil {
+		logger.Error("[%s] distribution failed: %v", c.GetString(string(ctxkey.RequestID)), err)
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		return
 	}
