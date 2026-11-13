@@ -1,5 +1,5 @@
 // @title PicHub Aggregator API
-// @version 0.6.6
+// @version 0.6.7
 // @description PicHub-Aggregator 图片聚合分发服务。管理接口支持会话和 Bearer token 鉴权，图片分发接口公开。
 // @termsOfService https://github.com/untitled572/pichub-aggregator
 // @contact.name PicHub

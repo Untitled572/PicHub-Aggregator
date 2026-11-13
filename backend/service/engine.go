@@ -143,6 +143,7 @@ func (e *Engine) randomImage(category string, format string, orientation string,
 		return nil, 0, fmt.Errorf("get settings: %w", err)
 	}
 
+	explicitOrientation := orientation != ""
 	queryCats := splitCategory(category)
 
 	tags, _ := e.store.GetTags()
@@ -154,7 +155,7 @@ func (e *Engine) randomImage(category string, format string, orientation string,
 			orientation = uaOri
 		}
 	}
-	if len(queryCats) == 1 && queryCats[0] == "adaptive" && orientation == "" {
+	if hasCategory(queryCats, "adaptive") && orientation == "" {
 		if uaOri := detectOrientationFromUA(clientUA); uaOri != "" {
 			orientation = uaOri
 		}
@@ -167,14 +168,14 @@ func (e *Engine) randomImage(category string, format string, orientation string,
 		switch {
 		case orientation != "" && len(queryCats) > 0:
 			poolResult = e.distPool.PopMatching(func(entry *PoolEntry) bool {
-				return matchCategories(entry.Categories, queryCats, tags, single, hasExcl) &&
+				return matchRequestCategories(entry.Categories, queryCats, tags, single, hasExcl) &&
 					entry.Orientation == orientation
 			})
 		case orientation != "":
 			poolResult = e.distPool.PopByOrientation(orientation, exclSet)
 		case len(queryCats) > 0:
 			poolResult = e.distPool.PopMatching(func(entry *PoolEntry) bool {
-				return matchCategories(entry.Categories, queryCats, tags, single, hasExcl)
+				return matchRequestCategories(entry.Categories, queryCats, tags, single, hasExcl)
 			})
 		default:
 			poolResult = e.distPool.PopAny(exclSet)
@@ -213,7 +214,7 @@ func (e *Engine) randomImage(category string, format string, orientation string,
 		return nil, 0, fmt.Errorf("list sources: %w", err)
 	}
 
-	candidates := filterSources(sources, queryCats, tags)
+	candidates := filterRequestSources(sources, queryCats, tags, orientation)
 	if len(candidates) == 0 {
 		return nil, 0, fmt.Errorf("no available sources")
 	}
@@ -221,12 +222,13 @@ func (e *Engine) randomImage(category string, format string, orientation string,
 	timeout := time.Duration(settings.Timeout) * time.Millisecond
 
 	maxAttempts := 3
-	if e.imageStore != nil && settings.ProxyMode && orientation != "" {
+	if orientation != "" && (hasCategory(queryCats, "adaptive") || (e.imageStore != nil && settings.ProxyMode)) {
 		maxAttempts = 8
 	}
 
 	for attempt := 0; attempt < maxAttempts && len(candidates) > 0; attempt++ {
 		selected := weightedPick(candidates)
+		checkOrientation := requestOrientation(selected, queryCats, orientation, explicitOrientation)
 
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		req, err := e.newFetchRequest(ctx, selected, clientUA)
@@ -289,9 +291,9 @@ func (e *Engine) randomImage(category string, format string, orientation string,
 			}
 			cachedInfo = cached
 
-			if orientation != "" {
+			if checkOrientation != "" {
 				imgOrient := GetOrientation(cached.Width, cached.Height)
-				if imgOrient != orientation {
+				if imgOrient != checkOrientation {
 					logger.System("orientation mismatch for %s: got %s, wanted %s", selected.Name, imgOrient, orientation)
 					candidates = removeSource(candidates, selected.ID)
 					continue
@@ -303,6 +305,14 @@ func (e *Engine) randomImage(category string, format string, orientation string,
 			_, _, proxyErr := e.proxyCache.GetOrFetch(imageURL)
 			if proxyErr != nil {
 				hasFailed = true
+			}
+		}
+
+		if cachedInfo == nil && hasCategory(queryCats, "adaptive") && checkOrientation != "" && !hasDirectionTag(selected.Categories) {
+			if err := checkRemoteOrientation(selected, imageURL, checkOrientation, clientUA, timeout, e.httpClient); err != nil {
+				logger.System("adaptive image rejected for %s: %v", selected.Name, err)
+				candidates = removeSource(candidates, selected.ID)
+				continue
 			}
 		}
 
@@ -369,7 +379,7 @@ func newSourceRequest(ctx context.Context, selected model.Source, clientUA strin
 				break
 			}
 		}
-		if !hasUA {
+		if !hasUA || hasCategory(selected.Categories, "adaptive") {
 			req.Header.Set("User-Agent", clientUA)
 		}
 	} else if !hasHeader(selected.Headers, "User-Agent") {

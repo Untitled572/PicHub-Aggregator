@@ -27,6 +27,8 @@ GET /random?category=landscape&format=json&orientation=horizontal
 
 **orientation 说明：** 基于图片真实宽高过滤（`image.DecodeConfig`），不依赖分类标签。仅在 `proxy_mode=true` 时生效。不匹配时自动重试其他图源。
 
+**自适应标签：** 请求分类包含 `adaptive` 时，不再要求图源绑定同名标签。绑定自适应的地址透传客户端 UA，由上游选择方向；其他地址按 UA 匹配横屏或竖屏标签，没有方向标签的地址按图片实际宽高校验。手机和平板对应竖屏，电脑对应横屏，无法识别 UA 时不限制方向。显式 `orientation` 优先。缓存按图片实际方向筛选，避免返回另一种设备方向的旧图。独占标签仍需显式指定；调试模式沿用这套规则，但不读写缓存池。
+
 **Exclusive Tag 说明：** 带有 `exclusive: true` 标记的独占标签（如 `nsfw` / `square`）不会被匿名/未指定标签的随机请求抽中。仅当客户端在请求参数中显式指定 `?category=nsfw` 或绑定该 Tag 时方可触发该类图源分发。独占标签由用户在控制台自行添加/标记，非系统预设。
 
 **Note:** 速率限制基于内存实现（单实例），多实例负载均衡场景下各实例独立计数。多实例部署建议配合 sticky session 或外部 Redis。

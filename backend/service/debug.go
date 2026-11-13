@@ -83,6 +83,7 @@ func (e *Engine) debugImage(parent context.Context, category, format, orientatio
 	if err != nil {
 		return nil, 0, err
 	}
+	explicitOrientation := orientation != ""
 	queryCats := splitCategory(category)
 	tags, err := e.store.GetTags()
 	if err != nil {
@@ -92,14 +93,16 @@ func (e *Engine) debugImage(parent context.Context, category, format, orientatio
 	debugSource := *src
 	debugSource.Enabled = true
 	debugSource.Status = "normal"
-	candidates := filterSources([]model.Source{debugSource}, queryCats, tags)
+	if orientation == "" && (len(queryCats) == 0 || hasCategory(queryCats, "adaptive")) {
+		orientation = detectOrientationFromUA(ua)
+	}
+	candidates := filterRequestSources([]model.Source{debugSource}, queryCats, tags, orientation)
 	if len(candidates) == 0 {
 		return nil, 0, fmt.Errorf("调试图源没有匹配分类的主地址或分支")
 	}
 	selected := weightedPick(candidates)
-	if orientation == "" && (len(queryCats) == 0 || (len(queryCats) == 1 && queryCats[0] == "adaptive")) {
-		orientation = detectOrientationFromUA(ua)
-	}
+	orientation = requestOrientation(selected, queryCats, orientation, explicitOrientation)
+
 	defer func() {
 		if err == nil && result != nil {
 			if statErr := e.store.RecordStats(queryCats, selected, result.URL, nil, ""); statErr != nil {
