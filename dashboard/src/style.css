@@ -71,8 +71,8 @@
 
 /* Desktop controls and text follow the same scale; mobile keeps its current size. */
 @media (min-width: 1024px) and (hover: hover) and (pointer: fine) {
-  body { zoom: 1.1; }
-  .h-screen { height: calc(100dvh / 1.1); }
-  .min-h-screen { min-height: calc(100dvh / 1.1); }
-  .max-h-\[90vh\] { max-height: calc(90dvh / 1.1); }
+  body { zoom: 1.2; }
+  .h-screen { height: calc(100dvh / 1.2); }
+  .min-h-screen { min-height: calc(100dvh / 1.2); }
+  .max-h-\[90vh\] { max-height: calc(90dvh / 1.2); }
 }
