@@ -71,6 +71,13 @@ func generateFileID() string {
 	return fmt.Sprintf("%x", b)
 }
 
+type imageHTTPError struct {
+	status     int
+	retryAfter string
+}
+
+func (err *imageHTTPError) Error() string { return fmt.Sprintf("fetch image: HTTP %d", err.status) }
+
 func (is *ImageStore) DownloadAndStore(imageURL, sourceURL string, sourceID int64, sourceName string, categories []string, headers map[string]string, pooled bool) (*CachedImageInfo, error) {
 	return is.downloadAndStore(context.Background(), imageURL, sourceURL, sourceID, sourceName, categories, headers, pooled)
 }
@@ -92,7 +99,7 @@ func (is *ImageStore) downloadAndStore(ctx context.Context, imageURL, sourceURL 
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("fetch image: HTTP %d", resp.StatusCode)
+		return nil, &imageHTTPError{status: resp.StatusCode, retryAfter: resp.Header.Get("Retry-After")}
 	}
 
 	data, err := io.ReadAll(resp.Body)

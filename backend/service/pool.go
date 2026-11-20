@@ -192,6 +192,9 @@ func (p *DistributionPool) CategorySnapshot() map[string]int {
 	snap := make(map[string]int)
 	for _, entry := range p.items {
 		for _, cat := range entry.Categories {
+			if (cat == "horizontal" || cat == "vertical") && cat != entry.Orientation {
+				continue
+			}
 			snap[cat]++
 		}
 	}

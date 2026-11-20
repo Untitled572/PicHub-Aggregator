@@ -127,9 +127,9 @@ Checks enabled sources by requesting the main URL and each deduplicated paramete
   "proxy_mode": false,
   "proxy_enabled": false,
   "proxy_url": "http://127.0.0.1:7890",
-  "pool_size": 60,
+  "pool_size": 120,
   "cache_max_mb": 200,
-  "cache_max_images": 60,
+  "cache_max_images": 220,
   "cache_ttl": 60,
   "min_resolution": "1920x1080",
   "rate_limit": 60,
@@ -144,6 +144,9 @@ Checks enabled sources by requesting the main URL and each deduplicated paramete
   "session_hours": 3
 }
 ```
+
+预取池默认目标是 120 张。补池优先照顾有可用图源且库存较少的标签，每个标签目标最多 15 张，图源分支共用各自图源的请求间隔。后台每 5 秒最多发起一次预取，同一图源或主机的两次预取至少间隔 15 秒。收到 HTTP 429 时遵循 Retry-After 并至少等待 1 分钟，收到 HTTP 403 时暂停该图源的后台预取 10 分钟。分类与方向同时筛选时，可用库存取决于两项都符合的图片数量。
+
 
 **Note:** `min_resolution` 仅在 `proxy_mode=true` 时生效，输入 `0` 关闭分辨率过滤。`proxy_enabled` 与 `proxy_url` 用于配置抓取图源时的 HTTP/HTTPS 代理。
 

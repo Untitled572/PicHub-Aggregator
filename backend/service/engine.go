@@ -3,12 +3,15 @@ package service
 import (
 	"context"
 	cryptorand "crypto/rand"
+	"errors"
 	"fmt"
 	"io"
 	"math"
 	"math/rand"
 	"net/http"
 	"net/url"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -23,8 +26,9 @@ import (
 )
 
 const (
-	// maxFetchPerTick 单轮池补充的最大拉取数, 防止突发打爆图源触发风控
-	maxFetchPerTick             = 8
+	prefetchInterval            = 5 * time.Second
+	prefetchSourceInterval      = 15 * time.Second
+	prefetchTagReserve          = 15
 	distributionTimeout         = 8 * time.Second
 	distributionDownloadTimeout = 4 * time.Second
 	// maxPoolPerSource 单源池条目封顶
@@ -34,21 +38,24 @@ const (
 )
 
 type Engine struct {
-	modeMu        sync.RWMutex
-	replenishMu   sync.Mutex
-	debugSourceID int64
-	debugState    atomic.Pointer[DebugSourceState]
-	debugSwitches atomic.Int32
-	store         *store.Store
-	proxyCache    *ProxyCache
-	imageStore    *ImageStore
-	proxyConfig   *ProxyConfig
-	distPool      *DistributionPool
-	demandTracker *DemandTracker
-	sourceDemand  *SourceDemandTracker
-	httpClient    *http.Client
-	monitor       *monitor.SourceMonitor
-	healthChecker *HealthChecker
+	modeMu      sync.RWMutex
+	replenishMu sync.Mutex
+	// Only accessed under replenishMu.
+	nextPrefetch     time.Time
+	prefetchCooldown map[string]time.Time
+	debugSourceID    int64
+	debugState       atomic.Pointer[DebugSourceState]
+	debugSwitches    atomic.Int32
+	store            *store.Store
+	proxyCache       *ProxyCache
+	imageStore       *ImageStore
+	proxyConfig      *ProxyConfig
+	distPool         *DistributionPool
+	demandTracker    *DemandTracker
+	sourceDemand     *SourceDemandTracker
+	httpClient       *http.Client
+	monitor          *monitor.SourceMonitor
+	healthChecker    *HealthChecker
 }
 
 func NewEngine(st *store.Store, pc *ProxyCache, imgStore *ImageStore, proxyCfg *ProxyConfig, mon *monitor.SourceMonitor, healthChecker ...*HealthChecker) *Engine {
@@ -829,7 +836,7 @@ func resolveURL(baseURLStr, targetURLStr string) string {
 func (e *Engine) StartDistributionWorker() {
 	time.Sleep(3 * time.Second)
 
-	ticker := time.NewTicker(10 * time.Second)
+	ticker := time.NewTicker(prefetchInterval)
 	defer ticker.Stop()
 	for range ticker.C {
 		e.replenishPool()
@@ -873,7 +880,7 @@ func (e *Engine) replenishPool() {
 	}
 
 	// 淘汰超轮次项
-	maxRounds := max(1, settings.PoolSize-1)
+	maxRounds := int(30 * time.Minute / prefetchInterval)
 	live, err := e.store.GetPooledFileIDSet()
 	if err != nil {
 		live = nil
@@ -885,79 +892,89 @@ func (e *Engine) replenishPool() {
 	}
 	e.modeMu.RUnlock()
 
-	currentSize := e.distPool.Size()
-	if currentSize >= settings.PoolSize {
+	if e.distPool.Size() >= settings.PoolSize || time.Now().Before(e.nextPrefetch) {
 		return
 	}
-
+	sources, err := e.store.ListSources()
+	if err != nil {
+		return
+	}
+	tags, _ := e.store.GetTags()
+	stock := e.distPool.CategorySnapshot()
 	sourceCounts := e.distPool.SourceCounts()
 	caps := e.sourceCaps(settings.PoolSize)
+	activeSources := 0
+	for _, source := range sources {
+		if source.Enabled && source.Status != "error" {
+			activeSources++
+		}
+	}
+	if activeSources > 0 {
+		baseCap := min(maxPoolPerSource, (settings.PoolSize+activeSources-1)/activeSources)
+		for _, source := range sources {
+			caps[source.ID] = max(baseCap, caps[source.ID])
+		}
+	}
 
-	// 每 tick 拉取数上限, 防止突发打爆图源触发风控
-	fetched := 0
-	paused := false
-	fetchAndPush := func(tag string) bool {
-		// Let a mode change take the lock between images, even if this round has more work.
+	// Each round starts at most one upstream attempt, even when it fails.
+	fetch := func(candidates []model.Source, reserve int) bool {
 		e.modeMu.RLock()
 		defer e.modeMu.RUnlock()
 		if e.debugSourceID != 0 || e.debugSwitches.Load() > 0 {
-			paused = true
-			return false
+			return true
 		}
-		res := e.fetchSingleForTag(tag, sourceCounts, caps)
-		if res == nil {
-			return false
+		previous := e.nextPrefetch
+		res := e.fetchPrefetch(candidates, sourceCounts, caps, reserve)
+		if res != nil {
+			e.distPool.Push(poolEntryFromResult(res))
+			if res.cacheHealth != nil {
+				e.recordCacheHealth(*res.cacheHealth)
+			}
 		}
-		e.distPool.Push(poolEntryFromResult(res))
-		if res.cacheHealth != nil {
-			e.recordCacheHealth(*res.cacheHealth)
-		}
-		sourceCounts[res.SourceID]++
-		fetched++
-		return true
+		return !e.nextPrefetch.Equal(previous)
 	}
 
-	stock := e.distPool.CategorySnapshot()
-	plan := e.demandTracker.GetAllocationPlan(settings.PoolSize, stock)
-	plan = ensureBoundTagCoverage(plan, settings.BoundTags, stock)
-
-	if len(plan) == 0 {
-		// 窗口无数据：为每个有源的 tag 各拉一张
-		tags, _ := e.store.GetTags()
-		for _, t := range tags {
-			if paused || e.distPool.Size() >= settings.PoolSize || fetched >= maxFetchPerTick {
+	type tagStock struct {
+		id         string
+		count      int
+		candidates []model.Source
+	}
+	var shelves []tagStock
+	for _, tag := range tags {
+		candidates := filterSources(sources, []string{tag.ID}, tags)
+		if len(candidates) > 0 {
+			shelves = append(shelves, tagStock{tag.ID, stock[tag.ID], candidates})
+		}
+	}
+	missing := 0
+	if len(shelves) > 0 {
+		reserve := min(prefetchTagReserve, settings.PoolSize/len(shelves))
+		sort.Slice(shelves, func(i, j int) bool {
+			if shelves[i].count != shelves[j].count {
+				return shelves[i].count < shelves[j].count
+			}
+			return shelves[i].id < shelves[j].id
+		})
+		for _, shelf := range shelves {
+			if shelf.count >= reserve {
 				break
 			}
-			if !fetchAndPush(t.ID) {
-				continue
+			missing += reserve - shelf.count
+			if fetch(shelf.candidates, reserve) {
+				return
 			}
 		}
-		// 剩余 slot 填无 tag 源
-		for !paused && e.distPool.Size() < settings.PoolSize && fetched < maxFetchPerTick {
-			if !fetchAndPush("") {
-				break
-			}
-		}
+	}
+	if e.distPool.Size()+missing >= settings.PoolSize {
 		return
 	}
-
-	for tag, count := range plan {
-		if paused {
-			break
-		}
-		if count <= 0 {
-			continue
-		}
-		fetchTag := tag
-		if fetchTag == "__uncategorized__" {
-			fetchTag = "" // 通用预取覆盖无分类源
-		}
-		for i := 0; i < count && e.distPool.Size() < settings.PoolSize && fetched < maxFetchPerTick; i++ {
-			if !fetchAndPush(fetchTag) {
-				break
-			}
+	plan := ensureBoundTagCoverage(e.demandTracker.GetAllocationPlan(settings.PoolSize, stock), settings.BoundTags, stock)
+	for _, shelf := range shelves {
+		if plan[shelf.id] > 0 && fetch(shelf.candidates, 0) {
+			return
 		}
 	}
+	fetch(excludeExclusiveSources(filterSources(sources, nil, tags), tags), 0)
 }
 
 // sourceCaps 按源近期被选中热度分配池额度, 并叠加单源封顶 (防源风控)
@@ -1012,31 +1029,58 @@ func ensureBoundTagCoverage(plan map[string]int, boundTags []string, stock map[s
 	return plan
 }
 
-func (e *Engine) fetchSingleForTag(tag string, sourceCounts map[int64]int, caps map[int64]int) *Result {
-	sources, err := e.store.ListSources()
-	if err != nil || len(sources) == 0 {
-		return nil
+func prefetchKeys(src model.Source) []string {
+	keys := []string{"source:" + strconv.FormatInt(src.ID, 10)}
+	if parsed, err := url.Parse(src.URL); err == nil && parsed.Hostname() != "" {
+		keys = append(keys, "host:"+strings.ToLower(strings.TrimSuffix(parsed.Hostname(), ".")))
 	}
+	return keys
+}
 
-	tags, _ := e.store.GetTags()
-	var candidates []model.Source
-	if tag != "" {
-		candidates = filterSources(sources, []string{tag}, tags)
-	} else {
-		candidates = excludeExclusiveSources(filterSources(sources, nil, tags), tags)
+// prefetchWait respects both Retry-After formats. HTTP 403 pauses background
+// requests to a source that has refused them.
+func prefetchWait(now time.Time, status int, retryAfter string) time.Time {
+	if status == http.StatusForbidden {
+		return now.Add(10 * time.Minute)
 	}
-	if len(candidates) == 0 {
-		return nil
+	until := now.Add(time.Minute)
+	if seconds, err := strconv.ParseInt(strings.TrimSpace(retryAfter), 10, 64); err == nil && seconds >= 0 {
+		return maxTime(until, now.Add(time.Duration(min(seconds, int64((1<<63-1)/time.Second)))*time.Second))
 	}
+	if date, err := http.ParseTime(retryAfter); err == nil {
+		return maxTime(until, date)
+	}
+	return until
+}
 
-	// 过滤掉已达该源自适应额度上限的源 (默认上限由热度分配, 封顶 maxPoolPerSource)
+func maxTime(a, b time.Time) time.Time {
+	if a.After(b) {
+		return a
+	}
+	return b
+}
+
+func (e *Engine) pausePrefetch(src model.Source, until time.Time) {
+	if e.prefetchCooldown == nil {
+		e.prefetchCooldown = make(map[string]time.Time)
+	}
+	for _, key := range prefetchKeys(src) {
+		e.prefetchCooldown[key] = maxTime(e.prefetchCooldown[key], until)
+	}
+}
+
+func (e *Engine) fetchPrefetch(candidates []model.Source, sourceCounts, caps map[int64]int, reserve int) *Result {
+	now := time.Now()
 	var filtered []model.Source
 	for _, src := range candidates {
-		limit := caps[src.ID]
-		if limit < minPoolPerSource {
-			limit = minPoolPerSource
+		if reserve == 0 && sourceCounts[src.ID] >= max(caps[src.ID], minPoolPerSource) {
+			continue
 		}
-		if sourceCounts[src.ID] < limit {
+		cooling := false
+		for _, key := range prefetchKeys(src) {
+			cooling = cooling || now.Before(e.prefetchCooldown[key])
+		}
+		if !cooling {
 			filtered = append(filtered, src)
 		}
 	}
@@ -1046,6 +1090,8 @@ func (e *Engine) fetchSingleForTag(tag string, sourceCounts map[int64]int, caps 
 
 	selected := weightedPick(filtered)
 	started := time.Now()
+	e.nextPrefetch = started.Add(prefetchInterval)
+	e.pausePrefetch(selected, started.Add(prefetchSourceInterval))
 	failed := func(target string, statusCode int, reason string) *Result {
 		e.recordCacheHealth(HealthResult{ID: selected.ID, Name: selected.Name, URL: target, StatusCode: statusCode, LatencyMs: time.Since(started).Milliseconds(), Available: false, Error: "缓存预取失败：" + reason, Reason: "分发池预取", Origin: "cache", CheckedAt: time.Now()})
 		return nil
@@ -1070,6 +1116,9 @@ func (e *Engine) fetchSingleForTag(tag string, sourceCounts map[int64]int, caps 
 	}
 	if resp.StatusCode >= 400 {
 		status := resp.StatusCode
+		if status == http.StatusTooManyRequests || status == http.StatusForbidden {
+			e.pausePrefetch(selected, prefetchWait(time.Now(), status, resp.Header.Get("Retry-After")))
+		}
 		resp.Body.Close()
 		return failed(selected.URL, status, fmt.Sprintf("接口返回 HTTP %d", status))
 	}
@@ -1088,7 +1137,15 @@ func (e *Engine) fetchSingleForTag(tag string, sourceCounts map[int64]int, caps 
 		origURL := imageURL
 		cached, cacheErr := e.imageStore.DownloadAndStore(origURL, selected.URL, selected.ID, selected.Name, srcCats, selected.Headers, true)
 		if cacheErr != nil {
-			return failed(origURL, resp.StatusCode, "下载或校验图片失败："+cacheErr.Error())
+			status := resp.StatusCode
+			var upstreamErr *imageHTTPError
+			if errors.As(cacheErr, &upstreamErr) {
+				status = upstreamErr.status
+				if status == http.StatusTooManyRequests || status == http.StatusForbidden {
+					e.pausePrefetch(selected, prefetchWait(time.Now(), status, upstreamErr.retryAfter))
+				}
+			}
+			return failed(origURL, status, "下载或校验图片失败："+cacheErr.Error())
 		}
 		return &Result{
 			URL:         origURL,

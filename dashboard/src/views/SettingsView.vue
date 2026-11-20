@@ -44,10 +44,10 @@ const settings = ref<Settings>({
   proxy_enabled: false,
   proxy_url: 'http://127.0.0.1:7890',
   cache_max_mb: 500,
-  cache_max_images: 120,
+  cache_max_images: 220,
   cache_ttl: 0,
   min_resolution: '1920x1080',
-  pool_size: 60,
+  pool_size: 120,
   rate_limit: 60,
   rate_limit_window: 60,
   timeout: 3000,
@@ -78,7 +78,7 @@ onMounted(async () => {
     const s = await getSettings()
     if (s.cache_ttl === undefined || s.cache_ttl === null) s.cache_ttl = 0
     if (!s.min_resolution) s.min_resolution = '1920x1080'
-    if (s.pool_size === undefined || s.pool_size === null) s.pool_size = 60
+    if (s.pool_size === undefined || s.pool_size === null) s.pool_size = 120
     if (!s.saved_images_dir) s.saved_images_dir = './data/saved'
     if (s.proxy_url === undefined || s.proxy_url === null) s.proxy_url = 'http://127.0.0.1:7890'
     if (!s.session_hours) s.session_hours = 3
