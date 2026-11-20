@@ -26,8 +26,8 @@ import (
 )
 
 const (
-	prefetchInterval            = 5 * time.Second
-	prefetchSourceInterval      = 15 * time.Second
+	prefetchInterval            = 2 * time.Second
+	prefetchSourceInterval      = 10 * time.Second
 	prefetchTagReserve          = 15
 	distributionTimeout         = 8 * time.Second
 	distributionDownloadTimeout = 4 * time.Second
