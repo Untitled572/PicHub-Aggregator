@@ -177,6 +177,16 @@ func (p *DistributionPool) Trim(target, maxRounds int, live map[string]bool) []*
 	return expired
 }
 
+func (p *DistributionPool) snapshot() []PoolEntry {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	entries := make([]PoolEntry, 0, len(p.items))
+	for _, entry := range p.items {
+		entries = append(entries, *entry)
+	}
+	return entries
+}
+
 func (p *DistributionPool) SourceCounts() map[int64]int {
 	p.mu.RLock()
 	defer p.mu.RUnlock()

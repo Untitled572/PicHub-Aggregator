@@ -23,6 +23,7 @@ export interface Source {
   headers: Record<string, string>
   params?: QueryParam[]
   default_query: string
+  prefetch_unlimited?: boolean
   enabled: boolean
   fail_count: number
   success_rate: number
@@ -187,4 +188,21 @@ export interface ExportData {
 
 export interface ImportResult {
   imported: number
+}
+
+
+export interface PrefetchStock {
+  count: number
+  horizontal: number
+  vertical: number
+  square: number
+}
+
+export interface PrefetchStatus extends PrefetchStock {
+  enabled: boolean
+  paused: boolean
+  target: number
+  checked_at: string
+  by_tag: Array<PrefetchStock & { id: string; name: string; target: number }>
+  by_source: Array<PrefetchStock & { id: number; name: string }>
 }

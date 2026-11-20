@@ -17,23 +17,24 @@ type QueryParam struct {
 }
 
 type Source struct {
-	ID           int64             `json:"id"`
-	Name         string            `json:"name"`
-	URL          string            `json:"url"`
-	RespType     string            `json:"resp_type"`
-	JsonPath     string            `json:"json_path"`
-	Weight       int               `json:"weight"`
-	Categories   []string          `json:"categories"`
-	Headers      map[string]string `json:"headers"`
-	Params       []QueryParam      `json:"params"`
-	DefaultQuery string            `json:"default_query"`
-	Enabled      bool              `json:"enabled"`
-	FailCount    int               `json:"fail_count"`
-	SuccessRate  float64           `json:"success_rate"`
-	AvgLatency   int64             `json:"avg_latency"`
-	Status       string            `json:"status"`
-	CreatedAt    time.Time         `json:"created_at"`
-	UpdatedAt    time.Time         `json:"updated_at"`
+	ID                int64             `json:"id"`
+	Name              string            `json:"name"`
+	URL               string            `json:"url"`
+	RespType          string            `json:"resp_type"`
+	JsonPath          string            `json:"json_path"`
+	Weight            int               `json:"weight"`
+	Categories        []string          `json:"categories"`
+	Headers           map[string]string `json:"headers"`
+	Params            []QueryParam      `json:"params"`
+	DefaultQuery      string            `json:"default_query"`
+	PrefetchUnlimited bool              `json:"prefetch_unlimited"`
+	Enabled           bool              `json:"enabled"`
+	FailCount         int               `json:"fail_count"`
+	SuccessRate       float64           `json:"success_rate"`
+	AvgLatency        int64             `json:"avg_latency"`
+	Status            string            `json:"status"`
+	CreatedAt         time.Time         `json:"created_at"`
+	UpdatedAt         time.Time         `json:"updated_at"`
 }
 
 type DailyTrend struct {

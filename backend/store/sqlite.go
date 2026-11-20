@@ -68,6 +68,7 @@ func (s *Store) migrate() error {
 			categories TEXT DEFAULT '[]',
 			headers TEXT DEFAULT '{}',
 			enabled INTEGER DEFAULT 1,
+ prefetch_unlimited INTEGER NOT NULL DEFAULT 0,
 			fail_count INTEGER DEFAULT 0,
 			success_rate REAL DEFAULT 100.0,
 			avg_latency INTEGER DEFAULT 0,
@@ -142,6 +143,7 @@ func (s *Store) migrate() error {
 	}
 	_, _ = s.db.Exec("ALTER TABLE sources ADD COLUMN params TEXT DEFAULT '[]'")
 	_, _ = s.db.Exec("ALTER TABLE sources ADD COLUMN default_query TEXT DEFAULT ''")
+	_, _ = s.db.Exec("ALTER TABLE sources ADD COLUMN prefetch_unlimited INTEGER NOT NULL DEFAULT 0")
 	_, _ = s.db.Exec("ALTER TABLE image_history ADD COLUMN image_id INTEGER DEFAULT 0")
 	_, _ = s.db.Exec("ALTER TABLE image_history ADD COLUMN file_id TEXT DEFAULT ''")
 	_, _ = s.db.Exec("ALTER TABLE image_history ADD COLUMN distribution_ref TEXT NOT NULL DEFAULT ''")
@@ -219,7 +221,7 @@ func (s *Store) SeedSources(sources []model.Source) error {
 }
 
 func (s *Store) ListSources() ([]model.Source, error) {
-	rows, err := s.db.Query("SELECT id, name, url, resp_type, json_path, weight, categories, headers, params, default_query, enabled, fail_count, success_rate, avg_latency, status, created_at, updated_at FROM sources ORDER BY id DESC")
+	rows, err := s.db.Query("SELECT id, name, url, resp_type, json_path, weight, categories, headers, params, default_query, prefetch_unlimited, enabled, fail_count, success_rate, avg_latency, status, created_at, updated_at FROM sources ORDER BY id DESC")
 	if err != nil {
 		return nil, err
 	}
@@ -230,7 +232,7 @@ func (s *Store) ListSources() ([]model.Source, error) {
 		var categoriesJSON, headersJSON, paramsJSON string
 		var createdAt, updatedAt string
 		err := rows.Scan(&src.ID, &src.Name, &src.URL, &src.RespType, &src.JsonPath, &src.Weight,
-			&categoriesJSON, &headersJSON, &paramsJSON, &src.DefaultQuery, &src.Enabled, &src.FailCount, &src.SuccessRate,
+			&categoriesJSON, &headersJSON, &paramsJSON, &src.DefaultQuery, &src.PrefetchUnlimited, &src.Enabled, &src.FailCount, &src.SuccessRate,
 			&src.AvgLatency, &src.Status, &createdAt, &updatedAt)
 		if err != nil {
 			return nil, err
@@ -249,9 +251,9 @@ func (s *Store) GetSource(id int64) (*model.Source, error) {
 	var src model.Source
 	var categoriesJSON, headersJSON, paramsJSON string
 	var createdAt, updatedAt string
-	err := s.db.QueryRow("SELECT id, name, url, resp_type, json_path, weight, categories, headers, params, default_query, enabled, fail_count, success_rate, avg_latency, status, created_at, updated_at FROM sources WHERE id=?", id).
+	err := s.db.QueryRow("SELECT id, name, url, resp_type, json_path, weight, categories, headers, params, default_query, prefetch_unlimited, enabled, fail_count, success_rate, avg_latency, status, created_at, updated_at FROM sources WHERE id=?", id).
 		Scan(&src.ID, &src.Name, &src.URL, &src.RespType, &src.JsonPath, &src.Weight,
-			&categoriesJSON, &headersJSON, &paramsJSON, &src.DefaultQuery, &src.Enabled, &src.FailCount, &src.SuccessRate,
+			&categoriesJSON, &headersJSON, &paramsJSON, &src.DefaultQuery, &src.PrefetchUnlimited, &src.Enabled, &src.FailCount, &src.SuccessRate,
 			&src.AvgLatency, &src.Status, &createdAt, &updatedAt)
 	if err != nil {
 		return nil, err
@@ -269,8 +271,8 @@ func (s *Store) CreateSource(src *model.Source) (int64, error) {
 	headersJSON, _ := json.Marshal(src.Headers)
 	paramsJSON, _ := json.Marshal(src.Params)
 	result, err := s.db.Exec(
-		"INSERT INTO sources (name, url, resp_type, json_path, weight, categories, headers, params, default_query, enabled, fail_count, success_rate, avg_latency, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		src.Name, src.URL, src.RespType, src.JsonPath, src.Weight, string(categoriesJSON), string(headersJSON), string(paramsJSON), src.DefaultQuery, src.Enabled, src.FailCount, src.SuccessRate, src.AvgLatency, src.Status,
+		"INSERT INTO sources (name, url, resp_type, json_path, weight, categories, headers, params, default_query, prefetch_unlimited, enabled, fail_count, success_rate, avg_latency, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		src.Name, src.URL, src.RespType, src.JsonPath, src.Weight, string(categoriesJSON), string(headersJSON), string(paramsJSON), src.DefaultQuery, src.PrefetchUnlimited, src.Enabled, src.FailCount, src.SuccessRate, src.AvgLatency, src.Status,
 	)
 	if err != nil {
 		return 0, err
@@ -283,8 +285,8 @@ func (s *Store) UpdateSource(src *model.Source) error {
 	headersJSON, _ := json.Marshal(src.Headers)
 	paramsJSON, _ := json.Marshal(src.Params)
 	_, err := s.db.Exec(
-		"UPDATE sources SET name=?, url=?, resp_type=?, json_path=?, weight=?, categories=?, headers=?, params=?, default_query=?, enabled=?, fail_count=?, success_rate=?, avg_latency=?, status=?, updated_at=STRFTIME('%Y-%m-%d %H:%M:%f', 'now') WHERE id=?",
-		src.Name, src.URL, src.RespType, src.JsonPath, src.Weight, string(categoriesJSON), string(headersJSON), string(paramsJSON), src.DefaultQuery, src.Enabled, src.FailCount, src.SuccessRate, src.AvgLatency, src.Status, src.ID,
+		"UPDATE sources SET name=?, url=?, resp_type=?, json_path=?, weight=?, categories=?, headers=?, params=?, default_query=?, prefetch_unlimited=?, enabled=?, fail_count=?, success_rate=?, avg_latency=?, status=?, updated_at=STRFTIME('%Y-%m-%d %H:%M:%f', 'now') WHERE id=?",
+		src.Name, src.URL, src.RespType, src.JsonPath, src.Weight, string(categoriesJSON), string(headersJSON), string(paramsJSON), src.DefaultQuery, src.PrefetchUnlimited, src.Enabled, src.FailCount, src.SuccessRate, src.AvgLatency, src.Status, src.ID,
 	)
 	return err
 }

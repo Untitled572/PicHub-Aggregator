@@ -120,3 +120,18 @@ func (h *Handler) GetImageHistory(c *gin.Context) {
 		"offset":   offset,
 	})
 }
+
+// GetPrefetchStatus returns the current inventory without contacting upstreams.
+func (h *Handler) GetPrefetchStatus(c *gin.Context) {
+	if h.engine == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "预取池状态不可用"})
+		return
+	}
+	status, err := h.engine.PrefetchStatus()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "无法读取预取池状态"})
+		return
+	}
+	c.Header("Cache-Control", "no-store")
+	c.JSON(http.StatusOK, status)
+}

@@ -79,3 +79,31 @@ func TestHealthIntervalDefaultsAndRoundTrip(t *testing.T) {
 		st.Close()
 	}
 }
+
+func TestSourcePrefetchUnlimitedRoundTrip(t *testing.T) {
+	st, err := New(filepath.Join(t.TempDir(), "settings.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	id, err := st.CreateSource(&model.Source{Name: "test", URL: "https://example.test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	src, err := st.GetSource(id)
+	if err != nil || src.PrefetchUnlimited {
+		t.Fatalf("default source=%+v err=%v", src, err)
+	}
+	src.PrefetchUnlimited = true
+	if err := st.UpdateSource(src); err != nil {
+		t.Fatal(err)
+	}
+	list, err := st.ListSources()
+	if err != nil || len(list) != 1 || !list[0].PrefetchUnlimited {
+		t.Fatalf("read back sources=%+v err=%v", list, err)
+	}
+	src, err = st.GetSource(id)
+	if err != nil || !src.PrefetchUnlimited {
+		t.Fatalf("read back source=%+v err=%v", src, err)
+	}
+}

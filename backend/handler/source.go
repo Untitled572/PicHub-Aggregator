@@ -123,12 +123,21 @@ func (h *Handler) UpdateSource(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 		return
 	}
-	var src model.Source
-	if err := c.ShouldBindJSON(&src); err != nil {
+	var body struct {
+		model.Source
+		PrefetchUnlimited *bool `json:"prefetch_unlimited"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	src := body.Source
 	src.ID = id
+	if body.PrefetchUnlimited != nil {
+		src.PrefetchUnlimited = *body.PrefetchUnlimited
+	} else if existing, err := h.store.GetSource(id); err == nil {
+		src.PrefetchUnlimited = existing.PrefetchUnlimited
+	}
 	if src.Weight <= 0 {
 		src.Weight = 10
 	}

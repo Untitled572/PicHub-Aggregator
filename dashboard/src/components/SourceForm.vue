@@ -39,6 +39,7 @@ const form = ref({
   headers: {} as Record<string, string>,
   params: [] as QueryParam[],
   default_query: '',
+  prefetch_unlimited: false,
   enabled: true,
 })
 
@@ -55,6 +56,7 @@ onMounted(() => {
   if (props.source) {
     form.value = {
       ...props.source,
+      prefetch_unlimited: props.source.prefetch_unlimited ?? false,
       headers: { ...props.source.headers },
       params: props.source.params ? [...props.source.params] : []
     }
@@ -447,6 +449,14 @@ async function handleSave() {
 
 
 
+
+          <label class="flex items-start gap-2 border-t border-morandi-border/40 pt-3">
+            <input v-model="form.prefetch_unlimited" type="checkbox" class="mt-0.5" />
+            <span>
+              <span class="block font-medium text-morandi-text">预取不限速</span>
+              <span class="text-[11px] text-morandi-muted">跳过此图源的 10 秒间隔。全局预取节奏和上游退避仍生效。</span>
+            </span>
+          </label>
 
           <!-- Custom Headers (Dynamic Rows: Add row / Remove row) -->
           <div class="border-t border-morandi-border/40 pt-3">

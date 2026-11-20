@@ -43,6 +43,7 @@ type Engine struct {
 	// Only accessed under replenishMu.
 	nextPrefetch     time.Time
 	prefetchCooldown map[string]time.Time
+	prefetchPace     map[string]time.Time
 	debugSourceID    int64
 	debugState       atomic.Pointer[DebugSourceState]
 	debugSwitches    atomic.Int32
@@ -1088,7 +1089,7 @@ func (e *Engine) fetchPrefetch(candidates []model.Source, sourceCounts, caps map
 		}
 		cooling := false
 		for _, key := range prefetchKeys(src) {
-			cooling = cooling || now.Before(e.prefetchCooldown[key])
+			cooling = cooling || now.Before(e.prefetchCooldown[key]) || (!src.PrefetchUnlimited && now.Before(e.prefetchPace[key]))
 		}
 		if !cooling {
 			filtered = append(filtered, src)
@@ -1101,7 +1102,12 @@ func (e *Engine) fetchPrefetch(candidates []model.Source, sourceCounts, caps map
 	selected := weightedPick(filtered)
 	started := time.Now()
 	e.nextPrefetch = started.Add(prefetchInterval)
-	e.pausePrefetch(selected, started.Add(prefetchSourceInterval))
+	if e.prefetchPace == nil {
+		e.prefetchPace = make(map[string]time.Time)
+	}
+	for _, key := range prefetchKeys(selected) {
+		e.prefetchPace[key] = started.Add(prefetchSourceInterval)
+	}
 	failed := func(target string, statusCode int, reason string) *Result {
 		e.recordCacheHealth(HealthResult{ID: selected.ID, Name: selected.Name, URL: target, StatusCode: statusCode, LatencyMs: time.Since(started).Milliseconds(), Available: false, Error: "缓存预取失败：" + reason, Reason: "分发池预取", Origin: "cache", CheckedAt: time.Now()})
 		return nil

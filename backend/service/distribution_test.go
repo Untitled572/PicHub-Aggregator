@@ -104,7 +104,21 @@ func TestPrefetchPrioritizesColdTagWithIsolatedInventory(t *testing.T) {
 		// Move past the request interval without making the test sleep.
 		e.nextPrefetch = time.Time{}
 		e.prefetchCooldown = nil
+		e.prefetchPace = nil
 		e.replenishPool()
+	}
+	status, err := e.PrefetchStatus()
+	if err != nil || status.Count != 120 || status.Target != 120 {
+		t.Fatalf("wrong status: %+v err=%v", status, err)
+	}
+	var quietTag PrefetchTagStock
+	for _, tag := range status.ByTag {
+		if tag.ID == "quiet" {
+			quietTag = tag
+		}
+	}
+	if quietTag.Count != 15 || quietTag.Target != 15 || quietTag.Square != 15 {
+		t.Fatalf("wrong cold tag status: %+v", quietTag)
 	}
 	counts := e.distPool.SourceCounts()
 	if counts[quiet.ID] != 15 || counts[hot.ID] != 105 {
@@ -140,5 +154,36 @@ func TestPrefetchRateLimitAlsoPausesBranchesOnSameHost(t *testing.T) {
 	}
 	if remaining := time.Until(e.prefetchCooldown[prefetchKeys(first)[1]]); remaining < 119*time.Second {
 		t.Fatalf("Retry-After not respected: %v", remaining)
+	}
+}
+
+func TestUnlimitedPrefetchSkipsSpacingButRespectsUpstreamRefusal(t *testing.T) {
+	st := healthTestStore(t)
+	calls := make(chan struct{}, 3)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls <- struct{}{}
+		if len(calls) > 1 {
+			w.Header().Set("Retry-After", "120")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer upstream.Close()
+	e := &Engine{store: st, httpClient: upstream.Client()}
+	src := model.Source{ID: 1, Name: "self-hosted", URL: upstream.URL, Weight: 1}
+	e.fetchPrefetch([]model.Source{src}, nil, nil, 15)
+	e.fetchPrefetch([]model.Source{src}, nil, nil, 15)
+	if len(calls) != 1 {
+		t.Fatal("limited source started a second request")
+	}
+	src.PrefetchUnlimited = true
+	e.fetchPrefetch([]model.Source{src}, nil, nil, 15)
+	if len(calls) != 2 {
+		t.Fatal("unlimited source was blocked by normal pacing")
+	}
+	e.fetchPrefetch([]model.Source{src}, nil, nil, 15)
+	if len(calls) != 2 {
+		t.Fatal("unlimited source ignored HTTP 429")
 	}
 }

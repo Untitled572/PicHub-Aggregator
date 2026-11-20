@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
 import { useHealthCheck } from '../composables/useHealthCheck'
+import PrefetchPoolPanel from '../components/PrefetchPoolPanel.vue'
 import HealthStatusBadge from '../components/HealthStatusBadge.vue'
 import { Activity, RefreshCw, CheckCircle2, AlertTriangle, Clock, Layers } from 'lucide-vue-next'
 
@@ -40,6 +41,8 @@ onMounted(async () => {
       <RefreshCw class="w-4 h-4 animate-spin" /> 正在检查已启用图源，请稍候…
     </div>
     <div v-if="error" role="alert" class="morandi-card p-4 text-xs text-rose-700">{{ error }}</div>
+
+    <PrefetchPoolPanel />
 
     <!-- Summary KPI Cards -->
     <div class="grid grid-cols-2 sm:grid-cols-4 gap-3.5">

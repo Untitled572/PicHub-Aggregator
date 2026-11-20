@@ -1,3 +1,4 @@
+import type { PrefetchStatus } from '../types'
 import { ref } from 'vue'
 import CryptoJS from 'crypto-js'
 import type { Source, Settings, DetectResult, ExportData, ImportResult, HealthResult, Tag, StatsResponse, ImageHistoryRecord, SavedImage, Endpoint, SourceDebugState } from '../types'
@@ -186,6 +187,10 @@ export function useApi() {
     return request<DetectResult>('/random/detect', { method: 'POST', body: JSON.stringify({ url }) })
   }
 
+  function getPrefetchStatus() {
+    return request<PrefetchStatus>('/api/health/prefetch')
+  }
+
   function getHealthStatus() {
     return request<{ results: HealthResult[]; last_run: string }>('/api/health')
   }
@@ -287,7 +292,7 @@ export function useApi() {
     getSourceDebug, enableSourceDebug, disableSourceDebug,
     getSettings, updateSettings, getTags, updateTags,
     listEndpoints, createEndpoint, updateEndpoint, deleteEndpoint, toggleEndpoint,
-    detectURL, healthCheck, healthCheckSource, getHealthStatus,
+    detectURL, healthCheck, healthCheckSource, getHealthStatus, getPrefetchStatus,
     exportRules, importRules, exportCustomData, importCustomData,
     getStats, getImageHistory,
     saveImage, unsaveImage, likeImage, dislikeImage, listSavedImages,

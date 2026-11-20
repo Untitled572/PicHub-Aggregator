@@ -28,15 +28,16 @@ func (h *Handler) ExportRules(c *gin.Context) {
 	var sanitized []gin.H
 	for _, src := range sources {
 		s := gin.H{
-			"name":          src.Name,
-			"url":           src.URL,
-			"resp_type":     src.RespType,
-			"json_path":     src.JsonPath,
-			"weight":        src.Weight,
-			"categories":    src.Categories,
-			"enabled":       src.Enabled,
-			"default_query": src.DefaultQuery,
-			"params":        src.Params,
+			"name":               src.Name,
+			"url":                src.URL,
+			"resp_type":          src.RespType,
+			"json_path":          src.JsonPath,
+			"weight":             src.Weight,
+			"categories":         src.Categories,
+			"enabled":            src.Enabled,
+			"default_query":      src.DefaultQuery,
+			"prefetch_unlimited": src.PrefetchUnlimited,
+			"params":             src.Params,
 		}
 		headers := make(map[string]string)
 		for k, v := range src.Headers {
@@ -60,16 +61,17 @@ func (h *Handler) ImportRules(c *gin.Context) {
 	var imported int
 	for _, s := range body.Sources {
 		src := model.Source{
-			Name:         s.Name,
-			URL:          s.URL,
-			RespType:     s.RespType,
-			JsonPath:     s.JsonPath,
-			Weight:       s.Weight,
-			Categories:   s.Categories,
-			Headers:      s.Headers,
-			Enabled:      s.Enabled,
-			DefaultQuery: s.DefaultQuery,
-			Params:       s.Params,
+			Name:              s.Name,
+			URL:               s.URL,
+			RespType:          s.RespType,
+			JsonPath:          s.JsonPath,
+			Weight:            s.Weight,
+			Categories:        s.Categories,
+			Headers:           s.Headers,
+			Enabled:           s.Enabled,
+			DefaultQuery:      s.DefaultQuery,
+			PrefetchUnlimited: s.PrefetchUnlimited,
+			Params:            s.Params,
 		}
 		if src.Weight <= 0 {
 			src.Weight = 10

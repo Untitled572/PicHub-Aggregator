@@ -262,6 +262,7 @@ func registerManagementRoutes(r *gin.Engine, h *handler.Handler, st *store.Store
 		api.DELETE("/endpoints/:id", h.DeleteEndpoint)
 		api.POST("/endpoints/:id/toggle", h.ToggleEndpoint)
 		api.GET("/health", h.GetHealthStatus)
+		api.GET("/health/prefetch", h.GetPrefetchStatus)
 		api.GET("/stats", h.GetStats)
 		api.GET("/stats/history", h.GetImageHistory)
 		api.GET("/images/saved", h.ListSavedImages)

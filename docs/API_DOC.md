@@ -110,6 +110,10 @@ POST /api/sources/health-check
 
 Checks enabled sources by requesting the main URL and each deduplicated parameter variant with the same default parameters, headers, and proxy settings used for distribution. A source passes when at least one address returns an image response or a valid HTTP/HTTPS image URL in a redirect, JSON field, or text response. Results include the number of passing requests and failure reasons. The request timeout uses the configured `timeout` setting. A pass does not guarantee that a later image download will succeed; a failed request means only that this check failed.
 
+### 预取池状态
+
+`GET /api/health/prefetch` 返回当前库存、目标容量以及按方向、标签和图源的分布。此接口需要管理权限，读取时不触发上游取图。
+
 ### 单个图源手动检测
 
 `POST /api/sources/{id}/health-check`（需要管理权限）只检测指定图源的主地址和配置分支，返回一个 `HealthResult`，并更新该图源的健康结果。不会触发其他图源检测，也不会清空其他图源已有结果。健康检测页每行的“检测”按钮调用此接口。
@@ -145,7 +149,7 @@ Checks enabled sources by requesting the main URL and each deduplicated paramete
 }
 ```
 
-预取池默认目标是 120 张。补池优先照顾有可用图源且库存较少的标签，每个标签目标最多 15 张，图源分支共用各自图源的请求间隔。后台每 2 秒最多发起一次预取，同一图源或主机的两次预取至少间隔 10 秒。收到 HTTP 429 时遵循 Retry-After 并至少等待 1 分钟，收到 HTTP 403 时暂停该图源的后台预取 10 分钟。分类与方向同时筛选时，可用库存取决于两项都符合的图片数量。
+预取池默认目标是 120 张。补池优先照顾有可用图源且库存较少的标签，每个标签目标最多 15 张，图源分支共用各自图源的请求间隔。后台每 2 秒最多发起一次预取，同一图源或主机的两次预取至少间隔 10 秒。图源开启 `prefetch_unlimited` 后跳过自身的 10 秒间隔，仍受全局 2 秒间隔约束。收到 HTTP 429 时遵循 Retry-After 并至少等待 1 分钟，收到 HTTP 403 时暂停该图源的后台预取 10 分钟。分类与方向同时筛选时，可用库存取决于两项都符合的图片数量。
 
 
 **Note:** `min_resolution` 仅在 `proxy_mode=true` 时生效，输入 `0` 关闭分辨率过滤。`proxy_enabled` 与 `proxy_url` 用于配置抓取图源时的 HTTP/HTTPS 代理。
