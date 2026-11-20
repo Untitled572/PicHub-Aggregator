@@ -215,6 +215,18 @@ GET /api/health
 
 Returns cached health check results with last run timestamp.
 
+## Android App Feedback
+
+| Method | Path | Auth | Response |
+| ------ | ---- | ---- | -------- |
+| GET | `/api/app-key` | Admin | `200`，`{"configured":true}` |
+| POST | `/api/app-key` | Admin | `201`，`{"key":"ph_app_..."}`。生成新密钥后旧密钥立即失效。 |
+| DELETE | `/api/app-key` | Admin | `204`，撤销当前密钥。 |
+| GET | `/api/app/auth/check` | App 密钥 | `204`，验证权限。 |
+| POST | `/api/app/feedback` | App 密钥 | `204`，反馈已提交。 |
+
+App 请求使用 `Authorization: Bearer <App 密钥>`。反馈请求体为 `{"image_id":42,"request_id":"e8dc6582-04ca-4d60-833b-d2537ed23d9d","vote":"like"}`，`vote` 支持 `like` 或 `dislike`。取图在缓存代理模式下返回 `image_id`。反馈调整图源权重（±1，范围 30–70）。同次反馈重试须复用 `request_id`，服务端保存幂等记录至少 7 天。同一请求 ID 携带不同图片或反馈时返回 `409`，图片或图源已清理时返回 `410`，App 密钥无效时返回 `401`。
+
 ## Statistics & Weight Adjustment
 
 | Method | Path | Auth | Description |

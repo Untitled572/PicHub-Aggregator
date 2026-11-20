@@ -1,0 +1,60 @@
+package io.github.untitled572.pichub.android
+
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import java.net.InetAddress
+
+class PicHubConnectionTest {
+    @Test
+    fun standardAddressUsesRandomDistribution() {
+        val server = PicHubConnection.parse(" https://pichub.example.org/ ")
+        assertEquals(
+            "https://pichub.example.org/random?format=json&orientation=vertical",
+            server.nextImage(PictureDirection.Vertical).toString()
+        )
+        assertEquals("https://pichub.example.org/api/app/feedback", server.api("feedback").toString())
+    }
+
+    @Test
+    fun endpointPreservesPrefixAndUserFilters() {
+        val connection = PicHubConnection.parse(
+            "http://pichub.local:5721/gallery/e/wallpaper?category=anime&format=raw&orientation=vertical"
+        )
+        assertEquals(
+            "http://pichub.local:5721/gallery/e/wallpaper?category=anime&format=json&orientation=horizontal",
+            connection.nextImage(PictureDirection.Horizontal).toString()
+        )
+        assertEquals(
+            "http://pichub.local:5721/gallery/images/some-file",
+            connection.imageUrl("/images/some-file").toString()
+        )
+        assertEquals(
+            "http://pichub.local:5721/gallery/api/app/auth/check",
+            connection.api("auth", "check").toString()
+        )
+        assertTrue(connection.matchesOrigin("http://pichub.local:5721/images/test".toHttpUrl()))
+        assertFalse(connection.matchesOrigin("http://pichub.local:5722/images/test".toHttpUrl()))
+        assertFalse(connection.matchesOrigin("https://pichub.local:5721/images/test".toHttpUrl()))
+    }
+
+    @Test
+    fun malformedLinksAreRejected() {
+        assertThrows(PicHubException::class.java) { PicHubConnection.parse("pichub.local") }
+        assertThrows(PicHubException::class.java) { PicHubConnection.parse("https://u:p@example.org") }
+        assertThrows(PicHubException::class.java) { PicHubConnection.parse("https://example.org/#home") }
+    }
+
+    @Test
+    fun lanTransportRejectsPublicAddresses() {
+        for (ip in listOf("127.0.0.1", "10.0.2.2", "192.168.1.5", "172.16.2.1", "100.64.1.4", "fd12::7")) {
+            assertTrue(ip, isPrivateAddress(InetAddress.getByName(ip)))
+        }
+        for (ip in listOf("192.169.0.1", "8.8.8.8", "100.128.1.4", "2001:4860:4860::8888")) {
+            assertFalse(ip, isPrivateAddress(InetAddress.getByName(ip)))
+        }
+    }
+}

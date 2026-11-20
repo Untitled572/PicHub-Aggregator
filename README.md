@@ -168,6 +168,12 @@ go build -o pichub .
 
 ---
 
+## 安卓客户端
+
+配置安卓签名后，正式版 `pichub-android.apk` 随主程序一起发布到 GitHub Release（Android 10 及以上）。在 App 设置中填写服务地址或分发链接，启用服务端「本地缓存」里的缓存代理模式后即可按方向取图。App 默认只看图和保存。需要赞踩时，在 App 设置启用赞踩，填入控制台「设置 → 安全鉴权」生成的安卓 App 密钥。图片保存到系统相册的 PicHub 文件夹。
+
+支持 HTTPS 和解析到私网的 `.local` HTTP 地址。开发、调试与发布签名见 [安卓客户端文档](android/README.md)。
+
 ## 📡 API 使用指南
 
 PicHub 为用户提供统一且极简的调用方式，只需在网页、博客 Markdown 或客户端中调用单个 URL：

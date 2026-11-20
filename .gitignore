@@ -4,6 +4,11 @@ backend/cache/
 backend/embed/dist/
 dashboard/node_modules/
 dashboard/dist/
+android/.gradle/
+android/.kotlin/
+android/**/build/
+android/local.properties
+android/.idea/
 community/frontend/node_modules/
 community/frontend/dist/
 *.db

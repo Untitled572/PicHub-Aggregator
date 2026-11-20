@@ -228,6 +228,18 @@ export function useApi() {
     return request<{ message: string }>(`/api/images/${id}/save`, { method: 'DELETE' })
   }
 
+  function getAppKeyState() {
+    return request<{ configured: boolean }>('/api/app-key')
+  }
+
+  function generateAppKey() {
+    return request<{ key: string }>('/api/app-key', { method: 'POST' })
+  }
+
+  function revokeAppKey() {
+    return request<void>('/api/app-key', { method: 'DELETE' })
+  }
+
   function likeImage(id: number | string) {
     return request<{ message: string }>(`/api/images/${id}/like`, { method: 'POST' })
   }
@@ -275,5 +287,6 @@ export function useApi() {
     exportRules, importRules, exportCustomData, importCustomData,
     getStats, getImageHistory,
     saveImage, unsaveImage, likeImage, dislikeImage, listSavedImages,
+    getAppKeyState, generateAppKey, revokeAppKey,
   }
 }

@@ -167,6 +167,7 @@ func main() {
 	r.GET("/random", rateLimitMW, h.RandomImage)
 	r.GET("/e/:name", rateLimitMW, h.EndpointImage)
 	r.GET("/images/:file_id", h.ServeImage)
+	registerAppRoutes(r, h, st)
 	registerManagementRoutes(r, h, st)
 
 	distFS := embed.GetDistFS()
@@ -219,6 +220,12 @@ func main() {
 
 }
 
+func registerAppRoutes(r *gin.Engine, h *handler.Handler, st *store.Store) {
+	app := r.Group("/api/app", middleware.RateLimit(st))
+	app.GET("/auth/check", h.CheckAppFeedbackAuth)
+	app.POST("/feedback", h.AppFeedback)
+}
+
 // Keep management routes together so new endpoints inherit authentication.
 func registerManagementRoutes(r *gin.Engine, h *handler.Handler, st *store.Store) {
 	r.POST("/random/detect", middleware.AdminAuth(st), h.DetectURL)
@@ -228,6 +235,9 @@ func registerManagementRoutes(r *gin.Engine, h *handler.Handler, st *store.Store
 		api.POST("/login", h.Login)
 		api.GET("/auth/check", h.CheckAuth)
 		api.Use(middleware.AdminAuth(st))
+		api.GET("/app-key", h.GetAppKeyState)
+		api.POST("/app-key", h.GenerateAppKey)
+		api.DELETE("/app-key", h.RevokeAppKey)
 		api.GET("/debug/source", h.GetDebugSource)
 		api.PUT("/debug/source", h.SetDebugSource)
 		api.DELETE("/debug/source", h.ClearDebugSource)

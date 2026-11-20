@@ -5,6 +5,7 @@ import { useRouter } from 'vue-router'
 import { useLocalStorage } from '@vueuse/core'
 import { useApi, setAuthToken } from '../composables/useApi'
 import type { Settings } from '../types'
+import AndroidAppKey from '../components/AndroidAppKey.vue'
 
 const appVersion = __APP_VERSION__
 import {
@@ -452,6 +453,8 @@ async function handleSave() {
           <p class="text-[10px] text-morandi-muted mt-1">每次请求自动续期；服务重启后需重新登录</p>
         </div>
       </div>
+
+      <AndroidAppKey v-if="activeTab === 'security'" />
 
       <!-- Admin Token (兼容通道) -->
       <div class="p-4 bg-morandi-bg/60 border border-morandi-borderSoft rounded-2xl">

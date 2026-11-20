@@ -113,6 +113,13 @@ func (s *Store) migrate() error {
 			saved_at DATETIME DEFAULT NULL,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
+		`CREATE TABLE IF NOT EXISTS app_feedback_receipts (
+			request_id TEXT PRIMARY KEY,
+			image_id INTEGER NOT NULL,
+			vote INTEGER NOT NULL,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_app_feedback_created_at ON app_feedback_receipts (created_at)`,
 		`CREATE TABLE IF NOT EXISTS endpoints (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			name TEXT NOT NULL UNIQUE,
