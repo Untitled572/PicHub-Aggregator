@@ -84,6 +84,9 @@ func NewEngine(st *store.Store, pc *ProxyCache, imgStore *ImageStore, proxyCfg *
 	if len(healthChecker) > 0 {
 		eng.healthChecker = healthChecker[0]
 	}
+	if err := eng.restorePrefetchPool(); err != nil {
+		logger.Error("restore prefetch pool: %v", err)
+	}
 	go eng.StartDistributionWorker()
 	return eng
 }

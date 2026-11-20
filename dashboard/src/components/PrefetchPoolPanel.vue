@@ -11,11 +11,15 @@ const error = ref('')
 let timer: ReturnType<typeof setInterval> | undefined
 let request: AbortController | undefined
 
-async function loadPool() {
-  if (request || document.hidden) return
+async function loadPool(manual = false) {
+  if (document.hidden) return
+  if (request) {
+    if (manual) loading.value = true
+    return
+  }
   const controller = new AbortController()
   request = controller
-  loading.value = true
+  if (manual) loading.value = true
   try {
     const status = await getPrefetchStatus(controller.signal)
     if (!controller.signal.aborted) {
@@ -73,7 +77,7 @@ onUnmounted(() => {
         type="button"
         class="flex items-center gap-1.5 px-3 py-2 border border-morandi-borderSoft rounded-lg text-xs hover:bg-morandi-hover disabled:opacity-50"
         :disabled="loading"
-        @click="loadPool"
+        @click="loadPool(true)"
       >
         <RefreshCw class="w-3.5 h-3.5" :class="{ 'animate-spin': loading }" />
         {{ loading ? '读取中…' : '刷新库存' }}

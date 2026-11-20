@@ -656,6 +656,25 @@ func (s *Store) QueryPooledFileIDs() ([]string, error) {
 	return ids, nil
 }
 
+// ListPooledImages returns persisted, unconsumed inventory, newest first.
+func (s *Store) ListPooledImages() ([]model.CachedImage, error) {
+	rows, err := s.db.Query(`SELECT id, file_id, source_id, source_name, width, height, format, categories, is_saved
+ FROM images WHERE pooled=1 ORDER BY id DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var images []model.CachedImage
+	for rows.Next() {
+		var img model.CachedImage
+		if err := rows.Scan(&img.ID, &img.FileID, &img.SourceID, &img.SourceName, &img.Width, &img.Height, &img.Format, &img.Categories, &img.IsSaved); err != nil {
+			return nil, err
+		}
+		images = append(images, img)
+	}
+	return images, rows.Err()
+}
+
 func (s *Store) GetImageByFileID(fileID string) (*model.CachedImage, error) {
 	var img model.CachedImage
 	var categories string

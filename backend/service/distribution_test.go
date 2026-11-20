@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/pichub/backend/model"
+	"github.com/pichub/backend/store"
 )
 
 func TestDistributionCancellationStopsImageDownload(t *testing.T) {
@@ -185,5 +187,76 @@ func TestUnlimitedPrefetchSkipsSpacingButRespectsUpstreamRefusal(t *testing.T) {
 	e.fetchPrefetch([]model.Source{src}, nil, nil, 15)
 	if len(calls) != 2 {
 		t.Fatal("unlimited source ignored HTTP 429")
+	}
+}
+
+func TestRestorePrefetchAfterReopeningDatabase(t *testing.T) {
+	st, images, dbPath, upstream := newTestImageStore(t)
+	settings, err := st.GetSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings.ProxyMode = true
+	settings.PoolSize = 2
+	if err = st.UpdateSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+
+	normal := addHealthSource(t, st, model.Source{Name: "current", URL: upstream.URL, Enabled: true})
+	disabled := addHealthSource(t, st, model.Source{Name: "disabled", URL: upstream.URL})
+	stopped := addHealthSource(t, st, model.Source{Name: "stopped", URL: upstream.URL, Enabled: true, Status: "error"})
+	cache := func(src model.Source, pooled bool) *CachedImageInfo {
+		t.Helper()
+		info, err := images.DownloadAndStore(upstream.URL, upstream.URL, src.ID, src.Name, []string{"sample"}, nil, pooled)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return info
+	}
+	older := cache(normal, true)
+	first := cache(normal, true)
+	second := cache(normal, true)
+	consumed := cache(normal, false)
+	disabledImage := cache(disabled, true)
+	stoppedImage := cache(stopped, true)
+	missing := cache(normal, true)
+	missingPath, _, err := images.GetImage(missing.FileID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Remove(missingPath); err != nil {
+		t.Fatal(err)
+	}
+	saved := cache(normal, true)
+	if err = images.SaveImage(saved.ID); err != nil {
+		t.Fatal(err)
+	}
+	// Check using a new store and empty engine, as on a process restart.
+	reopened, err := store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	e := &Engine{store: reopened, imageStore: NewImageStore(reopened, images.cacheDir, nil), distPool: NewDistributionPool(), demandTracker: NewDemandTracker(), sourceDemand: NewSourceDemandTracker()}
+	if err = e.restorePrefetchPool(); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.distPool.Size(); got != 2 {
+		t.Fatalf("got %d restored entries, want 2", got)
+	}
+	ready, err := reopened.GetPooledFileIDSet()
+	if err != nil || len(ready) != 2 || !ready[first.FileID] || !ready[second.FileID] {
+		t.Fatalf("ready=%v err=%v", ready, err)
+	}
+	for _, id := range []string{older.FileID, consumed.FileID, disabledImage.FileID, stoppedImage.FileID, saved.FileID} {
+		if _, _, err := e.imageStore.GetImage(id); err != nil {
+			t.Fatalf("existing cached file %q removed: %v", id, err)
+		}
+	}
+	for _, want := range []string{first.FileID, second.FileID} {
+		actual, _, err := e.RandomImage("sample", "json", "square", "")
+		if err != nil || actual == nil || actual.FileID != want {
+			t.Fatalf("restored request: got %+v, want %s, err=%v", actual, want, err)
+		}
 	}
 }
