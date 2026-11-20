@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image"
+	"image/png"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -54,6 +56,62 @@ func TestDistributionCancellationStopsImageDownload(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("download continued after client canceled")
+	}
+}
+
+func TestEmptyDirectionPoolTriesOtherBranchAfterTimeout(t *testing.T) {
+	st := healthTestStore(t)
+	settings, err := st.GetSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings.ProxyMode, settings.PoolSize = true, 120
+	settings.Timeout = 8000
+	settings.MinResolution = "0"
+	if err := st.UpdateSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+
+	slowStarted := make(chan struct{}, 1)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Query().Get("branch") {
+		case "slow":
+			slowStarted <- struct{}{}
+			<-r.Context().Done()
+		case "working":
+			w.Header().Set("Content-Type", "image/png")
+			if err := png.Encode(w, image.NewRGBA(image.Rect(0, 0, 2, 4))); err != nil {
+				t.Error(err)
+			}
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer upstream.Close()
+
+	addHealthSource(t, st, model.Source{
+		Name: "source", URL: upstream.URL, RespType: "direct", Enabled: true, Categories: []string{"horizontal"},
+		Params: []model.QueryParam{
+			{Key: "branch", Value: "working", Categories: []string{"vertical"}},
+			{Key: "branch", Value: "slow", Categories: []string{"vertical"}, Weight: 1},
+		},
+	})
+	e := &Engine{
+		store: st, imageStore: NewImageStore(st, t.TempDir(), nil), httpClient: upstream.Client(),
+		distPool: NewDistributionPool(), demandTracker: NewDemandTracker(), sourceDemand: NewSourceDemandTracker(),
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	result, status, err := e.RandomImageContext(ctx, "vertical", "json", "vertical", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(slowStarted) != 1 {
+		t.Fatal("expected the higher-weight slow branch to be tried first")
+	}
+	if status != http.StatusOK || result.LocalURL == "" || result.Orientation != "vertical" {
+		t.Fatalf("got status %d and result %+v", status, result)
 	}
 }
 

@@ -259,14 +259,22 @@ func (e *Engine) randomImage(parent context.Context, category, format, orientati
 		if err := budget.Err(); err != nil {
 			return nil, 0, err
 		}
-		selected := weightedPick(candidates)
+		selectedIndex := weightedPickIndex(candidates)
+		selected := candidates[selectedIndex]
+		candidates = append(candidates[:selectedIndex], candidates[selectedIndex+1:]...)
+
+		attemptDeadline, _ := budget.Deadline()
+		if len(candidates) > 0 {
+			// Reserve time for another branch if the API or image download stalls.
+			now := time.Now()
+			attemptDeadline = now.Add(attemptDeadline.Sub(now) / 2)
+		}
 		checkOrientation := requestOrientation(selected, queryCats, orientation, explicitOrientation)
 
-		ctx, cancel := context.WithTimeout(budget, timeout)
+		ctx, cancel := context.WithTimeout(budget, min(timeout, time.Until(attemptDeadline)))
 		req, err := e.newFetchRequest(ctx, selected, clientUA)
 		if err != nil {
 			cancel()
-			candidates = removeSource(candidates, selected.ID)
 			continue
 		}
 
@@ -280,7 +288,6 @@ func (e *Engine) randomImage(parent context.Context, category, format, orientati
 			if e.monitor != nil {
 				e.monitor.Emit(selected.ID, false)
 			}
-			candidates = removeSource(candidates, selected.ID)
 			continue
 		}
 
@@ -292,7 +299,6 @@ func (e *Engine) randomImage(parent context.Context, category, format, orientati
 			if e.monitor != nil {
 				e.monitor.Emit(selected.ID, false)
 			}
-			candidates = removeSource(candidates, selected.ID)
 			resp.Body.Close()
 			cancel()
 			continue
@@ -306,7 +312,6 @@ func (e *Engine) randomImage(parent context.Context, category, format, orientati
 		resp.Body.Close()
 		cancel()
 		if err != nil {
-			candidates = removeSource(candidates, selected.ID)
 			continue
 		}
 
@@ -315,7 +320,7 @@ func (e *Engine) randomImage(parent context.Context, category, format, orientati
 		origURL := imageURL
 
 		if e.imageStore != nil && settings.ProxyMode {
-			downloadCtx, cancelDownload := context.WithTimeout(budget, distributionDownloadTimeout)
+			downloadCtx, cancelDownload := context.WithTimeout(budget, min(distributionDownloadTimeout, time.Until(attemptDeadline)))
 			cached, cacheErr := e.imageStore.downloadAndStore(downloadCtx, origURL, selected.URL, selected.ID, selected.Name, queryCats, selected.Headers, false)
 			cancelDownload()
 			if cacheErr != nil {
@@ -326,7 +331,6 @@ func (e *Engine) randomImage(parent context.Context, category, format, orientati
 				if e.monitor != nil {
 					e.monitor.Emit(selected.ID, false)
 				}
-				candidates = removeSource(candidates, selected.ID)
 				continue
 			}
 			cachedInfo = cached
@@ -335,29 +339,28 @@ func (e *Engine) randomImage(parent context.Context, category, format, orientati
 				imgOrient := GetOrientation(cached.Width, cached.Height)
 				if imgOrient != checkOrientation {
 					logger.System("orientation mismatch for %s: got %s, wanted %s", selected.Name, imgOrient, orientation)
-					candidates = removeSource(candidates, selected.ID)
 					continue
 				}
 			}
 
 			imageURL = "/images/" + cached.FileID
 		} else if e.proxyCache != nil && settings.ProxyMode {
-			_, _, proxyErr := e.proxyCache.getOrFetch(budget, imageURL)
+			proxyCtx, cancelProxy := context.WithDeadline(budget, attemptDeadline)
+			_, _, proxyErr := e.proxyCache.getOrFetch(proxyCtx, imageURL)
+			cancelProxy()
 			if proxyErr != nil {
 				hasFailed = true
 			}
 		}
 
 		if cachedInfo == nil && hasCategory(queryCats, "adaptive") && checkOrientation != "" && !hasDirectionTag(selected.Categories) {
-			if err := checkRemoteOrientationContext(budget, selected, imageURL, checkOrientation, clientUA, timeout, e.httpClient); err != nil {
+			if err := checkRemoteOrientationContext(budget, selected, imageURL, checkOrientation, clientUA, min(timeout, time.Until(attemptDeadline)), e.httpClient); err != nil {
 				logger.System("adaptive image rejected for %s: %v", selected.Name, err)
-				candidates = removeSource(candidates, selected.ID)
 				continue
 			}
 		}
 
 		if hasFailed {
-			candidates = removeSource(candidates, selected.ID)
 			continue
 		}
 
@@ -725,30 +728,25 @@ func hasAnyCategory(srcCats, queryCats []string) bool {
 }
 
 func weightedPick(sources []model.Source) model.Source {
+	return sources[weightedPickIndex(sources)]
+}
+
+func weightedPickIndex(sources []model.Source) int {
 	totalWeight := 0
 	for _, src := range sources {
 		totalWeight += src.Weight
 	}
 	if totalWeight == 0 {
-		return sources[rand.Intn(len(sources))]
+		return rand.Intn(len(sources))
 	}
 	r := rand.Intn(totalWeight)
-	for _, src := range sources {
+	for i, src := range sources {
 		r -= src.Weight
 		if r < 0 {
-			return src
+			return i
 		}
 	}
-	return sources[len(sources)-1]
-}
-
-func removeSource(sources []model.Source, id int64) []model.Source {
-	for i, src := range sources {
-		if src.ID == id {
-			return append(sources[:i], sources[i+1:]...)
-		}
-	}
-	return sources
+	return len(sources) - 1
 }
 
 func extractImageURL(resp *http.Response, src model.Source) (string, error) {
