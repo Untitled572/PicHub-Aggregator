@@ -892,7 +892,7 @@ func (e *Engine) replenishPool() {
 	}
 	e.modeMu.RUnlock()
 
-	if e.distPool.Size() >= settings.PoolSize || time.Now().Before(e.nextPrefetch) {
+	if time.Now().Before(e.nextPrefetch) {
 		return
 	}
 	sources, err := e.store.ListSources()
@@ -900,7 +900,8 @@ func (e *Engine) replenishPool() {
 		return
 	}
 	tags, _ := e.store.GetTags()
-	stock := e.distPool.CategorySnapshot()
+	stock := e.distPool.CategorySnapshot(tags)
+	reservations := make(map[string]int)
 	sourceCounts := e.distPool.SourceCounts()
 	caps := e.sourceCaps(settings.PoolSize)
 	activeSources := 0
@@ -917,17 +918,23 @@ func (e *Engine) replenishPool() {
 	}
 
 	// Each round starts at most one upstream attempt, even when it fails.
-	fetch := func(candidates []model.Source, reserve int) bool {
+	fetch := func(candidates []model.Source, tag string) bool {
 		e.modeMu.RLock()
 		defer e.modeMu.RUnlock()
 		if e.debugSourceID != 0 || e.debugSwitches.Load() > 0 {
 			return true
 		}
 		previous := e.nextPrefetch
-		res := e.fetchPrefetch(candidates, sourceCounts, caps, reserve)
+		res := e.fetchPrefetch(candidates, sourceCounts, caps, reservations[tag])
 		if res != nil {
-			e.distPool.Push(poolEntryFromResult(res))
-			if res.cacheHealth != nil {
+			inserted, retired := e.distPool.putPrefetch(poolEntryFromResult(res), settings.PoolSize, tag, reservations, tags)
+			if !inserted {
+				e.store.SetImagePooled(res.ImageID, false)
+			}
+			if retired != nil {
+				e.store.SetImagePooled(retired.ImageID, false)
+			}
+			if inserted && res.cacheHealth != nil {
 				e.recordCacheHealth(*res.cacheHealth)
 			}
 		}
@@ -949,6 +956,9 @@ func (e *Engine) replenishPool() {
 	missing := 0
 	if len(shelves) > 0 {
 		reserve := min(prefetchTagReserve, settings.PoolSize/len(shelves))
+		for _, shelf := range shelves {
+			reservations[shelf.id] = reserve
+		}
 		sort.Slice(shelves, func(i, j int) bool {
 			if shelves[i].count != shelves[j].count {
 				return shelves[i].count < shelves[j].count
@@ -960,7 +970,7 @@ func (e *Engine) replenishPool() {
 				break
 			}
 			missing += reserve - shelf.count
-			if fetch(shelf.candidates, reserve) {
+			if fetch(shelf.candidates, shelf.id) {
 				return
 			}
 		}
@@ -970,11 +980,11 @@ func (e *Engine) replenishPool() {
 	}
 	plan := ensureBoundTagCoverage(e.demandTracker.GetAllocationPlan(settings.PoolSize, stock), settings.BoundTags, stock)
 	for _, shelf := range shelves {
-		if plan[shelf.id] > 0 && fetch(shelf.candidates, 0) {
+		if plan[shelf.id] > 0 && fetch(shelf.candidates, "") {
 			return
 		}
 	}
-	fetch(excludeExclusiveSources(filterSources(sources, nil, tags), tags), 0)
+	fetch(excludeExclusiveSources(filterSources(sources, nil, tags), tags), "")
 }
 
 // sourceCaps 按源近期被选中热度分配池额度, 并叠加单源封顶 (防源风控)

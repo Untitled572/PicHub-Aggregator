@@ -93,7 +93,7 @@ func TestPrefetchPrioritizesColdTagWithIsolatedInventory(t *testing.T) {
 	hot := addHealthSource(t, st, model.Source{Name: "hot", URL: upstream.URL, Enabled: true, Weight: 1, Categories: []string{"hot"}})
 	quiet := addHealthSource(t, st, model.Source{Name: "quiet", URL: upstream.URL, Enabled: true, Weight: 1, Categories: []string{"quiet"}})
 	e := &Engine{store: st, imageStore: images, httpClient: upstream.Client(), distPool: NewDistributionPool(), demandTracker: NewDemandTracker(), sourceDemand: NewSourceDemandTracker()}
-	for i := 0; i < 16; i++ {
+	for i := 0; i < 120; i++ {
 		img, err := images.DownloadAndStore(upstream.URL, upstream.URL, hot.ID, hot.Name, hot.Categories, nil, true)
 		if err != nil {
 			t.Fatal(err)
@@ -107,7 +107,7 @@ func TestPrefetchPrioritizesColdTagWithIsolatedInventory(t *testing.T) {
 		e.replenishPool()
 	}
 	counts := e.distPool.SourceCounts()
-	if counts[quiet.ID] != 15 || counts[hot.ID] != 16 {
+	if counts[quiet.ID] != 15 || counts[hot.ID] != 105 {
 		t.Fatalf("wrong reserved stock: %v", counts)
 	}
 	for i := 0; i < 15; i++ {
@@ -116,7 +116,7 @@ func TestPrefetchPrioritizesColdTagWithIsolatedInventory(t *testing.T) {
 			t.Fatalf("quiet request %d: result=%+v err=%v", i, result, err)
 		}
 	}
-	if e.distPool.SourceCounts()[hot.ID] != 16 {
+	if e.distPool.SourceCounts()[hot.ID] != 105 {
 		t.Fatal("cold tag consumed normal inventory")
 	}
 }

@@ -3,6 +3,8 @@ package service
 import (
 	"strings"
 	"sync"
+
+	"github.com/pichub/backend/model"
 )
 
 func splitCategory(category string) []string {
@@ -185,20 +187,64 @@ func (p *DistributionPool) SourceCounts() map[int64]int {
 	return counts
 }
 
-func (p *DistributionPool) CategorySnapshot() map[string]int {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-
-	snap := make(map[string]int)
-	for _, entry := range p.items {
-		for _, cat := range entry.Categories {
-			if (cat == "horizontal" || cat == "vertical") && cat != entry.Orientation {
-				continue
-			}
-			snap[cat]++
+func matchesReserve(entry *PoolEntry, tag string, tags []model.Tag) bool {
+	switch tag {
+	case "horizontal", "vertical", "square":
+		if entry.Orientation != tag {
+			return false
 		}
 	}
-	return snap
+	return hasCategory(entry.Categories, tag) && matchCategories(entry.Categories, []string{tag}, tags, true, isExclusiveTag(tag, tags))
+}
+
+func (p *DistributionPool) categoryStock(tags []model.Tag) map[string]int {
+	stock := make(map[string]int)
+	for _, entry := range p.items {
+		for _, cat := range entry.Categories {
+			if matchesReserve(entry, cat, tags) {
+				stock[cat]++
+			}
+		}
+	}
+	return stock
+}
+
+func (p *DistributionPool) CategorySnapshot(tags []model.Tag) map[string]int {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.categoryStock(tags)
+}
+
+// putPrefetch may replace surplus stock when a reserved tag is underfilled.
+// Choose a victim only after a usable picture is ready.
+func (p *DistributionPool) putPrefetch(entry *PoolEntry, target int, tag string, reserve map[string]int, tags []model.Tag) (bool, *PoolEntry) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if len(p.items) < target {
+		p.items = append(p.items, entry)
+		return true, nil
+	}
+	if tag == "" || !matchesReserve(entry, tag, tags) {
+		return false, nil
+	}
+	stock := p.categoryStock(tags)
+	if stock[tag] >= reserve[tag] {
+		return false, nil
+	}
+	for i, old := range p.items {
+		spare := true
+		for _, cat := range old.Categories {
+			if reserve[cat] > 0 && stock[cat] <= reserve[cat] && matchesReserve(old, cat, tags) {
+				spare = false
+				break
+			}
+		}
+		if spare {
+			p.items = append(append(p.items[:i], p.items[i+1:]...), entry)
+			return true, old
+		}
+	}
+	return false, nil
 }
 
 func entryToResult(entry *PoolEntry) *Result {
