@@ -152,10 +152,8 @@ async function syncHistory() {
         if (page === 1) {
           history.value = data.history
         } else {
-          const votes = new Map(data.history.map(item => [item.id, item.app_feedback]))
-          history.value = snapshot.map(item =>
-            votes.has(item.id) ? { ...item, app_feedback: votes.get(item.id) } : item
-          )
+          const updated = new Map(data.history.map(item => [item.id, item]))
+          history.value = snapshot.map(item => updated.get(item.id) ?? item)
         }
       } catch {
         if (watch.signal.aborted) return
@@ -306,6 +304,10 @@ function parseCategories(catStr: string): string[] {
     }
   } catch {}
   return catStr === '__uncategorized__' ? [] : [catStr]
+}
+
+function isEvictedHistory(item: ImageHistoryRecord): boolean {
+  return Boolean(item.file_id || item.image_id) && item.image_available === false && !item.is_saved
 }
 
 function thumbnailUrl(item: ImageHistoryRecord): string {
@@ -919,6 +921,7 @@ const sourceTrendLines = computed(() => {
               v-for="(item, idx) in filteredHistory"
               :key="item.id || idx"
               class="hover:bg-morandi-bg/40 transition-colors"
+              :class="{ '[&>td]:py-1.5': isEvictedHistory(item) }"
             >
               <td class="py-2.5 font-mono text-morandi-muted text-[11px]">
                 {{ idx + 1 }}
@@ -926,8 +929,9 @@ const sourceTrendLines = computed(() => {
 
               <!-- Preview Thumbnail -->
               <td class="py-2.5">
+                <span v-if="isEvictedHistory(item)" class="text-[11px] text-morandi-muted whitespace-nowrap">图片已清理</span>
                 <div
-                  v-if="item.file_id || (item.image_id && item.image_id > 0)"
+                  v-else-if="item.file_id || (item.image_id && item.image_id > 0)"
                   class="w-10 h-10 rounded-lg overflow-hidden bg-morandi-bg border border-morandi-borderSoft relative cursor-pointer group/thumb shadow-xs"
                   @click="previewImage = { url: thumbnailUrl(item), sourceName: item.source_name, time: formatDate(item.created_at) }"
                 >
@@ -983,7 +987,7 @@ const sourceTrendLines = computed(() => {
 
               <!-- Actions -->
               <td class="py-2.5 pr-2 text-right whitespace-nowrap">
-                <div class="flex items-center justify-end gap-1.5">
+                <div v-if="!isEvictedHistory(item)" class="flex items-center justify-end gap-1.5">
                   <!-- Save File Button (Only when local cached image exists) -->
                   <button
                     v-if="item.file_id || (item.image_id && item.image_id > 0)"

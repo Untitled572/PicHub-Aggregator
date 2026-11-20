@@ -107,3 +107,41 @@ func TestSourcePrefetchUnlimitedRoundTrip(t *testing.T) {
 		t.Fatalf("read back source=%+v err=%v", src, err)
 	}
 }
+
+func TestHistoryReportsLocalImageAvailability(t *testing.T) {
+	st, err := New(filepath.Join(t.TempDir(), "history.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	savedID, err := st.InsertImage("saved", "https://example.test/image", 1, "source", 4, 2, "png", 10, "[]", "horizontal", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.db.Exec("UPDATE images SET is_saved=1 WHERE id=?", savedID); err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range []struct {
+		url  string
+		id   int64
+		file string
+	}{
+		{"/images/evicted", savedID, "evicted"},
+		{"/images/saved", savedID, "saved"},
+		{"https://example.test/redirect", 0, ""},
+	} {
+		if err := st.RecordDistribution(nil, model.Source{ID: 1, Name: "source"}, event.url, &event.id, event.file, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.batcher.flush(); err != nil {
+		t.Fatal(err)
+	}
+	history, total, err := st.GetImageHistory(20, 0)
+	if err != nil || total != 3 || len(history) != 3 {
+		t.Fatalf("history=%+v total=%d err=%v", history, total, err)
+	}
+	if history[0].ImageAvailable || history[0].FileID != "" || !history[1].ImageAvailable || !history[1].IsSaved || history[2].ImageAvailable || history[2].IsSaved || history[2].FileID != "evicted" {
+		t.Fatalf("wrong image availability: %+v", history)
+	}
+}

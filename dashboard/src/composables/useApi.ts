@@ -187,8 +187,8 @@ export function useApi() {
     return request<DetectResult>('/random/detect', { method: 'POST', body: JSON.stringify({ url }) })
   }
 
-  function getPrefetchStatus() {
-    return request<PrefetchStatus>('/api/health/prefetch')
+  function getPrefetchStatus(signal?: AbortSignal) {
+    return request<PrefetchStatus>('/api/health/prefetch', { signal })
   }
 
   function getHealthStatus() {

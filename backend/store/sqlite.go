@@ -947,9 +947,9 @@ func (s *Store) GetImageHistory(limit, offset int) ([]model.ImageHistoryRecord, 
 
 	query := `
 		SELECT h.id, h.image_url, h.source_id, h.source_name, h.categories, h.created_at, COALESCE(h.image_id,0), COALESCE(h.file_id,''),
-		       COALESCE(img.is_saved, 0), h.app_feedback
+		       COALESCE(img.is_saved, 0), h.app_feedback, img.id IS NOT NULL
 		FROM image_history h
-		LEFT JOIN images img ON (h.file_id != '' AND h.file_id = img.file_id) OR (h.image_id > 0 AND h.image_id = img.id)
+		LEFT JOIN images img ON (h.file_id != '' AND h.file_id = img.file_id) OR (COALESCE(h.file_id, '') = '' AND h.image_id > 0 AND h.image_id = img.id)
 		ORDER BY h.id DESC LIMIT ? OFFSET ?`
 	rows, err := s.db.Query(query, limit, offset)
 	if err != nil {
@@ -962,7 +962,7 @@ func (s *Store) GetImageHistory(limit, offset int) ([]model.ImageHistoryRecord, 
 		var r model.ImageHistoryRecord
 		var createdAt string
 		var isSaved int
-		if err := rows.Scan(&r.ID, &r.ImageURL, &r.SourceID, &r.SourceName, &r.Categories, &createdAt, &r.ImageID, &r.FileID, &isSaved, &r.AppFeedback); err != nil {
+		if err := rows.Scan(&r.ID, &r.ImageURL, &r.SourceID, &r.SourceName, &r.Categories, &createdAt, &r.ImageID, &r.FileID, &isSaved, &r.AppFeedback, &r.ImageAvailable); err != nil {
 			return nil, 0, err
 		}
 		r.IsSaved = isSaved > 0

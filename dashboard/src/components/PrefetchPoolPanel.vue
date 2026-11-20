@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { Layers, RefreshCw } from 'lucide-vue-next'
 import { useApi } from '../composables/useApi'
 import type { PrefetchStatus } from '../types'
@@ -8,21 +8,53 @@ const { getPrefetchStatus } = useApi()
 const pool = ref<PrefetchStatus>()
 const loading = ref(false)
 const error = ref('')
+let timer: ReturnType<typeof setInterval> | undefined
+let request: AbortController | undefined
 
 async function loadPool() {
-  if (loading.value) return
+  if (request || document.hidden) return
+  const controller = new AbortController()
+  request = controller
   loading.value = true
-  error.value = ''
   try {
-    pool.value = await getPrefetchStatus()
+    const status = await getPrefetchStatus(controller.signal)
+    if (!controller.signal.aborted) {
+      pool.value = status
+      error.value = ''
+    }
   } catch (err) {
-    error.value = err instanceof Error ? err.message : '无法读取预取池状态'
+    if (!controller.signal.aborted) error.value = err instanceof Error ? err.message : '无法读取预取池状态'
   } finally {
-    loading.value = false
+    if (request === controller) {
+      request = undefined
+      loading.value = false
+    }
   }
 }
 
-onMounted(loadPool)
+function stopRefresh() {
+  clearInterval(timer)
+  request?.abort()
+  request = undefined
+  loading.value = false
+}
+
+function updateRefresh() {
+  stopRefresh()
+  if (!document.hidden) {
+    void loadPool()
+    timer = setInterval(() => { void loadPool() }, 1000)
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('visibilitychange', updateRefresh)
+  updateRefresh()
+})
+onUnmounted(() => {
+  document.removeEventListener('visibilitychange', updateRefresh)
+  stopRefresh()
+})
 </script>
 
 <template>
@@ -33,8 +65,8 @@ onMounted(loadPool)
           <Layers class="w-5 h-5 text-morandi-sage" /> 预取池
         </h2>
         <p v-if="pool" class="mt-1 text-xs text-morandi-muted">
-          {{ !pool.enabled ? '代理预取未启用' : pool.paused ? '调试期间暂停' : '可分发库存' }}
-          <span class="ml-1">· {{ new Date(pool.checked_at).toLocaleTimeString() }}</span>
+          <span v-if="!pool.enabled || pool.paused" class="mr-2">{{ !pool.enabled ? '代理预取未启用' : '调试期间暂停' }}</span>
+          <time :datetime="pool.checked_at">{{ new Date(pool.checked_at).toLocaleTimeString() }}</time>
         </p>
       </div>
       <button
