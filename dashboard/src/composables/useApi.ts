@@ -216,8 +216,12 @@ export function useApi() {
   }
 
 
-  function getImageHistory(limit = 20, offset = 0) {
-    return request<{ history: ImageHistoryRecord[]; total: number; limit: number; offset: number }>(`/api/stats/history?limit=${limit}&offset=${offset}`)
+  function getImageHistory(limit = 20, offset = 0, revision = '', signal?: AbortSignal) {
+    const params = new URLSearchParams({ limit: String(limit), offset: String(offset) })
+    if (revision) params.set('revision', revision)
+    return request<{ history: ImageHistoryRecord[]; total: number; limit: number; offset: number; revision?: string } | undefined>(
+      `/api/stats/history?${params}`, { signal }
+    )
   }
 
   function saveImage(id: number | string) {

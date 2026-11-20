@@ -37,32 +37,36 @@ type historyRow struct {
 }
 
 type StatsBatcher struct {
-	db         *sql.DB
-	mu         sync.Mutex
-	flushMu    sync.Mutex
-	reqs       map[string]int64
-	tags       map[string]map[string]int64
-	srcs       map[string]map[int64]srcStat
-	history    []historyRow
-	flushEvery time.Duration
-	stop       chan struct{}
-	done       chan struct{}
-	stopOnce   sync.Once
-	closeMu    sync.Mutex
-	closing    bool // guarded by mu; Record rejects events after shutdown begins
+	db              *sql.DB
+	mu              sync.Mutex
+	flushMu         sync.Mutex
+	reqs            map[string]int64
+	tags            map[string]map[string]int64
+	srcs            map[string]map[int64]srcStat
+	history         []historyRow
+	flushEvery      time.Duration
+	stop            chan struct{}
+	done            chan struct{}
+	stopOnce        sync.Once
+	closeMu         sync.Mutex
+	wake            chan struct{}
+	onHistoryCommit func()
+	closing         bool // guarded by mu; Record rejects events after shutdown begins
 }
 
 var ErrStatsBatcherClosed = errors.New("stats batcher is closing")
 
-func NewStatsBatcher(db *sql.DB) *StatsBatcher {
+func NewStatsBatcher(db *sql.DB, onHistoryCommit func()) *StatsBatcher {
 	sb := &StatsBatcher{
-		db:         db,
-		reqs:       make(map[string]int64),
-		tags:       make(map[string]map[string]int64),
-		srcs:       make(map[string]map[int64]srcStat),
-		flushEvery: 5 * time.Second,
-		stop:       make(chan struct{}),
-		done:       make(chan struct{}),
+		db:              db,
+		onHistoryCommit: onHistoryCommit,
+		wake:            make(chan struct{}, 1),
+		reqs:            make(map[string]int64),
+		tags:            make(map[string]map[string]int64),
+		srcs:            make(map[string]map[int64]srcStat),
+		flushEvery:      5 * time.Second,
+		stop:            make(chan struct{}),
+		done:            make(chan struct{}),
 	}
 	go sb.start()
 	return sb
@@ -120,18 +124,33 @@ func (sb *StatsBatcher) Record(ev StatsEvent) error {
 	return nil
 }
 
+func (sb *StatsBatcher) requestFlush() {
+	select {
+	case sb.wake <- struct{}{}:
+	default:
+	}
+}
+
 func (sb *StatsBatcher) start() {
 	defer close(sb.done)
 	ticker := time.NewTicker(sb.flushEvery)
 	defer ticker.Stop()
+	var fastFlush <-chan time.Time
 	for {
 		select {
-		case <-ticker.C:
-			if err := sb.flush(); err != nil {
-				log.Printf("stats batch flush failed: %v", err)
+		case <-sb.wake:
+			if fastFlush == nil {
+				fastFlush = time.After(250 * time.Millisecond)
 			}
+			continue
+		case <-fastFlush:
+			fastFlush = nil
+		case <-ticker.C:
 		case <-sb.stop:
 			return
+		}
+		if err := sb.flush(); err != nil {
+			log.Printf("stats batch flush failed: %v", err)
 		}
 	}
 }
@@ -199,6 +218,9 @@ func (sb *StatsBatcher) flush() error {
 	if err = tx.Commit(); err != nil {
 		sb.restore(reqs, tags, srcs, history)
 		return fmt.Errorf("commit stats transaction: %w", err)
+	}
+	if len(history) > 0 && sb.onHistoryCommit != nil {
+		sb.onHistoryCommit()
 	}
 	return nil
 }

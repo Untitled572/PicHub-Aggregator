@@ -85,51 +85,110 @@ const totalPages = computed(() => {
   return Math.ceil(totalHistoryCount.value / pageSize.value)
 })
 
-let historyTimer: ReturnType<typeof setInterval> | undefined
-let syncingHistory = false
+let historyRevision = ''
+let historyActive = false
+let historyWatch: AbortController | undefined
+let statsTimer: ReturnType<typeof setInterval> | undefined
+let refreshingSummary = false
+let summaryQuery: [string, string?, string?] = ['7d']
 
-onMounted(() => {
-  void loadAllData()
-  historyTimer = setInterval(() => { void syncHistory() }, 8000)
+onMounted(async () => {
+  historyActive = true
+  document.addEventListener('visibilitychange', onVisibilityChange)
+  statsTimer = setInterval(() => { void refreshSummary() }, 60_000)
+  await loadAllData()
 })
-onUnmounted(() => clearInterval(historyTimer))
+onUnmounted(() => {
+  historyActive = false
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+  clearInterval(statsTimer)
+  stopHistoryWatch()
+})
 
-async function syncHistory() {
-  if (document.hidden || loading.value || historyLoadingMore.value || syncingHistory) return
-  const page = currentPage.value
-  const size = pageSize.value
-  const snapshot = history.value
-  syncingHistory = true
-  try {
-    const data = await getImageHistory(size, (page - 1) * size)
-    if (currentPage.value === page && pageSize.value === size && history.value === snapshot) {
-      const votes = new Map((data.history || []).map(item => [item.id, item.app_feedback]))
-      history.value = snapshot.map(item =>
-        votes.has(item.id) ? { ...item, app_feedback: votes.get(item.id) } : item
-      )
-    }
-  } catch {
-    // Keep the visible history if the next status check cannot reach the server.
-  } finally {
-    syncingHistory = false
+function stopHistoryWatch() {
+  historyWatch?.abort()
+  historyWatch = undefined
+}
+
+function onVisibilityChange() {
+  if (document.hidden) {
+    stopHistoryWatch()
+  } else {
+    void syncHistory()
   }
 }
 
+async function refreshSummary() {
+  if (document.hidden || loading.value || refreshingSummary) return
+  const query = summaryQuery
+  refreshingSummary = true
+  try {
+    const next = await getStats(...query)
+    if (summaryQuery === query && !loading.value) stats.value = next
+  } catch {
+    // Keep the last successful summary when refreshing fails.
+  } finally {
+    refreshingSummary = false
+  }
+}
+
+async function syncHistory() {
+  if (!historyActive || historyWatch || !historyRevision || document.hidden || historyLoadingMore.value) return
+  const watch = new AbortController()
+  historyWatch = watch
+  try {
+    while (!watch.signal.aborted && !document.hidden) {
+      const page = currentPage.value
+      const size = pageSize.value
+      const snapshot = history.value
+      try {
+        const data = await getImageHistory(size, (page - 1) * size, historyRevision, watch.signal)
+        if (watch.signal.aborted) return
+        if (!data) continue
+        if (!data.revision) return
+        if (currentPage.value !== page || pageSize.value !== size || history.value !== snapshot) continue
+        historyRevision = data.revision
+        totalHistoryCount.value = data.total
+        if (page === 1) {
+          history.value = data.history
+        } else {
+          const votes = new Map(data.history.map(item => [item.id, item.app_feedback]))
+          history.value = snapshot.map(item =>
+            votes.has(item.id) ? { ...item, app_feedback: votes.get(item.id) } : item
+          )
+        }
+      } catch {
+        if (watch.signal.aborted) return
+        await new Promise(resolve => setTimeout(resolve, 2000))
+      }
+    }
+  } finally {
+    if (historyWatch === watch) historyWatch = undefined
+  }
+}
+
+function setHistoryPage(data: Awaited<ReturnType<typeof getImageHistory>>) {
+  history.value = data?.history || []
+  totalHistoryCount.value = data?.total || 0
+  historyRevision = data?.revision || ''
+}
+
 async function loadAllData() {
+  stopHistoryWatch()
   loading.value = true
   try {
     const range = activeRange.value === 'custom' ? '' : activeRange.value
     const sDate = activeRange.value === 'custom' ? customStartDate.value : ''
     const eDate = activeRange.value === 'custom' ? customEndDate.value : ''
 
+    summaryQuery = [range, sDate, eDate]
     const [statsRes, historyRes, settingsRes] = await Promise.all([
       getStats(range, sDate, eDate),
       getImageHistory(pageSize.value, (currentPage.value - 1) * pageSize.value),
       getSettings().catch(() => null)
     ])
     stats.value = statsRes
-    history.value = historyRes?.history || []
-    totalHistoryCount.value = historyRes?.total || 0
+    setHistoryPage(historyRes)
     if (settingsRes) settings.value = settingsRes
 
     for (const item of history.value) {
@@ -155,22 +214,24 @@ async function loadAllData() {
     console.error('Failed to load stats:', e)
   } finally {
     loading.value = false
+    void syncHistory()
   }
 }
 
 
 async function fetchHistoryPage(page = 1) {
+  stopHistoryWatch()
   currentPage.value = page
   const offset = (page - 1) * pageSize.value
   historyLoadingMore.value = true
   try {
     const res = await getImageHistory(pageSize.value, offset)
-    history.value = res?.history || []
-    totalHistoryCount.value = res?.total || 0
+    setHistoryPage(res)
   } catch (e) {
     console.error('Failed to fetch history page:', e)
   } finally {
     historyLoadingMore.value = false
+    void syncHistory()
   }
 }
 
@@ -197,7 +258,10 @@ async function changeRange(range: 'today' | '7d' | '30d' | 'all' | 'custom') {
   if (range !== 'custom') {
     loading.value = true
     try {
-      stats.value = await getStats(range)
+      const query: typeof summaryQuery = [range]
+      summaryQuery = query
+      const next = await getStats(...query)
+      if (summaryQuery === query) stats.value = next
     } catch (e) {
       console.error(e)
     } finally {
@@ -210,7 +274,10 @@ async function applyCustomDateRange() {
   if (!customStartDate.value || !customEndDate.value) return
   loading.value = true
   try {
-    stats.value = await getStats('', customStartDate.value, customEndDate.value)
+    const query: typeof summaryQuery = ['', customStartDate.value, customEndDate.value]
+    summaryQuery = query
+    const next = await getStats(...query)
+    if (summaryQuery === query) stats.value = next
   } catch (e) {
     console.error(e)
   } finally {

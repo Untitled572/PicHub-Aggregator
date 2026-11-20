@@ -88,15 +88,35 @@ func (h *Handler) GetImageHistory(c *gin.Context) {
 		offset = o
 	}
 
+	c.Header("Cache-Control", "no-store")
+	revision, changed := h.store.HistoryRevision()
+	if c.Query("revision") == revision {
+		stopWatching := h.store.WatchHistory()
+		defer stopWatching()
+		timeout := time.NewTimer(20 * time.Second)
+		defer timeout.Stop()
+		select {
+		case <-c.Request.Context().Done():
+			return
+		case <-timeout.C:
+			c.Status(http.StatusNoContent)
+			return
+		case <-changed:
+			revision, _ = h.store.HistoryRevision()
+		}
+	}
+	// Capture the revision before reading rows so a concurrent write is picked
+	// up on the next wait instead of being skipped.
 	history, total, err := h.store.GetImageHistory(limit, offset)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"history": history,
-		"total":   total,
-		"limit":   limit,
-		"offset":  offset,
+		"history":  history,
+		"revision": revision,
+		"total":    total,
+		"limit":    limit,
+		"offset":   offset,
 	})
 }

@@ -266,6 +266,7 @@ App 请求使用 `Authorization: Bearer <App 密钥>`。反馈请求体为 `{"im
 **GET /api/stats/history?limit=20&offset=0**
 - `limit`: Number of records (max 200, default 20)
 - `offset`: Pagination offset (default 0)
+- `revision`：可选，传入上次响应的版本号。若没有新分发或反馈，服务最多等待 20 秒并返回 HTTP 204。收到变更时立即返回当前页及新版本号。
 
 Response (包含 `is_saved` 用于前端点亮 ❤️ 按钮):
 ```json

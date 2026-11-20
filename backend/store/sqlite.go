@@ -1,10 +1,12 @@
 package store
 
 import (
+	"crypto/rand"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -13,12 +15,16 @@ import (
 )
 
 type Store struct {
-	db             *sql.DB
-	batcher        *StatsBatcher
-	cachedSettings *model.Settings
-	settingsMu     sync.RWMutex
-	settingsLoaded bool
-	sessions       *SessionManager
+	db              *sql.DB
+	batcher         *StatsBatcher
+	cachedSettings  *model.Settings
+	settingsMu      sync.RWMutex
+	settingsLoaded  bool
+	sessions        *SessionManager
+	historyMu       sync.Mutex
+	historyRevision string
+	historyChanged  chan struct{}
+	historyWatchers atomic.Int32
 }
 
 func (s *Store) Sessions() *SessionManager {
@@ -37,7 +43,7 @@ func New(dbPath string) (*Store, error) {
 	if err := s.migrate(); err != nil {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
-	s.batcher = NewStatsBatcher(db)
+	s.batcher = NewStatsBatcher(db, s.notifyHistoryChanged)
 	return s, nil
 }
 
@@ -573,7 +579,7 @@ func (s *Store) RecordStats(queryCats []string, src model.Source, imageURL strin
 
 func (s *Store) RecordDistribution(queryCats []string, src model.Source, imageURL string, imageID *int64, fileID, ref string) error {
 	if s.batcher != nil {
-		return s.batcher.Record(StatsEvent{
+		err := s.batcher.Record(StatsEvent{
 			QueryCats:       queryCats,
 			Source:          src,
 			ImageURL:        imageURL,
@@ -581,6 +587,10 @@ func (s *Store) RecordDistribution(queryCats []string, src model.Source, imageUR
 			FileID:          fileID,
 			DistributionRef: ref,
 		})
+		if err == nil && s.historyWatchers.Load() > 0 {
+			s.batcher.requestFlush()
+		}
+		return err
 	}
 	return nil
 }
@@ -898,6 +908,37 @@ func (s *Store) GetTotalRequests() (int, error) {
 	return total, err
 }
 
+// WatchHistory allows active viewers to receive newly recorded events promptly.
+func (s *Store) WatchHistory() func() {
+	s.historyWatchers.Add(1)
+	if s.batcher != nil {
+		s.batcher.requestFlush()
+	}
+	return func() { s.historyWatchers.Add(-1) }
+}
+
+// HistoryRevision returns a revision and a channel that closes after the next
+// committed history change. The token also changes across process restarts.
+func (s *Store) HistoryRevision() (string, <-chan struct{}) {
+	s.historyMu.Lock()
+	defer s.historyMu.Unlock()
+	if s.historyChanged == nil {
+		s.historyChanged = make(chan struct{})
+		s.historyRevision = rand.Text()
+	}
+	return s.historyRevision, s.historyChanged
+}
+
+func (s *Store) notifyHistoryChanged() {
+	s.historyMu.Lock()
+	defer s.historyMu.Unlock()
+	if s.historyChanged != nil {
+		close(s.historyChanged)
+	}
+	s.historyChanged = make(chan struct{})
+	s.historyRevision = rand.Text()
+}
+
 func (s *Store) GetImageHistory(limit, offset int) ([]model.ImageHistoryRecord, int, error) {
 	var total int
 	s.db.QueryRow("SELECT COUNT(*) FROM image_history").Scan(&total)
@@ -1016,7 +1057,13 @@ func (s *Store) ImportStatsData(data *model.StatsExportData) error {
 		}
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	if len(data.ImageHistory) > 0 {
+		s.notifyHistoryChanged()
+	}
+	return nil
 }
 
 func (s *Store) ExportSavedImages() ([]model.SavedImage, error) {

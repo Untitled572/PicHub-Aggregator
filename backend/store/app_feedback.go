@@ -118,7 +118,13 @@ func (s *Store) RecordAppFeedback(key, requestID string, imageID int64, vote int
 	if _, err := tx.Exec("DELETE FROM app_feedback_receipts WHERE created_at < datetime('now', '-7 days')"); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	if ref != "" {
+		s.notifyHistoryChanged()
+	}
+	return nil
 }
 
 func updateDistributionFeedback(tx *sql.Tx, ref string, imageID int64, vote int) error {
