@@ -42,6 +42,33 @@ class PicHubConnectionTest {
     }
 
     @Test
+    fun selectingTagsPreservesNamedEndpointAndOtherFilters() {
+        val named = PicHubConnection.parse(
+            "https://example.org/pic/e/other?category=horizontal&quality=high"
+        )
+        val selected = PicHubConnection.parse(named.withTags(listOf("vertical", "adaptive")))
+        val request = selected.nextImage(PictureDirection.Vertical)
+        assertEquals("/pic/e/other", request.encodedPath)
+        assertEquals("high", request.queryParameter("quality"))
+        assertEquals("vertical,adaptive", request.queryParameter("category"))
+        assertEquals(listOf("vertical", "adaptive"), selected.tags)
+
+        val inherited = PicHubConnection.parse(selected.withTags(emptyList()))
+        assertTrue(inherited.tags.isEmpty())
+        assertEquals("/pic/e/other", inherited.nextImage(PictureDirection.Vertical).encodedPath)
+        assertEquals("high", inherited.nextImage(PictureDirection.Vertical).queryParameter("quality"))
+    }
+
+    @Test
+    fun selectingTagsOnServerAddressKeepsTheMasterDistribution() {
+        val server = PicHubConnection.parse("https://example.org/pic")
+        val selected = PicHubConnection.parse(server.withTags(listOf("vertical")))
+        val request = selected.nextImage(PictureDirection.Vertical)
+        assertEquals("/pic/random", request.encodedPath)
+        assertEquals("vertical", request.queryParameter("category"))
+    }
+
+    @Test
     fun malformedLinksAreRejected() {
         assertThrows(PicHubException::class.java) { PicHubConnection.parse("pichub.local") }
         assertThrows(PicHubException::class.java) { PicHubConnection.parse("https://u:p@example.org") }

@@ -1,6 +1,8 @@
 package io.github.untitled572.pichub.android
 
 import android.content.Context
+import android.net.Uri
+import android.provider.DocumentsContract
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
@@ -11,10 +13,23 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
+internal data class ViewerOptions(
+    val saveTree: Uri? = null,
+    val fillScreen: Boolean = false,
+    val showDetails: Boolean = false
+)
+
 internal class ConnectionPreferences(context: Context) {
     private val preferences = context.getSharedPreferences("server", Context.MODE_PRIVATE)
 
     val address: String get() = preferences.getString("address", "").orEmpty()
+
+    fun loadViewerOptions() = ViewerOptions(
+        saveTree = preferences.getString("save_tree", null)?.let(Uri::parse)
+            ?.takeIf { it.scheme == "content" && DocumentsContract.isTreeUri(it) },
+        fillScreen = preferences.getBoolean("fill_screen", false),
+        showDetails = preferences.getBoolean("show_details", false)
+    )
 
     fun loadKey(): String {
         val value = preferences.getString("app_key", null) ?: return ""
@@ -26,7 +41,7 @@ internal class ConnectionPreferences(context: Context) {
         }.getOrDefault("")
     }
 
-    fun save(address: String, appKey: String) {
+    fun save(address: String, appKey: String, options: ViewerOptions) {
         val encrypted = if (appKey.isNotEmpty()) {
             val cipher = Cipher.getInstance(TRANSFORMATION)
             cipher.init(Cipher.ENCRYPT_MODE, getKey())
@@ -38,6 +53,9 @@ internal class ConnectionPreferences(context: Context) {
         preferences.edit {
             putString("address", address)
             putString("app_key", encrypted)
+            putString("save_tree", options.saveTree?.toString())
+            putBoolean("fill_screen", options.fillScreen)
+            putBoolean("show_details", options.showDetails)
         }
     }
 

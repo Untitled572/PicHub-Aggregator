@@ -20,7 +20,7 @@ func newTestStatsBatcher(t *testing.T) (*sql.DB, *StatsBatcher) {
 		`CREATE TABLE stats_requests (date TEXT PRIMARY KEY, count INTEGER DEFAULT 0)`,
 		`CREATE TABLE stats_tag (date TEXT NOT NULL, tag_id TEXT NOT NULL, count INTEGER DEFAULT 0, PRIMARY KEY (date, tag_id))`,
 		`CREATE TABLE stats_source (date TEXT NOT NULL, source_id INTEGER NOT NULL, source_name TEXT NOT NULL, hit_count INTEGER DEFAULT 0, PRIMARY KEY (date, source_id))`,
-		`CREATE TABLE image_history (id INTEGER PRIMARY KEY AUTOINCREMENT, image_url TEXT NOT NULL, source_id INTEGER, source_name TEXT, categories TEXT, created_at DATETIME, image_id INTEGER, file_id TEXT)`,
+		`CREATE TABLE image_history (id INTEGER PRIMARY KEY AUTOINCREMENT, image_url TEXT NOT NULL, source_id INTEGER, source_name TEXT, categories TEXT, created_at DATETIME, image_id INTEGER, file_id TEXT, distribution_ref TEXT NOT NULL DEFAULT '')`,
 	} {
 		if _, err := db.Exec(stmt); err != nil {
 			t.Fatal(err)

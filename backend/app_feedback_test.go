@@ -90,6 +90,29 @@ func TestAndroidFeedbackAuthorizationAndRetry(t *testing.T) {
 	requireStatus(request(http.MethodGet, "/api/app/auth/check", adminSettings.AdminToken, ""), http.StatusUnauthorized)
 	requireStatus(request(http.MethodGet, "/api/app/auth/check", key, ""), http.StatusNoContent)
 
+	scopePath := "/api/app/tags"
+	requireStatus(request(http.MethodGet, scopePath, "", ""), http.StatusUnauthorized)
+	scopeResponse := request(http.MethodGet, scopePath, key, "")
+	requireStatus(scopeResponse, http.StatusOK)
+	var scope struct {
+		Tags []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"tags"`
+	}
+	if err := json.Unmarshal(scopeResponse.Body.Bytes(), &scope); err != nil {
+		t.Fatal(err)
+	}
+	foundVertical := false
+	for _, tag := range scope.Tags {
+		if tag.ID == "vertical" && tag.Name == "竖屏" {
+			foundVertical = true
+		}
+	}
+	if !foundVertical {
+		t.Fatalf("built-in vertical tag missing: %s", scopeResponse.Body)
+	}
+
 	receipt := "e8dc6582-04ca-4d60-833b-d2537ed23d9d"
 	like := payload(imageID, receipt, "like")
 	var calls sync.WaitGroup

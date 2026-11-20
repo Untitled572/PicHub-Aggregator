@@ -138,6 +138,13 @@ func (s *Store) migrate() error {
 	_, _ = s.db.Exec("ALTER TABLE sources ADD COLUMN default_query TEXT DEFAULT ''")
 	_, _ = s.db.Exec("ALTER TABLE image_history ADD COLUMN image_id INTEGER DEFAULT 0")
 	_, _ = s.db.Exec("ALTER TABLE image_history ADD COLUMN file_id TEXT DEFAULT ''")
+	_, _ = s.db.Exec("ALTER TABLE image_history ADD COLUMN distribution_ref TEXT NOT NULL DEFAULT ''")
+	_, _ = s.db.Exec("ALTER TABLE image_history ADD COLUMN app_feedback INTEGER NOT NULL DEFAULT 0")
+	_, _ = s.db.Exec("ALTER TABLE image_history ADD COLUMN app_feedback_delta INTEGER NOT NULL DEFAULT 0")
+	_, _ = s.db.Exec("ALTER TABLE app_feedback_receipts ADD COLUMN distribution_ref TEXT NOT NULL DEFAULT ''")
+	if _, err := s.db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_history_distribution_ref ON image_history(distribution_ref) WHERE distribution_ref != ''"); err != nil {
+		return err
+	}
 	_, _ = s.db.Exec("ALTER TABLE images ADD COLUMN orientation TEXT DEFAULT ''")
 	_, _ = s.db.Exec("ALTER TABLE images ADD COLUMN fail_count INTEGER NOT NULL DEFAULT 0")
 	_, _ = s.db.Exec("ALTER TABLE images ADD COLUMN pooled INTEGER NOT NULL DEFAULT 0")
@@ -561,13 +568,18 @@ func (s *Store) GetEnabledSources() ([]model.Source, error) {
 }
 
 func (s *Store) RecordStats(queryCats []string, src model.Source, imageURL string, imageID *int64, fileID string) error {
+	return s.RecordDistribution(queryCats, src, imageURL, imageID, fileID, "")
+}
+
+func (s *Store) RecordDistribution(queryCats []string, src model.Source, imageURL string, imageID *int64, fileID, ref string) error {
 	if s.batcher != nil {
 		return s.batcher.Record(StatsEvent{
-			QueryCats: queryCats,
-			Source:    src,
-			ImageURL:  imageURL,
-			ImageID:   imageID,
-			FileID:    fileID,
+			QueryCats:       queryCats,
+			Source:          src,
+			ImageURL:        imageURL,
+			ImageID:         imageID,
+			FileID:          fileID,
+			DistributionRef: ref,
 		})
 	}
 	return nil
@@ -892,7 +904,7 @@ func (s *Store) GetImageHistory(limit, offset int) ([]model.ImageHistoryRecord, 
 
 	query := `
 		SELECT h.id, h.image_url, h.source_id, h.source_name, h.categories, h.created_at, COALESCE(h.image_id,0), COALESCE(h.file_id,''),
-		       COALESCE(img.is_saved, 0)
+		       COALESCE(img.is_saved, 0), h.app_feedback
 		FROM image_history h
 		LEFT JOIN images img ON (h.file_id != '' AND h.file_id = img.file_id) OR (h.image_id > 0 AND h.image_id = img.id)
 		ORDER BY h.id DESC LIMIT ? OFFSET ?`
@@ -907,7 +919,7 @@ func (s *Store) GetImageHistory(limit, offset int) ([]model.ImageHistoryRecord, 
 		var r model.ImageHistoryRecord
 		var createdAt string
 		var isSaved int
-		if err := rows.Scan(&r.ID, &r.ImageURL, &r.SourceID, &r.SourceName, &r.Categories, &createdAt, &r.ImageID, &r.FileID, &isSaved); err != nil {
+		if err := rows.Scan(&r.ID, &r.ImageURL, &r.SourceID, &r.SourceName, &r.Categories, &createdAt, &r.ImageID, &r.FileID, &isSaved, &r.AppFeedback); err != nil {
 			return nil, 0, err
 		}
 		r.IsSaved = isSaved > 0
@@ -994,8 +1006,14 @@ func (s *Store) ImportStatsData(data *model.StatsExportData) error {
 
 	for _, h := range data.ImageHistory {
 		nowStr := h.CreatedAt.Format("2006-01-02 15:04:05")
-		tx.Exec("INSERT INTO image_history (image_url, source_id, source_name, categories, created_at, image_id, file_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
-			h.ImageURL, h.SourceID, h.SourceName, h.Categories, nowStr, h.ImageID, h.FileID)
+		vote := h.AppFeedback
+		if vote != -1 && vote != 1 {
+			vote = 0
+		}
+		if _, err := tx.Exec("INSERT INTO image_history (image_url, source_id, source_name, categories, created_at, image_id, file_id, app_feedback) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+			h.ImageURL, h.SourceID, h.SourceName, h.Categories, nowStr, h.ImageID, h.FileID, vote); err != nil {
+			return err
+		}
 	}
 
 	return tx.Commit()

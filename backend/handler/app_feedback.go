@@ -15,6 +15,7 @@ import (
 const appKeyPrefix = "ph_app_"
 
 var appRequestID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+var distributionRef = regexp.MustCompile(`^[A-Z2-7]{26}$`)
 
 func appKey(c *gin.Context) string {
 	key, ok := strings.CutPrefix(c.GetHeader("Authorization"), "Bearer ")
@@ -70,18 +71,59 @@ func (h *Handler) RevokeAppKey(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-func (h *Handler) CheckAppFeedbackAuth(c *gin.Context) {
+func (h *Handler) requireAppKey(c *gin.Context) bool {
 	c.Header("Cache-Control", "no-store")
 	key := appKey(c)
 	if key == "" {
 		appFeedbackError(c, store.ErrInvalidAppKey)
-		return
+		return false
 	}
 	if err := h.store.CheckAppKey(key); err != nil {
 		appFeedbackError(c, err)
+		return false
+	}
+	return true
+}
+
+func (h *Handler) CheckAppFeedbackAuth(c *gin.Context) {
+	if h.requireAppKey(c) {
+		c.Status(http.StatusNoContent)
+	}
+}
+
+func (h *Handler) ListAppTags(c *gin.Context) {
+	if !h.requireAppKey(c) {
 		return
 	}
-	c.Status(http.StatusNoContent)
+	tags, err := h.store.GetTags()
+	if err != nil {
+		appFeedbackError(c, err)
+		return
+	}
+	c.Header("Cache-Control", "no-store")
+	c.JSON(http.StatusOK, gin.H{"tags": tags})
+}
+
+func (h *Handler) ListAppEndpoints(c *gin.Context) {
+	if !h.requireAppKey(c) {
+		return
+	}
+	endpoints, err := h.store.ListEndpoints()
+	if err != nil {
+		appFeedbackError(c, err)
+		return
+	}
+	type endpoint struct {
+		Name      string   `json:"name"`
+		BoundTags []string `json:"bound_tags"`
+	}
+	enabled := make([]endpoint, 0)
+	for _, ep := range endpoints {
+		if ep.Enabled {
+			enabled = append(enabled, endpoint{Name: ep.Name, BoundTags: ep.BoundTags})
+		}
+	}
+	c.JSON(http.StatusOK, enabled)
 }
 
 func (h *Handler) AppFeedback(c *gin.Context) {
@@ -94,10 +136,15 @@ func (h *Handler) AppFeedback(c *gin.Context) {
 		RequestID string `json:"request_id"`
 		ImageID   int64  `json:"image_id"`
 		Vote      string `json:"vote"`
+		Ref       string `json:"distribution_ref"`
 	}
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1024)
 	if err := c.ShouldBindJSON(&input); err != nil || input.ImageID <= 0 || !appRequestID.MatchString(input.RequestID) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_feedback"})
+		return
+	}
+	if input.Ref != "" && !distributionRef.MatchString(input.Ref) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_distribution_ref"})
 		return
 	}
 	var delta int
@@ -106,11 +153,16 @@ func (h *Handler) AppFeedback(c *gin.Context) {
 		delta = 1
 	case "dislike":
 		delta = -1
+	case "none":
+		if input.Ref == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "distribution_ref_required"})
+			return
+		}
 	default:
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_vote"})
 		return
 	}
-	if err := h.store.RecordAppFeedback(key, input.RequestID, input.ImageID, delta); err != nil {
+	if err := h.store.RecordAppFeedback(key, input.RequestID, input.ImageID, delta, input.Ref); err != nil {
 		appFeedbackError(c, err)
 		return
 	}

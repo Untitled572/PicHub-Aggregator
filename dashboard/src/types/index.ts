@@ -145,6 +145,7 @@ export interface ImageHistoryRecord {
   image_id?: number
   file_id?: string
   is_saved?: boolean
+  app_feedback?: -1 | 1
 }
 
 

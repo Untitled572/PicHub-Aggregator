@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	cryptorand "crypto/rand"
 	"fmt"
 	"io"
 	"math"
@@ -77,21 +78,22 @@ func NewEngine(st *store.Store, pc *ProxyCache, imgStore *ImageStore, proxyCfg *
 }
 
 type Result struct {
-	Debug       bool          `json:"debug,omitempty"`
-	ImageData   []byte        `json:"-"`
-	ContentType string        `json:"-"`
-	URL         string        `json:"url"`
-	LocalURL    string        `json:"local_url,omitempty"`
-	SourceName  string        `json:"source"`
-	SourceID    int64         `json:"source_id,omitempty"`
-	Categories  []string      `json:"categories"`
-	Orientation string        `json:"orientation,omitempty"`
-	FileID      string        `json:"file_id,omitempty"`
-	Width       int           `json:"width,omitempty"`
-	Height      int           `json:"height,omitempty"`
-	Format      string        `json:"format,omitempty"`
-	ImageID     int64         `json:"image_id,omitempty"`
-	cacheHealth *HealthResult `json:"-"`
+	Debug           bool          `json:"debug,omitempty"`
+	ImageData       []byte        `json:"-"`
+	ContentType     string        `json:"-"`
+	URL             string        `json:"url"`
+	LocalURL        string        `json:"local_url,omitempty"`
+	SourceName      string        `json:"source"`
+	SourceID        int64         `json:"source_id,omitempty"`
+	Categories      []string      `json:"categories"`
+	Orientation     string        `json:"orientation,omitempty"`
+	FileID          string        `json:"file_id,omitempty"`
+	Width           int           `json:"width,omitempty"`
+	Height          int           `json:"height,omitempty"`
+	Format          string        `json:"format,omitempty"`
+	ImageID         int64         `json:"image_id,omitempty"`
+	DistributionRef string        `json:"distribution_ref,omitempty"`
+	cacheHealth     *HealthResult `json:"-"`
 }
 
 func detectOrientationFromUA(ua string) string {
@@ -197,9 +199,7 @@ func (e *Engine) randomImage(category string, format string, orientation string,
 			}
 			imgID := poolResult.ImageID
 			e.store.SetImagePooled(imgID, false)
-			if err := e.store.RecordStats(queryCats, src, poolResult.LocalURL, &imgID, poolResult.FileID); err != nil {
-				logger.Error("record pool stats: %v", err)
-			}
+			poolResult.DistributionRef = e.recordDistribution(queryCats, src, poolResult.LocalURL, &imgID, poolResult.FileID, format)
 			logger.System("pool hit for category %q, instant response", category)
 
 			if format == "json" {
@@ -329,14 +329,13 @@ func (e *Engine) randomImage(category string, format string, orientation string,
 		}
 		e.demandTracker.RecordRequest(queryCats, cachedInfo != nil)
 		e.sourceDemand.RecordSelection(selected.ID)
-		if err := e.store.RecordStats(queryCats, selected, imageURL, imgID, fileID); err != nil {
-			logger.Error("record image stats: %v", err)
-		}
+		ref := e.recordDistribution(queryCats, selected, imageURL, imgID, fileID, format)
 
 		res := &Result{
-			URL:        origURL,
-			SourceName: selected.Name,
-			Categories: selected.Categories,
+			URL:             origURL,
+			SourceName:      selected.Name,
+			Categories:      selected.Categories,
+			DistributionRef: ref,
 		}
 		if cachedInfo != nil {
 			res.LocalURL = imageURL
@@ -356,6 +355,18 @@ func (e *Engine) randomImage(category string, format string, orientation string,
 	}
 
 	return nil, 0, fmt.Errorf("all sources failed")
+}
+
+func (e *Engine) recordDistribution(categories []string, source model.Source, url string, imageID *int64, fileID string, format string) string {
+	ref := ""
+	if imageID != nil && *imageID > 0 && format == "json" {
+		ref = cryptorand.Text()
+	}
+	if err := e.store.RecordDistribution(categories, source, url, imageID, fileID, ref); err != nil {
+		logger.Error("record distribution stats: %v", err)
+		return ""
+	}
+	return ref
 }
 
 func (e *Engine) newFetchRequest(ctx context.Context, selected model.Source, clientUA string) (*http.Request, error) {
@@ -816,18 +827,20 @@ func (e *Engine) recordCacheHealth(result HealthResult) {
 
 func (e *Engine) replenishPool() {
 	e.modeMu.RLock()
-	defer e.modeMu.RUnlock()
 	if e.debugSourceID != 0 {
+		e.modeMu.RUnlock()
 		return
 	}
 	settings, err := e.store.GetSettings()
 	if err != nil || !settings.ProxyMode || settings.PoolSize <= 0 || e.distPool == nil {
+		e.modeMu.RUnlock()
 		return
 	}
 
 	// 淘汰超轮次项
 	maxRounds := settings.PoolSize - 1
 	e.distPool.Trim(settings.PoolSize, maxRounds)
+	e.modeMu.RUnlock()
 
 	currentSize := e.distPool.Size()
 	if currentSize >= settings.PoolSize {
@@ -846,7 +859,16 @@ func (e *Engine) replenishPool() {
 
 	// 每 tick 拉取数上限, 防止突发打爆图源触发风控
 	fetched := 0
-	push := func(res *Result) bool {
+	paused := false
+	fetchAndPush := func(tag string) bool {
+		// Let a mode change take the lock between images, even if this round has more work.
+		e.modeMu.RLock()
+		defer e.modeMu.RUnlock()
+		if e.debugSourceID != 0 || e.debugSwitches.Load() > 0 {
+			paused = true
+			return false
+		}
+		res := e.fetchSingleForTag(tag, sourceCounts, caps)
 		if res == nil {
 			return false
 		}
@@ -867,16 +889,16 @@ func (e *Engine) replenishPool() {
 		// 窗口无数据：为每个有源的 tag 各拉一张
 		tags, _ := e.store.GetTags()
 		for _, t := range tags {
-			if e.distPool.Size() >= settings.PoolSize || fetched >= maxFetchPerTick {
+			if paused || e.distPool.Size() >= settings.PoolSize || fetched >= maxFetchPerTick {
 				break
 			}
-			if !push(e.fetchSingleForTag(t.ID, sourceCounts, caps)) {
+			if !fetchAndPush(t.ID) {
 				continue
 			}
 		}
 		// 剩余 slot 填无 tag 源
-		for e.distPool.Size() < settings.PoolSize && fetched < maxFetchPerTick {
-			if !push(e.fetchSingleForTag("", sourceCounts, caps)) {
+		for !paused && e.distPool.Size() < settings.PoolSize && fetched < maxFetchPerTick {
+			if !fetchAndPush("") {
 				break
 			}
 		}
@@ -884,6 +906,9 @@ func (e *Engine) replenishPool() {
 	}
 
 	for tag, count := range plan {
+		if paused {
+			break
+		}
 		if count <= 0 {
 			continue
 		}
@@ -892,7 +917,7 @@ func (e *Engine) replenishPool() {
 			fetchTag = "" // 通用预取覆盖无分类源
 		}
 		for i := 0; i < count && e.distPool.Size() < settings.PoolSize && fetched < maxFetchPerTick; i++ {
-			if !push(e.fetchSingleForTag(fetchTag, sourceCounts, caps)) {
+			if !fetchAndPush(fetchTag) {
 				break
 			}
 		}

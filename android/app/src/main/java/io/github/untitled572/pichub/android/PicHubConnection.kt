@@ -14,6 +14,14 @@ internal class PicHubConnection private constructor(
     private val baseUrl: HttpUrl,
     private val distributionUrl: HttpUrl
 ) {
+    val tags: List<String> =
+        distributionUrl.queryParameter("category")?.split(',')?.filter { it.isNotBlank() }.orEmpty()
+
+    fun withTags(tags: List<String>): String = enteredUrl.newBuilder()
+        .removeAllQueryParameters("category")
+        .apply { if (tags.isNotEmpty()) addQueryParameter("category", tags.joinToString(",")) }
+        .build().toString()
+
     fun nextImage(direction: PictureDirection): HttpUrl = distributionUrl.newBuilder()
         .setQueryParameter("format", "json")
         .setQueryParameter("orientation", direction.parameter)

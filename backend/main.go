@@ -223,6 +223,8 @@ func main() {
 func registerAppRoutes(r *gin.Engine, h *handler.Handler, st *store.Store) {
 	app := r.Group("/api/app", middleware.RateLimit(st))
 	app.GET("/auth/check", h.CheckAppFeedbackAuth)
+	app.GET("/endpoints", h.ListAppEndpoints)
+	app.GET("/tags", h.ListAppTags)
 	app.POST("/feedback", h.AppFeedback)
 }
 

@@ -12,11 +12,12 @@ import (
 )
 
 type StatsEvent struct {
-	QueryCats []string
-	Source    model.Source
-	ImageURL  string
-	ImageID   *int64
-	FileID    string
+	QueryCats       []string
+	Source          model.Source
+	ImageURL        string
+	ImageID         *int64
+	FileID          string
+	DistributionRef string
 }
 
 type srcStat struct {
@@ -25,13 +26,14 @@ type srcStat struct {
 }
 
 type historyRow struct {
-	ImageURL   string
-	SourceID   int64
-	SourceName string
-	Categories string
-	CreatedAt  string
-	ImageID    int64
-	FileID     string
+	ImageURL        string
+	SourceID        int64
+	SourceName      string
+	Categories      string
+	CreatedAt       string
+	ImageID         int64
+	FileID          string
+	DistributionRef string
 }
 
 type StatsBatcher struct {
@@ -105,13 +107,14 @@ func (sb *StatsBatcher) Record(ev StatsEvent) error {
 		fileID = ev.FileID
 	}
 	sb.history = append(sb.history, historyRow{
-		ImageURL:   ev.ImageURL,
-		SourceID:   ev.Source.ID,
-		SourceName: ev.Source.Name,
-		Categories: encodeStringSlice(ev.QueryCats),
-		CreatedAt:  nowStr,
-		ImageID:    imgID,
-		FileID:     fileID,
+		ImageURL:        ev.ImageURL,
+		SourceID:        ev.Source.ID,
+		SourceName:      ev.Source.Name,
+		Categories:      encodeStringSlice(ev.QueryCats),
+		CreatedAt:       nowStr,
+		ImageID:         imgID,
+		FileID:          fileID,
+		DistributionRef: ev.DistributionRef,
 	})
 	sb.mu.Unlock()
 	return nil
@@ -187,8 +190,8 @@ func (sb *StatsBatcher) flush() error {
 	}
 
 	for _, h := range history {
-		if _, err = tx.Exec("INSERT INTO image_history (image_url, source_id, source_name, categories, created_at, image_id, file_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
-			h.ImageURL, h.SourceID, h.SourceName, h.Categories, h.CreatedAt, h.ImageID, h.FileID); err != nil {
+		if _, err = tx.Exec("INSERT INTO image_history (image_url, source_id, source_name, categories, created_at, image_id, file_id, distribution_ref) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+			h.ImageURL, h.SourceID, h.SourceName, h.Categories, h.CreatedAt, h.ImageID, h.FileID, h.DistributionRef); err != nil {
 			return rollback("write image history", err)
 		}
 	}

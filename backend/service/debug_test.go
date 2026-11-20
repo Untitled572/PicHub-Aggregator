@@ -182,6 +182,63 @@ func TestDebugSwitchWaitsForDistribution(t *testing.T) {
 	}
 }
 
+func TestDebugSwitchStopsPrefetchAfterCurrentImage(t *testing.T) {
+	st := healthTestStore(t)
+	settings, err := st.GetSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings.ProxyMode = true
+	settings.PoolSize = 2
+	settings.MinResolution = "0"
+	if err := st.UpdateSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+	images := NewImageStore(st, t.TempDir(), nil)
+	entered, release := make(chan struct{}), make(chan struct{})
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("image") == "" {
+			if calls.Add(1) == 1 {
+				close(entered)
+				<-release
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]string{"url": "?image=1"})
+			return
+		}
+		w.Header().Set("Content-Type", "image/png")
+		png.Encode(w, image.NewRGBA(image.Rect(0, 0, 4, 2)))
+	}))
+	defer server.Close()
+	horizontal := addHealthSource(t, st, model.Source{Name: "horizontal", URL: server.URL + "/horizontal", Enabled: true, RespType: "json", Categories: []string{"horizontal"}, Weight: 1})
+	addHealthSource(t, st, model.Source{Name: "vertical", URL: server.URL + "/vertical", Enabled: true, RespType: "json", Categories: []string{"vertical"}, Weight: 1})
+	e := &Engine{store: st, imageStore: images, distPool: NewDistributionPool(), demandTracker: NewDemandTracker(), sourceDemand: NewSourceDemandTracker(), httpClient: server.Client()}
+	finished := make(chan struct{})
+	go func() { defer close(finished); e.replenishPool() }()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		close(release)
+		t.Fatal("prefetch did not start")
+	}
+	switched := make(chan error, 1)
+	go func() { _, err := e.SetDebugSource(horizontal.ID); switched <- err }()
+	deadline := time.Now().Add(time.Second)
+	for !e.DebugSource().Switching && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	pending := e.DebugSource().Switching
+	close(release)
+	if err := <-switched; err != nil {
+		t.Fatal(err)
+	}
+	<-finished
+	if !pending || calls.Load() != 1 || e.distPool.Size() != 1 || !e.DebugSource().Enabled {
+		t.Fatalf("pending=%t upstream calls=%d pool=%d debug=%+v", pending, calls.Load(), e.distPool.Size(), e.DebugSource())
+	}
+}
+
 func TestDebugHonorsCategoryBranchesAndOrientation(t *testing.T) {
 	st := healthTestStore(t)
 	var horizontal, vertical bytes.Buffer

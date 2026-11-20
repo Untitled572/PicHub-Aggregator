@@ -5,76 +5,67 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.FilledIconToggleButton
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 
@@ -134,171 +125,21 @@ private fun PicHubScreen(model: ViewerModel) {
         contentWindowInsets = WindowInsets.safeDrawing,
         snackbarHost = { SnackbarHost(snackbar) }
     ) { padding ->
-        BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
-            val wide = maxWidth > maxHeight
-
-            if (model.showSettings) {
-                SettingsScreen(model, Modifier.fillMaxSize())
-            } else {
-                val showRail = wide && maxHeight >= 310.dp
-                val labeledRefresh = maxWidth >= 330.dp
-                val horizontalPadding = (maxWidth * 0.04f).coerceIn(12.dp, 28.dp)
-                Column(
-                    Modifier.fillMaxSize().padding(
-                        start = horizontalPadding,
-                        end = horizontalPadding,
-                        bottom = if (wide) 6.dp else 10.dp
-                    )
-                ) {
-                    Row(
-                        Modifier.fillMaxWidth().heightIn(min = if (wide) 48.dp else 56.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("PicHub", Modifier.padding(start = 4.dp), style = MaterialTheme.typography.titleLarge)
-                        IconButton(onClick = model::openSettings) {
-                            Icon(Icons.Filled.Settings, contentDescription = "设置")
-                        }
-                    }
-                    if (showRail) {
-                        Row(
-                            Modifier.weight(1f).fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            ImageStage(model, Modifier.weight(1f).fillMaxHeight())
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                ViewerActions(model, labeledRefresh = false)
-                            }
-                        }
-                    } else {
-                        ImageStage(model, Modifier.weight(1f).fillMaxWidth())
-                        Row(
-                            Modifier.align(Alignment.CenterHorizontally).widthIn(max = 480.dp)
-                                .fillMaxWidth().padding(top = if (wide) 4.dp else 12.dp),
-                            horizontalArrangement = Arrangement.SpaceEvenly,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            ViewerActions(model, labeledRefresh = labeledRefresh)
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ImageStage(model: ViewerModel, modifier: Modifier) {
-    val shown = model.picture
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(24.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow
-    ) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            when {
-                shown != null -> {
-                    val bitmap = remember(shown.picture.bitmap) { shown.picture.bitmap.asImageBitmap() }
-                    Image(bitmap, contentDescription = "当前图片", Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
-                    if (model.loading) {
-                        Surface(
-                            Modifier.align(Alignment.TopEnd).padding(12.dp),
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.surfaceContainerHigh
-                        ) {
-                            CircularProgressIndicator(Modifier.padding(9.dp).size(20.dp), strokeWidth = 2.dp)
-                        }
-                    }
-                }
-                model.loading -> CircularProgressIndicator(Modifier.size(34.dp))
-                else -> {
-                    Column(
-                        Modifier.padding(16.dp).widthIn(max = 320.dp).verticalScroll(rememberScrollState()),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text(
-                            model.loadingError ?: "连接 PicHub 后开始看图",
-                            textAlign = TextAlign.Center,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        if (model.configured) {
-                            OutlinedButton(onClick = model::refresh) { Text("重试") }
-                        } else {
-                            OutlinedButton(onClick = model::openSettings) { Text("连接服务器") }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ViewerActions(model: ViewerModel, labeledRefresh: Boolean) {
-    val shown = model.picture
-    val refreshEnabled = model.configured && !model.loading
-    if (labeledRefresh) {
-        Button(
-            onClick = model::refresh,
-            enabled = refreshEnabled,
-            modifier = Modifier.heightIn(min = 48.dp),
-            contentPadding = PaddingValues(horizontal = 15.dp, vertical = 8.dp)
-        ) {
-            Icon(Icons.Filled.Refresh, contentDescription = null, Modifier.size(20.dp))
-            Text("刷新", Modifier.padding(start = 6.dp))
-        }
-    } else {
-        FilledIconButton(onClick = model::refresh, enabled = refreshEnabled) {
-            Icon(Icons.Filled.Refresh, contentDescription = "刷新")
-        }
-    }
-
-    FilledTonalIconButton(
-        onClick = model::save,
-        enabled = shown != null && !shown.saved && !model.saving
-    ) {
-        if (shown?.saved == true) {
-            Icon(Icons.Filled.Check, contentDescription = "已保存")
+        if (model.showSettings) {
+            SettingsScreen(model, Modifier.fillMaxSize().padding(padding))
         } else {
-            Icon(painterResource(R.drawable.ic_download), contentDescription = "保存到相册")
+            ViewerScreen(model)
         }
-    }
-
-    if (model.feedbackEnabled) {
-        VoteButton(model, shown, Vote.Like, R.drawable.ic_thumb_up, "点赞")
-        VoteButton(model, shown, Vote.Dislike, R.drawable.ic_thumb_down, "点踩")
-    }
-}
-
-@Composable
-private fun VoteButton(model: ViewerModel, shown: DisplayedPicture?, vote: Vote, icon: Int, label: String) {
-    val selected = shown?.acceptedVote == vote
-    FilledIconToggleButton(
-        checked = selected,
-        onCheckedChange = { model.vote(vote) },
-        enabled = shown?.picture?.id != null && model.feedbackEnabled && !model.voting &&
-            shown.acceptedVote == null && (shown.attemptedVote == null || shown.attemptedVote == vote),
-        modifier = Modifier.semantics { if (selected) stateDescription = "已反馈" },
-        colors = IconButtonDefaults.filledIconToggleButtonColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            disabledContainerColor = if (selected) MaterialTheme.colorScheme.primaryContainer
-                else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f),
-            disabledContentColor = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
-                else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-        )
-    ) {
-        Icon(painterResource(icon), contentDescription = label)
     }
 }
 
 @Composable
 private fun SettingsScreen(model: ViewerModel, modifier: Modifier) {
+    var choosingTags by rememberSaveable { mutableStateOf(false) }
+    if (choosingTags) TagPicker(model) { choosingTags = false }
+    val directoryPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { tree ->
+        if (tree != null) model.updateSaveTree(tree)
+    }
     Column(
         modifier.padding(horizontal = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally
@@ -347,6 +188,13 @@ private fun SettingsScreen(model: ViewerModel, modifier: Modifier) {
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     supportingText = { Text("在控制台的「设置 → 安全鉴权」中生成") }
                 )
+                if (model.canChooseTags) {
+                    ListItem(
+                        headlineContent = { Text("App 取图范围") },
+                        supportingContent = { Text(model.draftScopeLabel) },
+                        trailingContent = { TextButton(onClick = { choosingTags = true }) { Text("选择 Tag") } }
+                    )
+                }
             }
             if (model.draftAddress.trim().startsWith("http://", ignoreCase = true)) {
                 Text(
@@ -355,6 +203,46 @@ private fun SettingsScreen(model: ViewerModel, modifier: Modifier) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("保存路径", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    saveDirectoryLabel(model.draftOptions.saveTree),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { directoryPicker.launch(model.draftOptions.saveTree) }) {
+                        Text("选择目录")
+                    }
+                    if (model.draftOptions.saveTree != null) {
+                        TextButton(onClick = { model.updateSaveTree(null) }) { Text("恢复默认") }
+                    }
+                }
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("图片显示", style = MaterialTheme.typography.titleSmall)
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    SegmentedButton(
+                        selected = !model.draftOptions.fillScreen,
+                        onClick = { model.updateFillScreen(false) },
+                        shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
+                    ) { Text("完整显示") }
+                    SegmentedButton(
+                        selected = model.draftOptions.fillScreen,
+                        onClick = { model.updateFillScreen(true) },
+                        shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
+                    ) { Text("铺满屏幕") }
+                }
+            }
+            ListItem(
+                modifier = Modifier.fillMaxWidth().toggleable(
+                    value = model.draftOptions.showDetails,
+                    role = Role.Checkbox,
+                    onValueChange = model::updateShowDetails
+                ),
+                headlineContent = { Text("显示详情") },
+                trailingContent = { Checkbox(checked = model.draftOptions.showDetails, onCheckedChange = null) }
+            )
             if (model.connectionResult.isNotEmpty()) {
                 Surface(
                     shape = RoundedCornerShape(16.dp),

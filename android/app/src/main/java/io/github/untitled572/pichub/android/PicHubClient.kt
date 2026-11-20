@@ -2,6 +2,7 @@ package io.github.untitled572.pichub.android
 
 import android.graphics.Bitmap
 import android.graphics.ImageDecoder
+import android.os.SystemClock
 import android.security.NetworkSecurityPolicy
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -19,6 +20,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okhttp3.ResponseBody
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
@@ -33,10 +35,34 @@ import kotlin.math.roundToInt
 
 internal data class Picture(
     val id: Long?,
+    val distributionRef: String?,
     val original: File,
     val bitmap: Bitmap,
-    val mimeType: String
+    val mimeType: String,
+    val details: PictureDetails
 )
+
+internal data class PictureDetails(
+    val source: String?,
+    val categories: List<String>,
+    val width: Int,
+    val height: Int,
+    val bytes: Long,
+    val requestPath: String,
+    val responseCode: Int,
+    val elapsedMillis: Long
+)
+
+private data class PictureResponse(
+    val code: Int,
+    val url: HttpUrl? = null,
+    val id: Long? = null,
+    val distributionRef: String? = null,
+    val source: String? = null,
+    val categories: List<String> = emptyList()
+)
+
+internal data class AppTag(val id: String, val name: String)
 
 internal enum class Vote(val parameter: String) {
     Like("like"),
@@ -73,12 +99,13 @@ internal class PicHubClient {
             }
             val url = connection.nextImage(direction)
             val request = Request.Builder().url(url).header("Accept", "application/json, image/*").build()
+            val started = SystemClock.elapsedRealtime()
             val metadata = client(connection, url).newCall(request).withResponse { response ->
                 if (!response.isSuccessful) throw requestError(response.code)
                 val body = response.body ?: throw PicHubException("服务器没有返回图片")
                 if (body.contentType()?.type == "image") {
                     copyPicture(body, file)
-                    return@withResponse null
+                    return@withResponse PictureResponse(response.code)
                 }
                 if (body.contentType()?.subtype?.contains("json") != true) {
                     throw PicHubException("地址没有返回 PicHub 取图响应")
@@ -89,24 +116,31 @@ internal class PicHubClient {
                     val imageUrl = connection.imageUrl(local.takeIf { it.isNotBlank() }
                         ?: throw PicHubException("响应缺少图片地址"))
                         ?: throw PicHubException("服务器返回的图片地址无效")
-                    val id = json.optLong("image_id").takeIf { it > 0 }
-                    imageUrl to id
+                    PictureResponse(
+                        code = response.code,
+                        url = imageUrl,
+                        id = json.optLong("image_id").takeIf { it > 0 },
+                        distributionRef = json.optString("distribution_ref", "").takeIf { it.isNotBlank() },
+                        source = (json.opt("source") as? String)?.trim()?.takeIf { it.isNotEmpty() },
+                        categories = json.optJSONArray("categories").strings()
+                    )
                 } catch (_: org.json.JSONException) {
                     throw PicHubException("服务器返回的图片信息无效")
                 }
             }
 
-            if (metadata != null) {
-                fetchPicture(connection, metadata.first, file)
-            }
+            metadata.url?.let { fetchPicture(connection, it, file) }
+            val elapsed = SystemClock.elapsedRealtime() - started
             coroutineContext.ensureActive()
 
             var mime = ""
+            var width = 0
+            var height = 0
             val bitmap = try {
                 ImageDecoder.decodeBitmap(ImageDecoder.createSource(file)) { decoder, info, _ ->
                     mime = info.mimeType
-                    val width = info.size.width
-                    val height = info.size.height
+                    width = info.size.width
+                    height = info.size.height
                     val scale = minOf(1.0, 2560.0 / maxOf(width, height))
                     decoder.setTargetSize(
                         (width * scale).roundToInt().coerceAtLeast(1),
@@ -125,7 +159,23 @@ internal class PicHubClient {
             if (actual != direction) {
                 throw PicHubException("图源返回了其他方向的图片，请重试或检查服务端缓存代理设置")
             }
-            Picture(metadata?.second, file, bitmap, mime)
+            Picture(
+                id = metadata.id,
+                distributionRef = metadata.distributionRef,
+                original = file,
+                bitmap = bitmap,
+                mimeType = mime,
+                details = PictureDetails(
+                    source = metadata.source,
+                    categories = metadata.categories,
+                    width = width,
+                    height = height,
+                    bytes = file.length(),
+                    requestPath = url.encodedPath,
+                    responseCode = metadata.code,
+                    elapsedMillis = elapsed
+                )
+            )
         }
 
     suspend fun checkKey(connection: PicHubConnection, key: String) = withContext(Dispatchers.IO) {
@@ -136,13 +186,39 @@ internal class PicHubClient {
         }
     }
 
-    suspend fun submit(connection: PicHubConnection, key: String, imageId: Long, requestId: String, vote: Vote) =
+    suspend fun listTags(connection: PicHubConnection, key: String): List<AppTag> =
+        withContext(Dispatchers.IO) {
+            val url = connection.api("tags")
+            val request = Request.Builder().url(url).header("Authorization", "Bearer $key").build()
+            client(connection, url).newCall(request).withResponse { response ->
+                if (response.code == 404) throw PicHubException("请更新服务端以使用 App 标签筛选")
+                if (!response.isSuccessful) throw feedbackError(response.code)
+                val body = response.body ?: throw PicHubException("服务未返回标签列表")
+                val payload = JSONObject(body.source().readUtf8AtMost(256 * 1024L))
+                val rows = payload.optJSONArray("tags") ?: JSONArray()
+                (0 until rows.length()).mapNotNull { index ->
+                    val row = rows.optJSONObject(index) ?: return@mapNotNull null
+                    val id = row.optString("id")
+                    id.takeIf { it.isNotBlank() }?.let { AppTag(it, row.optString("name").ifBlank { id }) }
+                }
+            }
+        }
+
+    suspend fun submit(
+        connection: PicHubConnection,
+        key: String,
+        imageId: Long,
+        requestId: String,
+        distributionRef: String?,
+        vote: Vote?
+    ) =
         withContext(Dispatchers.IO) {
             val url = connection.api("feedback")
             val body = JSONObject()
                 .put("image_id", imageId)
                 .put("request_id", requestId)
-                .put("vote", vote.parameter)
+                .put("distribution_ref", distributionRef)
+                .put("vote", vote?.parameter ?: "none")
                 .toString()
                 .toRequestBody("application/json".toMediaType())
             val request = Request.Builder().url(url).header("Authorization", "Bearer $key").post(body).build()
@@ -240,6 +316,9 @@ private suspend fun <T> Call.withResponse(consume: suspend (Response) -> T): T =
         cancelCall.cancel()
     }
 }
+
+private fun JSONArray?.strings(): List<String> = if (this == null) emptyList() else
+    (0 until minOf(length(), 12)).mapNotNull { opt(it) as? String }.filter { it.isNotBlank() }
 
 private fun okio.BufferedSource.readUtf8AtMost(limit: Long): String {
     if (request(limit + 1)) throw PicHubException("服务器响应过大")

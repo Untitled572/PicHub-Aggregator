@@ -223,16 +223,21 @@ Returns cached health check results with last run timestamp.
 | POST | `/api/app-key` | Admin | `201`，`{"key":"ph_app_..."}`。生成新密钥后旧密钥立即失效。 |
 | DELETE | `/api/app-key` | Admin | `204`，撤销当前密钥。 |
 | GET | `/api/app/auth/check` | App 密钥 | `204`，验证权限。 |
+| GET | `/api/app/endpoints` | App 密钥 | `200`，返回启用的自定义接口及其绑定标签。 |
+| GET | `/api/app/tags` | App 密钥 | `200`，返回可选标签 `tags`。App 将所选标签作为取图请求的 `category` 参数。 |
 | POST | `/api/app/feedback` | App 密钥 | `204`，反馈已提交。 |
 
 App 请求使用 `Authorization: Bearer <App 密钥>`。反馈请求体为 `{"image_id":42,"request_id":"e8dc6582-04ca-4d60-833b-d2537ed23d9d","vote":"like"}`，`vote` 支持 `like` 或 `dislike`。取图在缓存代理模式下返回 `image_id`。反馈调整图源权重（±1，范围 30–70）。同次反馈重试须复用 `request_id`，服务端保存幂等记录至少 7 天。同一请求 ID 携带不同图片或反馈时返回 `409`，图片或图源已清理时返回 `410`，App 密钥无效时返回 `401`。
+
+
+新版缓存代理的取图 JSON 同时返回单次分发的 `distribution_ref`。将该字段与 `image_id` 一起提交后，`vote` 还支持 `none`，用于撤销这条分发记录的反馈和实际权重改动。每次选中、改选或撤销使用新的 `request_id`，只有重试同一次更新时才复用原 ID。
 
 ## Statistics & Weight Adjustment
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | GET | `/api/stats` | Admin | 获取统计数据（日请求量、命中图源排行、Tag分布） |
-| GET | `/api/stats/history` | Admin | 获取分发历史流水日志（包含 `is_saved` 实时保存高亮标记） |
+| GET | `/api/stats/history` | Admin | 获取分发历史流水日志，含 `is_saved` 和 `app_feedback`（`1` 为 App 点赞，`-1` 为 App 点踩，无反馈时省略） |
 | POST | `/api/images/:id/like` | Admin | 喜欢/提升权重 (+1 权重，钳位 30-70) |
 | POST | `/api/images/:id/dislike` | Admin | 不喜欢/降低权重 (-1 权重，钳位 30-70) |
 

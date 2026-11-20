@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useApi } from '../composables/useApi'
 import { useTags } from '../composables/useTags'
 import type { StatsResponse, ImageHistoryRecord, Settings } from '../types'
@@ -85,9 +85,35 @@ const totalPages = computed(() => {
   return Math.ceil(totalHistoryCount.value / pageSize.value)
 })
 
-onMounted(async () => {
-  await loadAllData()
+let historyTimer: ReturnType<typeof setInterval> | undefined
+let syncingHistory = false
+
+onMounted(() => {
+  void loadAllData()
+  historyTimer = setInterval(() => { void syncHistory() }, 8000)
 })
+onUnmounted(() => clearInterval(historyTimer))
+
+async function syncHistory() {
+  if (document.hidden || loading.value || historyLoadingMore.value || syncingHistory) return
+  const page = currentPage.value
+  const size = pageSize.value
+  const snapshot = history.value
+  syncingHistory = true
+  try {
+    const data = await getImageHistory(size, (page - 1) * size)
+    if (currentPage.value === page && pageSize.value === size && history.value === snapshot) {
+      const votes = new Map((data.history || []).map(item => [item.id, item.app_feedback]))
+      history.value = snapshot.map(item =>
+        votes.has(item.id) ? { ...item, app_feedback: votes.get(item.id) } : item
+      )
+    }
+  } catch {
+    // Keep the visible history if the next status check cannot reach the server.
+  } finally {
+    syncingHistory = false
+  }
+}
 
 async function loadAllData() {
   loading.value = true
@@ -867,6 +893,11 @@ const sourceTrendLines = computed(() => {
                 <div class="flex items-center gap-1.5">
                   <span class="w-1.5 h-1.5 rounded-full bg-morandi-sage"></span>
                   <span>{{ item.source_name }}</span>
+                  <span
+                    v-if="item.app_feedback"
+                    class="rounded-md px-1.5 py-0.5 text-[10px] font-medium"
+                    :class="item.app_feedback > 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-orange-50 text-orange-700'"
+                  >{{ item.app_feedback > 0 ? 'App 点赞' : 'App 点踩' }}</span>
                 </div>
               </td>
 
