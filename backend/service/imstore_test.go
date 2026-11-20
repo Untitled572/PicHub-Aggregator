@@ -150,3 +150,34 @@ func TestDownloadAndStoreRemovesFileWhenMetadataInsertFails(t *testing.T) {
 		t.Fatalf("metadata failure left image files behind: %v", entries)
 	}
 }
+
+func TestCacheEvictionKeepsReadyImagesBeforeOrdinaryCache(t *testing.T) {
+	for _, byCount := range []bool{true, false} {
+		name := "disk limit"
+		if byCount {
+			name = "count limit"
+		}
+		t.Run(name, func(t *testing.T) {
+			st, images, _, server := newTestImageStore(t)
+			ready, err := images.DownloadAndStore(server.URL, server.URL, 1, "ready", nil, nil, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ordinary, err := images.DownloadAndStore(server.URL, server.URL, 2, "ordinary", nil, nil, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if byCount {
+				images.evictByCount(1, nil)
+			} else if !evictLRU(images.cacheDir, st, nil) {
+				t.Fatal("no file evicted")
+			}
+			if _, _, err := images.GetImage(ready.FileID); err != nil {
+				t.Fatalf("pool image evicted: %v", err)
+			}
+			if _, _, err := images.GetImage(ordinary.FileID); err == nil {
+				t.Fatal("ordinary image survived")
+			}
+		})
+	}
+}

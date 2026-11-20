@@ -147,24 +147,42 @@ func (p *DistributionPool) Size() int {
 	return len(p.items)
 }
 
-func (p *DistributionPool) Trim(target int, maxRounds int) {
+// Trim returns expired entries so their disk records can become ordinary cache.
+func (p *DistributionPool) Trim(target, maxRounds int, live map[string]bool) []*PoolEntry {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	keep := make([]*PoolEntry, 0, target)
+	keep := make([]*PoolEntry, 0, len(p.items))
+	var expired []*PoolEntry
 	for _, entry := range p.items {
+		if live != nil && !live[entry.FileID] {
+			continue
+		}
 		entry.RoundCount++
 		if entry.RoundCount >= maxRounds {
+			expired = append(expired, entry)
 			continue
 		}
 		keep = append(keep, entry)
 	}
 
 	for len(keep) > target {
+		expired = append(expired, keep[0])
 		keep = keep[1:]
 	}
 
 	p.items = keep
+	return expired
+}
+
+func (p *DistributionPool) SourceCounts() map[int64]int {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	counts := make(map[int64]int)
+	for _, entry := range p.items {
+		counts[entry.SourceID]++
+	}
+	return counts
 }
 
 func (p *DistributionPool) CategorySnapshot() map[string]int {

@@ -24,7 +24,9 @@ import (
 
 const (
 	// maxFetchPerTick 单轮池补充的最大拉取数, 防止突发打爆图源触发风控
-	maxFetchPerTick = 8
+	maxFetchPerTick             = 8
+	distributionTimeout         = 8 * time.Second
+	distributionDownloadTimeout = 4 * time.Second
 	// maxPoolPerSource 单源池条目封顶
 	maxPoolPerSource = 8
 	// minPoolPerSource 单源池条目下限
@@ -33,6 +35,7 @@ const (
 
 type Engine struct {
 	modeMu        sync.RWMutex
+	replenishMu   sync.Mutex
 	debugSourceID int64
 	debugState    atomic.Pointer[DebugSourceState]
 	debugSwitches atomic.Int32
@@ -131,10 +134,16 @@ func (e *Engine) RandomImageContext(ctx context.Context, category, format, orien
 	if e.debugSourceID != 0 {
 		return e.debugImage(ctx, category, format, orientation, clientUA)
 	}
-	return e.randomImage(category, format, orientation, clientUA)
+	return e.randomImage(ctx, category, format, orientation, clientUA)
 }
 
-func (e *Engine) randomImage(category string, format string, orientation string, clientUA string) (result *Result, code int, err error) {
+func (e *Engine) randomImage(parent context.Context, category, format, orientation, clientUA string) (result *Result, code int, err error) {
+	budget, stop := context.WithTimeout(parent, distributionTimeout)
+	defer stop()
+	if err := budget.Err(); err != nil {
+		return nil, 0, err
+	}
+
 	defer func() {
 		if result != nil && result.FileID != "" && result.SourceID > 0 && e.imageStore != nil {
 			e.imageStore.MoveToRoot(result.FileID, result.SourceID)
@@ -167,26 +176,32 @@ func (e *Engine) randomImage(category string, format string, orientation string,
 		var poolResult *Result
 		single := len(queryCats) == 1
 		hasExcl := hasExclusiveTag(tags, queryCats)
-		switch {
-		case orientation != "" && len(queryCats) > 0:
-			poolResult = e.distPool.PopMatching(func(entry *PoolEntry) bool {
-				return matchRequestCategories(entry.Categories, queryCats, tags, single, hasExcl) &&
-					entry.Orientation == orientation
-			})
-		case orientation != "":
-			poolResult = e.distPool.PopByOrientation(orientation, exclSet)
-		case len(queryCats) > 0:
-			poolResult = e.distPool.PopMatching(func(entry *PoolEntry) bool {
-				return matchRequestCategories(entry.Categories, queryCats, tags, single, hasExcl)
-			})
-		default:
-			poolResult = e.distPool.PopAny(exclSet)
-		}
+		for {
+			switch {
+			case orientation != "" && len(queryCats) > 0:
+				poolResult = e.distPool.PopMatching(func(entry *PoolEntry) bool {
+					return matchRequestCategories(entry.Categories, queryCats, tags, single, hasExcl) &&
+						entry.Orientation == orientation
+				})
+			case orientation != "":
+				poolResult = e.distPool.PopByOrientation(orientation, exclSet)
+			case len(queryCats) > 0:
+				poolResult = e.distPool.PopMatching(func(entry *PoolEntry) bool {
+					return matchRequestCategories(entry.Categories, queryCats, tags, single, hasExcl)
+				})
+			default:
+				poolResult = e.distPool.PopAny(exclSet)
+			}
 
-		if poolResult != nil && e.imageStore != nil {
-			if _, _, err := e.imageStore.GetImage(poolResult.FileID); err != nil {
-				logger.System("pool entry %s no longer exists on disk, skip", poolResult.FileID)
-				poolResult = nil
+			if poolResult == nil || e.imageStore == nil {
+				break
+			}
+			if _, _, err := e.imageStore.GetImage(poolResult.FileID); err == nil {
+				break
+			}
+			logger.System("pool entry %s no longer exists on disk, skip", poolResult.FileID)
+			if err := budget.Err(); err != nil {
+				return nil, 0, err
 			}
 		}
 
@@ -209,6 +224,9 @@ func (e *Engine) randomImage(category string, format string, orientation string,
 		}
 	}
 
+	if e.demandTracker != nil {
+		e.demandTracker.RecordRequest(queryCats, false)
+	}
 	sources, err := e.store.ListSources()
 	if err != nil {
 		return nil, 0, fmt.Errorf("list sources: %w", err)
@@ -227,10 +245,13 @@ func (e *Engine) randomImage(category string, format string, orientation string,
 	}
 
 	for attempt := 0; attempt < maxAttempts && len(candidates) > 0; attempt++ {
+		if err := budget.Err(); err != nil {
+			return nil, 0, err
+		}
 		selected := weightedPick(candidates)
 		checkOrientation := requestOrientation(selected, queryCats, orientation, explicitOrientation)
 
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		ctx, cancel := context.WithTimeout(budget, timeout)
 		req, err := e.newFetchRequest(ctx, selected, clientUA)
 		if err != nil {
 			cancel()
@@ -241,6 +262,9 @@ func (e *Engine) randomImage(category string, format string, orientation string,
 		resp, err := e.httpClient.Do(req)
 		if err != nil {
 			cancel()
+			if budget.Err() != nil {
+				return nil, 0, budget.Err()
+			}
 			logger.Error("source %q fetch failed: %v", selected.Name, err)
 			if e.monitor != nil {
 				e.monitor.Emit(selected.ID, false)
@@ -280,8 +304,13 @@ func (e *Engine) randomImage(category string, format string, orientation string,
 		origURL := imageURL
 
 		if e.imageStore != nil && settings.ProxyMode {
-			cached, cacheErr := e.imageStore.DownloadAndStore(origURL, selected.URL, selected.ID, selected.Name, queryCats, selected.Headers, false)
+			downloadCtx, cancelDownload := context.WithTimeout(budget, distributionDownloadTimeout)
+			cached, cacheErr := e.imageStore.downloadAndStore(downloadCtx, origURL, selected.URL, selected.ID, selected.Name, queryCats, selected.Headers, false)
+			cancelDownload()
 			if cacheErr != nil {
+				if budget.Err() != nil {
+					return nil, 0, budget.Err()
+				}
 				logger.Error("cache download failed for %s: %v", selected.Name, cacheErr)
 				if e.monitor != nil {
 					e.monitor.Emit(selected.ID, false)
@@ -302,14 +331,14 @@ func (e *Engine) randomImage(category string, format string, orientation string,
 
 			imageURL = "/images/" + cached.FileID
 		} else if e.proxyCache != nil && settings.ProxyMode {
-			_, _, proxyErr := e.proxyCache.GetOrFetch(imageURL)
+			_, _, proxyErr := e.proxyCache.getOrFetch(budget, imageURL)
 			if proxyErr != nil {
 				hasFailed = true
 			}
 		}
 
 		if cachedInfo == nil && hasCategory(queryCats, "adaptive") && checkOrientation != "" && !hasDirectionTag(selected.Categories) {
-			if err := checkRemoteOrientation(selected, imageURL, checkOrientation, clientUA, timeout, e.httpClient); err != nil {
+			if err := checkRemoteOrientationContext(budget, selected, imageURL, checkOrientation, clientUA, timeout, e.httpClient); err != nil {
 				logger.System("adaptive image rejected for %s: %v", selected.Name, err)
 				candidates = removeSource(candidates, selected.ID)
 				continue
@@ -327,7 +356,6 @@ func (e *Engine) randomImage(category string, format string, orientation string,
 			imgID = &cachedInfo.ID
 			fileID = cachedInfo.FileID
 		}
-		e.demandTracker.RecordRequest(queryCats, cachedInfo != nil)
 		e.sourceDemand.RecordSelection(selected.ID)
 		ref := e.recordDistribution(queryCats, selected, imageURL, imgID, fileID, format)
 
@@ -354,6 +382,9 @@ func (e *Engine) randomImage(category string, format string, orientation string,
 		return res, http.StatusFound, nil
 	}
 
+	if err := budget.Err(); err != nil {
+		return nil, 0, err
+	}
 	return nil, 0, fmt.Errorf("all sources failed")
 }
 
@@ -826,6 +857,10 @@ func (e *Engine) recordCacheHealth(result HealthResult) {
 }
 
 func (e *Engine) replenishPool() {
+	if !e.replenishMu.TryLock() {
+		return
+	}
+	defer e.replenishMu.Unlock()
 	e.modeMu.RLock()
 	if e.debugSourceID != 0 {
 		e.modeMu.RUnlock()
@@ -838,8 +873,16 @@ func (e *Engine) replenishPool() {
 	}
 
 	// 淘汰超轮次项
-	maxRounds := settings.PoolSize - 1
-	e.distPool.Trim(settings.PoolSize, maxRounds)
+	maxRounds := max(1, settings.PoolSize-1)
+	live, err := e.store.GetPooledFileIDSet()
+	if err != nil {
+		live = nil
+	}
+	for _, entry := range e.distPool.Trim(settings.PoolSize, maxRounds, live) {
+		if err := e.store.SetImagePooled(entry.ImageID, false); err != nil {
+			logger.Error("clear expired pool entry %s: %v", entry.FileID, err)
+		}
+	}
 	e.modeMu.RUnlock()
 
 	currentSize := e.distPool.Size()
@@ -847,14 +890,7 @@ func (e *Engine) replenishPool() {
 		return
 	}
 
-	// 各源磁盘缓存文件数 (池占用) + 按热度/风控封顶计算出的单源额度
-	sourceCounts := make(map[int64]int)
-	if e.imageStore != nil {
-		sources, _ := e.store.ListSources()
-		for _, src := range sources {
-			sourceCounts[src.ID] = e.imageStore.CountSourceCachedFiles(src.ID)
-		}
-	}
+	sourceCounts := e.distPool.SourceCounts()
 	caps := e.sourceCaps(settings.PoolSize)
 
 	// 每 tick 拉取数上限, 防止突发打爆图源触发风控

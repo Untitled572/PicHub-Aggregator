@@ -2,6 +2,7 @@ package service
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
@@ -71,7 +72,11 @@ func generateFileID() string {
 }
 
 func (is *ImageStore) DownloadAndStore(imageURL, sourceURL string, sourceID int64, sourceName string, categories []string, headers map[string]string, pooled bool) (*CachedImageInfo, error) {
-	req, err := http.NewRequest("GET", imageURL, nil)
+	return is.downloadAndStore(context.Background(), imageURL, sourceURL, sourceID, sourceName, categories, headers, pooled)
+}
+
+func (is *ImageStore) downloadAndStore(ctx context.Context, imageURL, sourceURL string, sourceID int64, sourceName string, categories []string, headers map[string]string, pooled bool) (*CachedImageInfo, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, imageURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
@@ -129,6 +134,9 @@ func (is *ImageStore) DownloadAndStore(imageURL, sourceURL string, sourceID int6
 
 	is.mu.Lock()
 	defer is.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	tmpFile, err := os.CreateTemp(subDir, ".pichub-*.tmp")
 	if err != nil {
 		return nil, fmt.Errorf("create temporary image file: %w", err)
@@ -400,17 +408,17 @@ func evictLRU(dir string, st *store.Store, protected map[string]bool) bool {
 	if len(candidates) == 0 {
 		return false
 	}
-	// 优先淘汰池中未分发 (pooled=1) 的最旧文件, 再淘汰未保护的已分发文件
+	// 优先淘汰未保护的普通缓存，最后淘汰待分发图片
 	oldest := oldestFile(candidates)
 	if pooledSet != nil {
-		var pooled []string
+		var ordinary []string
 		for _, e := range candidates {
-			if pooledSet[fileIDFromPath(e)] {
-				pooled = append(pooled, e)
+			if !pooledSet[fileIDFromPath(e)] {
+				ordinary = append(ordinary, e)
 			}
 		}
-		if len(pooled) > 0 {
-			if p := oldestFile(pooled); p != "" {
+		if len(ordinary) > 0 {
+			if p := oldestFile(ordinary); p != "" {
 				oldest = p
 			}
 		}
@@ -454,7 +462,7 @@ func (is *ImageStore) evictByCount(maxImages int, protected map[string]bool) {
 		iPooled := pooledSet != nil && pooledSet[fileIDFromPath(infos[i].path)]
 		jPooled := pooledSet != nil && pooledSet[fileIDFromPath(infos[j].path)]
 		if iPooled != jPooled {
-			return iPooled
+			return !iPooled
 		}
 		return infos[i].mod.Before(infos[j].mod)
 	})

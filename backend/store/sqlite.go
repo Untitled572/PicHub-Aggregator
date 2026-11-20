@@ -172,7 +172,7 @@ func (s *Store) seedDefaults() error {
 		"cache_max_images":      "120",
 		"cache_ttl":             "0",
 		"precache_count":        "5",
-		"pool_size":             "20",
+		"pool_size":             "60",
 		"min_resolution":        "1920x1080",
 		"rate_limit":            "60",
 		"timeout":               "3000",
@@ -368,7 +368,7 @@ func (s *Store) GetSettings() (*model.Settings, error) {
 			}
 		case "pool_size":
 			if n, err := fmt.Sscanf(v, "%d", &settings.PoolSize); err != nil || n != 1 {
-				settings.PoolSize = 20
+				settings.PoolSize = 60
 			}
 		case "min_resolution":
 			settings.MinResolution = v
@@ -429,7 +429,7 @@ func (s *Store) GetSettings() (*model.Settings, error) {
 		settings.PrecacheCount = 5
 	}
 	if settings.PoolSize <= 0 {
-		settings.PoolSize = 20
+		settings.PoolSize = 60
 	}
 	if settings.RateLimitWindow <= 0 {
 		settings.RateLimitWindow = 60

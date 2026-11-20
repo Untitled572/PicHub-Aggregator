@@ -268,7 +268,7 @@ func TestPrefetchHealthFailureAndNoSampleCases(t *testing.T) {
 		hc := NewHealthChecker(st)
 		e := NewEngine(st, nil, nil, nil, nil, hc)
 		e.distPool.Push(&PoolEntry{FileID: "already-there", SourceID: 1, SourceName: "old pool"})
-		result, _, err := e.randomImage("", "json", "", "")
+		result, _, err := e.randomImage(context.Background(), "", "json", "", "")
 		if err != nil || result == nil || result.SourceName != "old pool" {
 			t.Fatalf("old pool hit failed: result=%+v err=%v", result, err)
 		}

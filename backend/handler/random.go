@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"context"
+	"errors"
 	"github.com/pichub/backend/common/ctxkey"
 	"github.com/pichub/backend/logger"
 	"net/http"
@@ -71,6 +73,10 @@ func (h *Handler) serveRandom(c *gin.Context, category string) {
 	result, statusCode, err := h.engine.RandomImageContext(c.Request.Context(), category, format, orientation, clientUA)
 	if err != nil {
 		logger.Error("[%s] distribution failed: %v", c.GetString(string(ctxkey.RequestID)), err)
+		if errors.Is(err, context.DeadlineExceeded) {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "上游取图超时", "code": "distribution_timeout"})
+			return
+		}
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		return
 	}

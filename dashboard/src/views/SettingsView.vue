@@ -47,7 +47,7 @@ const settings = ref<Settings>({
   cache_max_images: 120,
   cache_ttl: 0,
   min_resolution: '1920x1080',
-  pool_size: 10,
+  pool_size: 60,
   rate_limit: 60,
   rate_limit_window: 60,
   timeout: 3000,
@@ -78,7 +78,7 @@ onMounted(async () => {
     const s = await getSettings()
     if (s.cache_ttl === undefined || s.cache_ttl === null) s.cache_ttl = 0
     if (!s.min_resolution) s.min_resolution = '1920x1080'
-    if (s.pool_size === undefined || s.pool_size === null) s.pool_size = 10
+    if (s.pool_size === undefined || s.pool_size === null) s.pool_size = 60
     if (!s.saved_images_dir) s.saved_images_dir = './data/saved'
     if (s.proxy_url === undefined || s.proxy_url === null) s.proxy_url = 'http://127.0.0.1:7890'
     if (!s.session_hours) s.session_hours = 3
@@ -321,7 +321,7 @@ async function handleSave() {
             <HardDrive class="w-3.5 h-3.5 text-morandi-light" /> 最大磁盘缓存容量 (MB)
           </label>
           <input v-model.number="settings.cache_max_mb" type="number" class="morandi-input w-full px-3 py-2 font-mono text-xs" />
-          <p class="text-[10px] text-morandi-muted mt-1">超出限制后自动淘汰最老缓存文件</p>
+          <p class="text-[10px] text-morandi-muted mt-1">超出限制时，优先清理普通缓存中的旧图</p>
         </div>
 
         <div>
@@ -329,7 +329,13 @@ async function handleSave() {
             <Cpu class="w-3.5 h-3.5 text-morandi-light" /> 缓存图片数量上限 (张)
           </label>
           <input v-model.number="settings.cache_max_images" type="number" class="morandi-input w-full px-3 py-2 font-mono text-xs" />
-          <p class="text-[10px] text-morandi-muted mt-1">临界限制，超出时自动清理最早图片 (0 不限制)</p>
+          <p class="text-[10px] text-morandi-muted mt-1">超出限制时，优先清理普通缓存中的旧图 (0 不限制)</p>
+        </div>
+
+        <div>
+          <label for="pool-size" class="font-medium text-morandi-text block mb-1.5">预取池目标 (张)</label>
+          <input id="pool-size" v-model.number="settings.pool_size" type="number" min="1" step="1" class="morandi-input w-full px-3 py-2 font-mono text-xs" />
+          <p class="text-[10px] text-morandi-muted mt-1">代理模式会提前准备这些图片。预取池与近期图片共用磁盘缓存额度。</p>
         </div>
 
         <div>

@@ -127,7 +127,7 @@ Checks enabled sources by requesting the main URL and each deduplicated paramete
   "proxy_mode": false,
   "proxy_enabled": false,
   "proxy_url": "http://127.0.0.1:7890",
-  "pool_size": 10,
+  "pool_size": 60,
   "cache_max_mb": 200,
   "cache_max_images": 60,
   "cache_ttl": 60,

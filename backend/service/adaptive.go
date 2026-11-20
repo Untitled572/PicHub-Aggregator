@@ -73,7 +73,11 @@ func requestOrientation(src model.Source, cats []string, orientation string, exp
 
 // Non-proxy requests still need size validation for sources without direction tags.
 func checkRemoteOrientation(src model.Source, target, orientation, ua string, timeout time.Duration, client *http.Client) error {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	return checkRemoteOrientationContext(context.Background(), src, target, orientation, ua, timeout, client)
+}
+
+func checkRemoteOrientationContext(parent context.Context, src model.Source, target, orientation, ua string, timeout time.Duration, client *http.Client) error {
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {

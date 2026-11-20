@@ -53,7 +53,7 @@ type CacheEntry struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-func (pc *ProxyCache) GetOrFetch(imageURL string) ([]byte, string, error) {
+func (pc *ProxyCache) getOrFetch(parent context.Context, imageURL string) ([]byte, string, error) {
 	settings, err := pc.store.GetSettings()
 	if err != nil {
 		return nil, "", fmt.Errorf("get settings: %w", err)
@@ -69,7 +69,7 @@ func (pc *ProxyCache) GetOrFetch(imageURL string) ([]byte, string, error) {
 		return data, http.DetectContentType(data), nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(settings.Timeout)*time.Millisecond)
+	ctx, cancel := context.WithTimeout(parent, time.Duration(settings.Timeout)*time.Millisecond)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, "GET", imageURL, nil)
 	if err != nil {
