@@ -194,6 +194,10 @@ export function useApi() {
     return request<HealthResult[]>('/api/sources/health-check', { method: 'POST' })
   }
 
+  function healthCheckSource(id: number) {
+    return request<HealthResult>(`/api/sources/${id}/health-check`, { method: 'POST' })
+  }
+
   function exportRules() {
     return request<ExportData>('/api/export', { method: 'POST' })
   }
@@ -267,7 +271,7 @@ export function useApi() {
     getSourceDebug, enableSourceDebug, disableSourceDebug,
     getSettings, updateSettings, getTags, updateTags,
     listEndpoints, createEndpoint, updateEndpoint, deleteEndpoint, toggleEndpoint,
-    detectURL, healthCheck, getHealthStatus,
+    detectURL, healthCheck, healthCheckSource, getHealthStatus,
     exportRules, importRules, exportCustomData, importCustomData,
     getStats, getImageHistory,
     saveImage, unsaveImage, likeImage, dislikeImage, listSavedImages,

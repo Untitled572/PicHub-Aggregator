@@ -4,7 +4,7 @@ import { useHealthCheck } from '../composables/useHealthCheck'
 import HealthStatusBadge from '../components/HealthStatusBadge.vue'
 import { Activity, RefreshCw, CheckCircle2, AlertTriangle, Clock, Layers } from 'lucide-vue-next'
 
-const { results, lastRun, running, error, summary, loadCached, runCheck } = useHealthCheck()
+const { results, lastRun, running, error, summary, loadCached, runCheck, checkingIds, rowErrors, runSourceCheck } = useHealthCheck()
 
 onMounted(async () => {
   await loadCached()
@@ -25,7 +25,7 @@ onMounted(async () => {
 
       <button
         @click="runCheck"
-        :disabled="running"
+        :disabled="running || checkingIds.size > 0"
         class="w-full sm:w-auto px-4 py-2 text-xs font-semibold bg-white hover:bg-morandi-hover text-morandi-text rounded-xl border border-morandi-borderSoft shadow-xs flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50 shrink-0 whitespace-nowrap"
       >
         <RefreshCw class="w-3.5 h-3.5 text-morandi-sage" :class="{ 'animate-spin': running }" />
@@ -86,13 +86,14 @@ onMounted(async () => {
 
     <!-- Health Results Table / Cards -->
     <div class="morandi-card overflow-x-auto">
-      <div class="min-w-[640px]">
+      <div class="min-w-[760px]">
         <div class="p-4 border-b border-morandi-border/60 bg-morandi-bg/40 font-medium text-xs text-morandi-muted grid grid-cols-12 gap-2">
           <div class="col-span-3">图源名称</div>
-          <div class="col-span-4">检测地址</div>
+          <div class="col-span-3">检测地址</div>
           <div class="col-span-2">检测结果</div>
           <div class="col-span-1 text-right">HTTP 状态</div>
-          <div class="col-span-2 text-right">响应延迟</div>
+          <div class="col-span-1 text-right">响应延迟</div>
+          <div class="col-span-2 text-right">操作</div>
         </div>
 
         <div v-if="results.length > 0" class="divide-y divide-morandi-border/40">
@@ -102,16 +103,30 @@ onMounted(async () => {
             class="p-4 grid grid-cols-12 gap-2 text-xs items-center hover:bg-morandi-bg/50 transition-colors"
           >
             <div class="col-span-3 font-semibold text-morandi-text truncate">{{ r.name }}<span class="block text-[10px] font-normal text-morandi-muted">{{ r.origin === 'cache' ? '缓存入池' : '主动检测' }}</span></div>
-            <div class="col-span-4 text-morandi-muted font-mono truncate text-[11px]">{{ r.url }}</div>
+            <div class="col-span-3 text-morandi-muted font-mono truncate text-[11px]">{{ r.url }}</div>
             <div class="col-span-2">
               <HealthStatusBadge :available="r.available" :detail="r.error" :origin="r.origin" />
             </div>
             <div class="col-span-1 text-right font-mono text-morandi-text font-medium">
               {{ r.status_code || '-' }}
             </div>
-            <div class="col-span-2 text-right font-mono text-morandi-text font-bold">
+            <div class="col-span-1 text-right font-mono text-morandi-text font-bold">
               {{ r.latency_ms }} <span class="text-[10px] font-normal text-morandi-muted">ms</span>
             </div>
+            <div class="col-span-2 flex justify-end">
+              <button
+                @click="runSourceCheck(r.id)"
+                :disabled="running || checkingIds.has(r.id)"
+                :aria-label="`检测图源：${r.name}`"
+                :aria-busy="checkingIds.has(r.id)"
+                title="只检测此图源的主地址和分支"
+                class="inline-flex items-center gap-1.5 rounded-lg border border-morandi-borderSoft px-2.5 py-1.5 text-morandi-text hover:bg-morandi-hover disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+              >
+                <RefreshCw class="w-3 h-3" :class="{ 'animate-spin': checkingIds.has(r.id) }" />
+                {{ checkingIds.has(r.id) ? '检测中…' : '检测' }}
+              </button>
+            </div>
+            <p v-if="rowErrors[r.id]" role="alert" class="col-span-12 text-rose-700 break-words mt-1">{{ rowErrors[r.id] }}</p>
             <p v-if="r.error" class="col-span-12 text-amber-700 break-words mt-1">{{ r.error }}</p>
             <p v-if="r.checked_endpoints && r.checked_endpoints > 1" class="col-span-12 text-morandi-muted">通过 {{ r.available_endpoints }} / {{ r.checked_endpoints }} 个地址</p>
           </div>

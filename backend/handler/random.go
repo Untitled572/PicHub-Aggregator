@@ -4,6 +4,7 @@ import (
 	"github.com/pichub/backend/common/ctxkey"
 	"github.com/pichub/backend/logger"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -148,6 +149,36 @@ func (h *Handler) BatchHealthCheck(c *gin.Context) {
 	checker := service.NewHealthChecker(h.store)
 	results := checker.CheckAll()
 	c.JSON(http.StatusOK, results)
+}
+
+// SourceHealthCheck checks only the selected source, including its branches.
+// @Summary 单个图源健康检查
+// @Description 仅检测指定图源的主地址和配置分支，更新该图源结果
+// @Tags Health
+// @Produce json
+// @Param id path int true "图源 ID"
+// @Success 200 {object} service.HealthResult
+// @Failure 400 {object} map[string]interface{}
+// @Failure 404 {object} map[string]interface{}
+// @Failure 503 {object} map[string]interface{}
+// @Security BearerAuth
+// @Router /api/sources/{id}/health-check [post]
+func (h *Handler) SourceHealthCheck(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+	src, err := h.store.GetSource(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "source not found"})
+		return
+	}
+	if h.healthChecker == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "health checker not available"})
+		return
+	}
+	c.JSON(http.StatusOK, h.healthChecker.CheckOne(*src))
 }
 
 // GetHealthStatus GET /api/health 最近一次健康检查结果

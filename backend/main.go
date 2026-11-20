@@ -239,6 +239,7 @@ func registerManagementRoutes(r *gin.Engine, h *handler.Handler, st *store.Store
 		api.PUT("/sources/:id", h.UpdateSource)
 		api.DELETE("/sources/:id", h.DeleteSource)
 		api.POST("/sources/:id/toggle", h.ToggleSource)
+		api.POST("/sources/:id/health-check", h.SourceHealthCheck)
 		api.GET("/settings", h.GetSettings)
 		api.PUT("/settings", h.UpdateSettings)
 		api.GET("/tags", h.GetTags)

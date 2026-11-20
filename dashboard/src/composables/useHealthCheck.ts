@@ -12,7 +12,9 @@ export function useHealthCheck() {
   const lastRun = ref('')
   const running = ref(false)
   const error = ref('')
-  const { healthCheck: apiHealthCheck, getHealthStatus } = useApi()
+  const checkingIds = ref(new Set<number>())
+  const rowErrors = ref<Record<number, string>>({})
+  const { healthCheck: apiHealthCheck, healthCheckSource, getHealthStatus } = useApi()
 
   const summary = computed(() => {
     const total = results.value.length
@@ -35,9 +37,10 @@ export function useHealthCheck() {
   }
 
   async function runCheck() {
-    if (running.value) return
+    if (running.value || checkingIds.value.size > 0) return
     running.value = true
     error.value = ''
+    rowErrors.value = {}
     try {
       results.value = await apiHealthCheck()
       lastRun.value = new Date().toISOString()
@@ -48,5 +51,22 @@ export function useHealthCheck() {
     }
   }
 
-  return { results, lastRun, running, error, summary, loadCached, runCheck }
+  async function runSourceCheck(id: number) {
+    if (running.value || checkingIds.value.has(id)) return
+    checkingIds.value.add(id)
+    delete rowErrors.value[id]
+    try {
+      const result = await healthCheckSource(id)
+      const index = results.value.findIndex(r => r.id === id)
+      if (index >= 0) results.value[index] = result
+      else results.value.push(result)
+      if (result.checked_at && (!lastRun.value || new Date(result.checked_at).getTime() > new Date(lastRun.value).getTime())) lastRun.value = result.checked_at
+    } catch (e) {
+      rowErrors.value[id] = e instanceof Error ? e.message : '检测请求失败，请稍后重试。'
+    } finally {
+      checkingIds.value.delete(id)
+    }
+  }
+
+  return { results, lastRun, running, error, summary, loadCached, runCheck, checkingIds, rowErrors, runSourceCheck }
 }

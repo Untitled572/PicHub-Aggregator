@@ -17,14 +17,15 @@ import (
 )
 
 type HealthChecker struct {
-	store      *store.Store
-	client     *http.Client
-	mu         sync.Mutex
-	ticker     *time.Ticker
-	quit       chan struct{}
-	inFlight   chan struct{}
-	lastResult []HealthResult
-	lastRunAt  time.Time
+	store       *store.Store
+	client      *http.Client
+	mu          sync.Mutex
+	ticker      *time.Ticker
+	quit        chan struct{}
+	inFlight    chan struct{}
+	lastResult  []HealthResult
+	lastRunAt   time.Time
+	lastProbeAt time.Time
 }
 
 type HealthResult struct {
@@ -120,11 +121,10 @@ func (hc *HealthChecker) CheckAll() []HealthResult {
 	close(jobs)
 	workers.Wait()
 	hc.mu.Lock()
-	// A pool download can finish while this run is probing. Keep that newer
-	// cache event for its source instead of replacing it with an older probe.
+	// Preserve newer pool feedback or individual checks completed during this run.
 	for i := range results {
 		for _, previous := range hc.lastResult {
-			if previous.ID == results[i].ID && previous.Origin == "cache" && previous.CheckedAt.After(results[i].CheckedAt) {
+			if previous.ID == results[i].ID && previous.CheckedAt.After(results[i].CheckedAt) {
 				results[i] = previous
 				break
 			}
@@ -145,7 +145,7 @@ func (hc *HealthChecker) CheckAll() []HealthResult {
 			results = append(results, previous)
 		}
 	}
-	hc.lastResult = results
+	hc.lastResult = append([]HealthResult{}, results...)
 	hc.lastRunAt = time.Now()
 	hc.mu.Unlock()
 	available := 0
@@ -156,6 +156,31 @@ func (hc *HealthChecker) CheckAll() []HealthResult {
 	}
 	logger.System("health check: %d/%d enabled sources passed", available, len(results))
 	return results
+}
+
+// CheckOne probes only this source and merges its result without clearing other rows.
+func (hc *HealthChecker) CheckOne(src model.Source) HealthResult {
+	result := hc.checkSource(src)
+	hc.mu.Lock()
+	defer hc.mu.Unlock()
+	for i, previous := range hc.lastResult {
+		if previous.ID != result.ID {
+			continue
+		}
+		if previous.CheckedAt.After(result.CheckedAt) {
+			return previous
+		}
+		hc.lastResult[i] = result
+		if result.CheckedAt.After(hc.lastRunAt) {
+			hc.lastRunAt = result.CheckedAt
+		}
+		return result
+	}
+	hc.lastResult = append(hc.lastResult, result)
+	if result.CheckedAt.After(hc.lastRunAt) {
+		hc.lastRunAt = result.CheckedAt
+	}
+	return result
 }
 
 // RecordCacheResult publishes a passive prefetch result to the health API.
@@ -219,7 +244,15 @@ func healthTargets(src model.Source) []string {
 }
 
 func (hc *HealthChecker) checkSource(src model.Source) HealthResult {
-	result := HealthResult{ID: src.ID, Name: src.Name, URL: src.URL, CheckedAt: time.Now()}
+	// Keep probe start times ordered even when the system clock has coarse resolution.
+	hc.mu.Lock()
+	checkedAt := time.Now()
+	if !checkedAt.After(hc.lastProbeAt) {
+		checkedAt = hc.lastProbeAt.Add(time.Nanosecond)
+	}
+	hc.lastProbeAt = checkedAt
+	hc.mu.Unlock()
+	result := HealthResult{ID: src.ID, Name: src.Name, URL: src.URL, CheckedAt: checkedAt}
 	var failures []string
 	for _, target := range healthTargets(src) {
 		probe := hc.checkEndpoint(src, target)
@@ -250,7 +283,7 @@ func (hc *HealthChecker) checkSource(src model.Source) HealthResult {
 	hc.mu.Lock()
 	defer hc.mu.Unlock()
 	for _, cached := range hc.lastResult {
-		if cached.ID == src.ID && cached.Origin == "cache" && cached.CheckedAt.After(result.CheckedAt) {
+		if cached.ID == src.ID && cached.CheckedAt.After(result.CheckedAt) {
 			return cached
 		}
 	}

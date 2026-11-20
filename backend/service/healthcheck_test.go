@@ -330,3 +330,35 @@ func TestDisabledPeriodicHealthKeepsStartupCheck(t *testing.T) {
 	positive.CheckAll()
 	hc.CheckAll()
 }
+
+func TestSingleHealthCheckSurvivesOlderBatch(t *testing.T) {
+	st := healthTestStore(t)
+	entered, release := make(chan struct{}), make(chan struct{})
+	var calls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			close(entered)
+			<-release
+			w.WriteHeader(500)
+			return
+		}
+		w.Header().Set("Content-Type", "image/png")
+	}))
+	defer upstream.Close()
+	src := addHealthSource(t, st, model.Source{Name: "selected", URL: upstream.URL, Enabled: true})
+	hc := NewHealthChecker(st)
+	defer hc.Stop()
+	batch := make(chan []HealthResult, 1)
+	go func() { batch <- hc.CheckAll() }()
+	<-entered
+	single := hc.CheckOne(src)
+	close(release)
+	results := <-batch
+	if !single.Available || len(results) != 1 || !results[0].Available || !results[0].CheckedAt.Equal(single.CheckedAt) {
+		t.Fatalf("single=%+v batch=%+v", single, results)
+	}
+	saved, _ := st.GetSource(src.ID)
+	if saved.FailCount != 0 {
+		t.Fatalf("older check overwrote health fields: %+v", saved)
+	}
+}

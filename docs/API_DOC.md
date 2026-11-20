@@ -110,6 +110,10 @@ POST /api/sources/health-check
 
 Checks enabled sources by requesting the main URL and each deduplicated parameter variant with the same default parameters, headers, and proxy settings used for distribution. A source passes when at least one address returns an image response or a valid HTTP/HTTPS image URL in a redirect, JSON field, or text response. Results include the number of passing requests and failure reasons. The request timeout uses the configured `timeout` setting. A pass does not guarantee that a later image download will succeed; a failed request means only that this check failed.
 
+### 单个图源手动检测
+
+`POST /api/sources/{id}/health-check`（需要管理权限）只检测指定图源的主地址和配置分支，返回一个 `HealthResult`，并更新该图源的健康结果。不会触发其他图源检测，也不会清空其他图源已有结果。健康检测页每行的“检测”按钮调用此接口。
+
 ## Settings
 
 | Method | Path | Description |
