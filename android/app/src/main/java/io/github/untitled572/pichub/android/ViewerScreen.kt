@@ -3,10 +3,8 @@ package io.github.untitled572.pichub.android
 import android.text.format.Formatter
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.snap
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -59,6 +57,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -70,6 +69,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -87,6 +87,8 @@ import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import java.util.Locale
 import kotlin.math.abs
 
@@ -110,15 +112,29 @@ internal fun ViewerScreen(model: ViewerModel) {
     var dragProgress by remember { mutableStateOf<Float?>(null) }
     val picture = model.picture
     val toolsVisible = expanded || picture == null
-    val showTools = { expanded = true }
-    val hideTools = { expanded = false }
-    val reveal = animateFloatAsState(
-        targetValue = dragProgress ?: if (toolsVisible) 1f else 0f,
-        animationSpec = if (dragProgress != null) snap() else tween(290, easing = FastOutSlowInEasing),
-        label = "viewer panel"
-    )
-    val settledOpen by remember { derivedStateOf { reveal.value >= 0.98f } }
-    val panelVisible by remember { derivedStateOf { reveal.value > 0.08f } }
+    val animation = remember { Animatable(if (expanded) 1f else 0f).apply { updateBounds(0f, 1f) } }
+    val scope = rememberCoroutineScope()
+    var settling by remember { mutableStateOf<Job?>(null) }
+
+    fun settle(open: Boolean, velocity: Float = 0f) {
+        expanded = open
+        settling?.cancel()
+        settling = scope.launch {
+            dragProgress?.let { animation.snapTo(it) }
+            dragProgress = null
+            animation.animateTo(
+                if (open) 1f else 0f,
+                animationSpec = spring(dampingRatio = 1f, stiffness = 500f),
+                initialVelocity = velocity
+            )
+        }
+    }
+
+    val showTools = { settle(true) }
+    val hideTools = { settle(false) }
+    val reveal = { if (model.picture == null) 1f else dragProgress ?: animation.value }
+    val settledOpen by remember { derivedStateOf { reveal() >= 0.98f } }
+    val panelVisible by remember { derivedStateOf { reveal() > 0.08f } }
     BackHandler(enabled = !toolsVisible, onBack = showTools)
 
     MaterialTheme(colorScheme = viewerColors) {
@@ -160,9 +176,12 @@ internal fun ViewerScreen(model: ViewerModel) {
                 Modifier.fillMaxSize().viewerSwipes(
                     landscape = landscape,
                     canDragPanel = picture != null,
-                    currentReveal = { reveal.value },
-                    dragPanel = { dragProgress = it },
-                    setPanel = { expanded = it },
+                    currentReveal = reveal,
+                    dragPanel = {
+                        settling?.cancel()
+                        dragProgress = it
+                    },
+                    settlePanel = { open, velocity -> settle(open ?: expanded, velocity) },
                     next = model::nextPicture,
                     previous = model::previousPicture
                 )
@@ -171,7 +190,7 @@ internal fun ViewerScreen(model: ViewerModel) {
                     landscape = landscape,
                     hasDetails = model.viewerOptions.showDetails && picture != null,
                     stableInsets = stableInsets,
-                    reveal = { reveal.value },
+                    reveal = reveal,
                     image = { ImageStage(model, Modifier.fillMaxSize(), scale, toolsVisible, showTools) },
                     panel = { ViewerPanel(model, landscape, panelInsets.asPaddingValues()) },
                     modifier = Modifier.fillMaxSize()
@@ -328,36 +347,43 @@ private fun PictureInformation(picture: Picture, modifier: Modifier, landscape: 
     val categories = details.categories.filterNot { it == "__uncategorized__" }
     val source = details.source?.substringBefore(" › ") ?: "未提供"
     val branch = details.source?.substringAfter(" › ", "")?.takeIf { it.isNotBlank() } ?: "主地址"
-    val lineCount = if (landscape) 3 else 1
-    val tagLine = categories.takeIf { it.isNotEmpty() }?.joinToString(" · ", prefix = " · 标签 ").orEmpty()
+    val tags = categories.joinToString(" · ")
     Column(
         modifier.padding(start = if (landscape) 9.dp else 14.dp, end = if (landscape) 2.dp else 10.dp, top = 8.dp, bottom = 5.dp),
-        horizontalAlignment = if (landscape) Alignment.End else Alignment.Start,
+        horizontalAlignment = Alignment.Start,
         verticalArrangement = Arrangement.spacedBy(3.dp)
     ) {
         Text(
             "图源  $source",
             style = MaterialTheme.typography.labelLarge,
             maxLines = if (landscape) 2 else 1,
-            textAlign = if (landscape) TextAlign.End else TextAlign.Start,
             overflow = TextOverflow.Ellipsis
         )
-        DetailLine("$dimensions · $format · $size", lineCount, landscape)
         val response = "HTTP\u00A0${details.responseCode}"
         val duration = "${details.elapsedMillis}\u00A0ms"
-        DetailLine("${details.requestPath} · $response · $duration", lineCount, landscape)
-        DetailLine("分支: $branch$tagLine", lineCount, landscape)
+        if (landscape) {
+            DetailLine(dimensions, 1)
+            DetailLine("$format · $size", 1)
+            DetailLine(details.requestPath, 1)
+            DetailLine("$response · $duration", 1)
+            DetailLine("分支: $branch", 1)
+            DetailLine("标签: ${tags.ifEmpty { "无" }}", 1)
+        } else {
+            DetailLine("$dimensions · $format · $size", 1)
+            DetailLine("${details.requestPath} · $response · $duration", 1)
+            val tagSuffix = if (tags.isEmpty()) "" else " · 标签 $tags"
+            DetailLine("分支: $branch$tagSuffix", 1)
+        }
     }
 }
 
 @Composable
-private fun DetailLine(value: String, maxLines: Int, landscape: Boolean) {
+private fun DetailLine(value: String, maxLines: Int) {
     Text(
         value,
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         maxLines = maxLines,
-        textAlign = if (landscape) TextAlign.End else TextAlign.Start,
         overflow = TextOverflow.Ellipsis
     )
 }
@@ -418,14 +444,14 @@ private fun Modifier.viewerSwipes(
     landscape: Boolean,
     canDragPanel: Boolean,
     currentReveal: () -> Float,
-    dragPanel: (Float?) -> Unit,
-    setPanel: (Boolean) -> Unit,
+    dragPanel: (Float) -> Unit,
+    settlePanel: (Boolean?, Float) -> Unit,
     next: () -> Unit,
     previous: () -> Unit
 ): Modifier {
     val current by rememberUpdatedState(currentReveal)
     val dragging by rememberUpdatedState(dragPanel)
-    val finish by rememberUpdatedState(setPanel)
+    val finish by rememberUpdatedState(settlePanel)
     val goNext by rememberUpdatedState(next)
     val goBack by rememberUpdatedState(previous)
     return pointerInput(landscape, canDragPanel) {
@@ -435,28 +461,32 @@ private fun Modifier.viewerSwipes(
         var distance = Offset.Zero
         var start = 0f
         var vertical: Boolean? = null
+        val velocity = VelocityTracker()
         detectDragGestures(
             onDragStart = {
+                velocity.resetTracking()
                 distance = Offset.Zero
                 vertical = null
                 start = current()
             },
-            onDrag = { _, amount ->
+            onDrag = { change, amount ->
                 distance += amount
                 if (vertical == null && distance != Offset.Zero) vertical = abs(distance.y) > abs(distance.x)
                 if (vertical == true && canDragPanel) {
+                    velocity.addPosition(change.uptimeMillis, change.position)
                     dragging((start + direction * distance.y / travel).coerceIn(0f, 1f))
                 }
             },
-            onDragCancel = { dragging(null) },
+            onDragCancel = { if (vertical == true && canDragPanel) finish(null, 0f) },
             onDragEnd = {
-                if (vertical == true && canDragPanel && abs(distance.y) > threshold) {
-                    finish(direction * distance.y > 0f)
+                if (vertical == true && canDragPanel) {
+                    val opening = if (abs(distance.y) > threshold) direction * distance.y > 0f else null
+                    val speed = (direction * velocity.calculateVelocity().y / travel).coerceIn(-5f, 5f)
+                    finish(opening, speed)
                 } else if (vertical == false) {
                     if (distance.x < -threshold) goNext()
                     else if (distance.x > threshold) goBack()
                 }
-                dragging(null)
             }
         )
     }

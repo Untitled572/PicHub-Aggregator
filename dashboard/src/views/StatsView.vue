@@ -354,6 +354,13 @@ async function toggleSaveImage(item: ImageHistoryRecord) {
 
 
 
+function historyVote(item: ImageHistoryRecord): 1 | -1 | undefined {
+  if (item.app_feedback) return item.app_feedback
+  const targetId = item.image_id || item.source_id
+  if (likedIds.value.has(targetId)) return 1
+  if (dislikedIds.value.has(targetId)) return -1
+}
+
 async function handleLike(item: ImageHistoryRecord) {
   const targetId = item.image_id || item.source_id
   if (!targetId || likingId.value === targetId) return
@@ -964,11 +971,6 @@ const sourceTrendLines = computed(() => {
                 <div class="flex items-center gap-1.5">
                   <span class="w-1.5 h-1.5 rounded-full bg-morandi-sage"></span>
                   <span>{{ item.source_name }}</span>
-                  <span
-                    v-if="item.app_feedback"
-                    class="rounded-md px-1.5 py-0.5 text-[10px] font-medium"
-                    :class="item.app_feedback > 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-orange-50 text-orange-700'"
-                  >{{ item.app_feedback > 0 ? 'App 点赞' : 'App 点踩' }}</span>
                 </div>
               </td>
 
@@ -1008,24 +1010,26 @@ const sourceTrendLines = computed(() => {
                   <button
                     v-if="item.source_id || item.image_id"
                     @click="handleLike(item)"
-                    :disabled="likingId === (item.image_id || item.source_id) || likedIds.has(item.image_id || item.source_id)"
-                    class="p-1.5 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
-                    :class="likedIds.has(item.image_id || item.source_id) ? 'text-emerald-600 bg-emerald-50 font-bold' : 'text-morandi-muted hover:text-emerald-600 hover:bg-emerald-50'"
-                    :title="likedIds.has(item.image_id || item.source_id) ? '已点赞 (图源权重 +1)' : '喜欢（图源权重 +1）'"
+                    :aria-pressed="historyVote(item) === 1"
+                    :disabled="likingId === (item.image_id || item.source_id) || historyVote(item) === 1 || likedIds.has(item.image_id || item.source_id)"
+                    class="p-1.5 rounded-lg transition-colors cursor-pointer disabled:cursor-default"
+                    :class="historyVote(item) === 1 ? 'text-emerald-600 bg-emerald-50 font-bold' : 'text-morandi-muted hover:text-emerald-600 hover:bg-emerald-50'"
+                    :title="historyVote(item) === 1 ? '已点赞 (图源权重 +1)' : '喜欢（图源权重 +1）'"
                   >
-                    <ThumbsUp class="w-3.5 h-3.5" :class="{ 'fill-emerald-600': likedIds.has(item.image_id || item.source_id) }" />
+                    <ThumbsUp class="w-3.5 h-3.5" :class="{ 'fill-emerald-600': historyVote(item) === 1 }" />
                   </button>
 
                   <!-- Dislike / Decrease Weight Button (-1) -->
                   <button
                     v-if="item.source_id || item.image_id"
                     @click="handleDislike(item)"
-                    :disabled="dislikingId === (item.image_id || item.source_id) || dislikedIds.has(item.image_id || item.source_id)"
-                    class="p-1.5 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
-                    :class="dislikedIds.has(item.image_id || item.source_id) ? 'text-orange-500 bg-orange-50 font-bold' : 'text-morandi-muted hover:text-orange-500 hover:bg-orange-50'"
-                    :title="dislikedIds.has(item.image_id || item.source_id) ? '已点不喜欢 (图源权重 -1)' : '不喜欢（图源权重 -1）'"
+                    :aria-pressed="historyVote(item) === -1"
+                    :disabled="dislikingId === (item.image_id || item.source_id) || historyVote(item) === -1 || dislikedIds.has(item.image_id || item.source_id)"
+                    class="p-1.5 rounded-lg transition-colors cursor-pointer disabled:cursor-default"
+                    :class="historyVote(item) === -1 ? 'text-orange-500 bg-orange-50 font-bold' : 'text-morandi-muted hover:text-orange-500 hover:bg-orange-50'"
+                    :title="historyVote(item) === -1 ? '已点不喜欢 (图源权重 -1)' : '不喜欢（图源权重 -1）'"
                   >
-                    <ThumbsDown class="w-3.5 h-3.5" :class="{ 'fill-orange-500': dislikedIds.has(item.image_id || item.source_id) }" />
+                    <ThumbsDown class="w-3.5 h-3.5" :class="{ 'fill-orange-500': historyVote(item) === -1 }" />
                   </button>
 
 
