@@ -169,15 +169,15 @@ func (h *Handler) DeleteSource(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 		return
 	}
-	if h.imageStore != nil {
-		go h.imageStore.DeleteSourceFolder(id)
+	if err := h.store.DeleteSource(id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
 	}
 	if h.engine != nil {
 		h.engine.RemoveSourceFromPool(id)
 	}
-	if err := h.store.DeleteSource(id); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+	if h.imageStore != nil {
+		go h.imageStore.DeleteSourceFolder(id)
 	}
 	c.JSON(http.StatusNoContent, nil)
 }

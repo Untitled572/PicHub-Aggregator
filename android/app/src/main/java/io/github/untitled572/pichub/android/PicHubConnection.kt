@@ -22,9 +22,14 @@ internal class PicHubConnection private constructor(
         .apply { if (tags.isNotEmpty()) addQueryParameter("category", tags.joinToString(",")) }
         .build().toString()
 
-    fun nextImage(direction: PictureDirection): HttpUrl = distributionUrl.newBuilder()
+    fun pictureDirection(screen: PictureDirection): PictureDirection? =
+        if (tags.isEmpty() || tags == listOf("adaptive")) screen
+        else PictureDirection.entries.singleOrNull { it.parameter in tags }
+
+    fun nextImage(direction: PictureDirection?): HttpUrl = distributionUrl.newBuilder()
         .setQueryParameter("format", "json")
-        .setQueryParameter("orientation", direction.parameter)
+        .removeAllQueryParameters("orientation")
+        .apply { if (direction != null) addQueryParameter("orientation", direction.parameter) }
         .build()
 
     fun api(vararg segments: String): HttpUrl = baseUrl.newBuilder()

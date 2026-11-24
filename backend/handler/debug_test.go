@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"github.com/gin-gonic/gin"
 	"github.com/pichub/backend/model"
@@ -56,6 +57,36 @@ func TestDebugHTTPModeAndMemoryImage(t *testing.T) {
 			t.Fatalf("%s: %d %s", path, res.Code, res.Body)
 		}
 	}
+	path := "/random?category=test&orientation=horizontal&format=json"
+	res = httptest.NewRecorder()
+	r.ServeHTTP(res, httptest.NewRequest("GET", path, nil))
+	if res.Code != 200 || !json.Valid(res.Body.Bytes()) {
+		t.Fatalf("ordinary debug JSON response changed: %d", res.Code)
+	}
+
+	req := httptest.NewRequest("GET", path, nil)
+	req.Header.Set("X-PicHub-Debug-Image", "true")
+	res = httptest.NewRecorder()
+	r.ServeHTTP(res, req)
+	if res.Code != 200 || res.Header().Get("X-PicHub-Debug") != "true" || !bytes.Equal(res.Body.Bytes(), data.Bytes()) {
+		t.Fatalf("app debug response=%d", res.Code)
+	}
+	metadata, err := base64.RawURLEncoding.DecodeString(res.Header().Get("X-PicHub-Debug-Metadata"))
+	var details struct {
+		Source     string
+		Categories []string
+	}
+	if err != nil || json.Unmarshal(metadata, &details) != nil || details.Source != src.Name || len(details.Categories) != 1 || details.Categories[0] != "test" {
+		t.Fatalf("invalid app debug metadata: %q", metadata)
+	}
+
+	res = httptest.NewRecorder()
+	r.ServeHTTP(res, httptest.NewRequest("GET", "/random?category=missing&format=json", nil))
+	var failure struct{ Code string }
+	if res.Code != 503 || json.Unmarshal(res.Body.Bytes(), &failure) != nil || failure.Code != "debug_distribution_failed" {
+		t.Fatalf("debug failure was not identified: %d %s", res.Code, res.Body)
+	}
+
 	res = httptest.NewRecorder()
 	r.ServeHTTP(res, httptest.NewRequest("DELETE", "/api/debug/source", nil))
 	if res.Code != 200 || e.DebugSource().Enabled {

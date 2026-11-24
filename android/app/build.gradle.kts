@@ -33,6 +33,9 @@ android {
             versionNameSuffix = "-debug"
         }
         release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
             if (signingFile != null) signingConfig = signingConfigs.getByName("release")
         }
     }
@@ -44,6 +47,12 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+}
+
+androidComponents {
+    onVariants(selector().withBuildType("release")) { variant ->
+        variant.packaging.dex.useLegacyPackaging.set(true)
     }
 }
 

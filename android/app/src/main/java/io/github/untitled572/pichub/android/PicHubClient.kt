@@ -8,6 +8,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -22,13 +23,20 @@ import okhttp3.Response
 import okhttp3.ResponseBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.EOFException
 import java.io.File
 import java.io.IOException
 import java.net.InetAddress
 import java.net.Proxy
+import java.net.SocketException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
+import java.util.Base64
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.net.ssl.SSLException
 import kotlin.coroutines.coroutineContext
 import kotlin.math.roundToInt
@@ -70,6 +78,7 @@ internal enum class Vote(val parameter: String) {
 }
 
 internal class PicHubClient {
+    private val rateLimits = ConcurrentHashMap<String, Long>()
     private val https = OkHttpClient.Builder()
         .callTimeout(45, TimeUnit.SECONDS)
         .connectTimeout(10, TimeUnit.SECONDS)
@@ -91,92 +100,122 @@ internal class PicHubClient {
         })
         .build()
 
-    suspend fun getPicture(connection: PicHubConnection, direction: PictureDirection, file: File): Picture =
+    suspend fun getPicture(connection: PicHubConnection, direction: PictureDirection?, file: File): Picture =
         withContext(Dispatchers.IO) {
             val directory = file.parentFile ?: throw PicHubException("无法创建图片缓存")
             if (!directory.isDirectory && !directory.mkdirs() && !directory.isDirectory) {
                 throw PicHubException("无法创建图片缓存")
             }
             val url = connection.nextImage(direction)
-            val request = Request.Builder().url(url).header("Accept", "application/json, image/*").build()
+            val request = Request.Builder()
+                .url(url)
+                .header("Accept", "application/json, image/*")
+                .header("X-PicHub-Debug-Image", "true")
+                .build()
             val started = SystemClock.elapsedRealtime()
-            val metadata = client(connection, url).newCall(request).withResponse { response ->
-                if (!response.isSuccessful) throw requestError(response.code)
-                val body = response.body ?: throw PicHubException("服务器没有返回图片")
-                if (body.contentType()?.type == "image") {
-                    copyPicture(body, file)
-                    return@withResponse PictureResponse(response.code)
-                }
-                if (body.contentType()?.subtype?.contains("json") != true) {
-                    throw PicHubException("地址没有返回 PicHub 取图响应")
-                }
-                try {
-                    val json = JSONObject(body.source().readUtf8AtMost(64 * 1024L))
-                    val local = json.optString("local_url").ifBlank { json.optString("url") }
-                    val imageUrl = connection.imageUrl(local.takeIf { it.isNotBlank() }
-                        ?: throw PicHubException("响应缺少图片地址"))
-                        ?: throw PicHubException("服务器返回的图片地址无效")
-                    PictureResponse(
-                        code = response.code,
-                        url = imageUrl,
-                        id = json.optLong("image_id").takeIf { it > 0 },
-                        distributionRef = json.optString("distribution_ref", "").takeIf { it.isNotBlank() },
-                        source = (json.opt("source") as? String)?.trim()?.takeIf { it.isNotEmpty() },
-                        categories = json.optJSONArray("categories").strings()
-                    )
-                } catch (_: org.json.JSONException) {
-                    throw PicHubException("服务器返回的图片信息无效")
-                }
+            val retry = PictureRetry()
+            val metadata = retry.run {
+                pictureStage("图片信息") { pictureResponse(connection, request, file) }
             }
 
-            metadata.url?.let { fetchPicture(connection, it, file) }
-            val elapsed = SystemClock.elapsedRealtime() - started
+            metadata.url?.let {
+                retry.run { pictureStage("图片下载") { fetchPicture(connection, it, file) } }
+            }
             coroutineContext.ensureActive()
 
-            var mime = ""
-            var width = 0
-            var height = 0
-            val bitmap = try {
-                ImageDecoder.decodeBitmap(ImageDecoder.createSource(file)) { decoder, info, _ ->
-                    mime = info.mimeType
-                    width = info.size.width
-                    height = info.size.height
-                    val scale = minOf(1.0, 2560.0 / maxOf(width, height))
-                    decoder.setTargetSize(
-                        (width * scale).roundToInt().coerceAtLeast(1),
-                        (height * scale).roundToInt().coerceAtLeast(1)
-                    )
-                    decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
-                }
-            } catch (_: IOException) {
-                throw PicHubException("无法解码这张图片")
+            decodePicture(metadata, direction, file, url, started)
+        }
+
+    private suspend fun pictureResponse(connection: PicHubConnection, request: Request, file: File): PictureResponse =
+        pictureCall(connection, request) { response ->
+        if (!response.isSuccessful) throw pictureHttpFailure(response, metadata = true)
+        val body = response.body ?: throw PicHubException("服务器没有返回图片")
+        if (body.contentType()?.type == "image") {
+            pictureStage("图片下载") { copyPicture(body, file) }
+            val debugMetadata = response.header("X-PicHub-Debug-Metadata")?.let { header ->
+                runCatching { JSONObject(Base64.getUrlDecoder().decode(header).toString(Charsets.UTF_8)) }.getOrNull()
             }
-            val actual = when {
-                bitmap.width > bitmap.height -> PictureDirection.Horizontal
-                bitmap.height > bitmap.width -> PictureDirection.Vertical
-                else -> null
-            }
-            if (actual != direction) {
-                throw PicHubException("图源返回了其他方向的图片，请重试或检查服务端缓存代理设置")
-            }
-            Picture(
-                id = metadata.id,
-                distributionRef = metadata.distributionRef,
-                original = file,
-                bitmap = bitmap,
-                mimeType = mime,
-                details = PictureDetails(
-                    source = metadata.source,
-                    categories = metadata.categories,
-                    width = width,
-                    height = height,
-                    bytes = file.length(),
-                    requestPath = url.encodedPath,
-                    responseCode = metadata.code,
-                    elapsedMillis = elapsed
-                )
+            return@pictureCall PictureResponse(
+                code = response.code,
+                source = debugMetadata?.optString("source")?.takeIf { it.isNotBlank() },
+                categories = debugMetadata?.optJSONArray("categories").strings()
             )
         }
+        if (body.contentType()?.subtype?.contains("json") != true) {
+            throw PicHubException("地址没有返回 PicHub 取图响应")
+        }
+        try {
+            val json = JSONObject(body.source().readUtf8AtMost(64 * 1024L))
+            val local = json.optString("local_url").ifBlank { json.optString("url") }
+            val imageUrl = connection.imageUrl(local.takeIf { it.isNotBlank() }
+                ?: throw PicHubException("响应缺少图片地址"))
+                ?: throw PicHubException("服务器返回的图片地址无效")
+            PictureResponse(
+                code = response.code,
+                url = imageUrl,
+                id = json.optLong("image_id").takeIf { it > 0 },
+                distributionRef = json.optString("distribution_ref", "").takeIf { it.isNotBlank() },
+                source = (json.opt("source") as? String)?.trim()?.takeIf { it.isNotEmpty() },
+                categories = json.optJSONArray("categories").strings()
+            )
+        } catch (_: org.json.JSONException) {
+            throw PicHubException("服务器返回的图片信息无效")
+        }
+        }
+
+    private fun decodePicture(
+        metadata: PictureResponse,
+        direction: PictureDirection?,
+        file: File,
+        url: HttpUrl,
+        started: Long
+    ): Picture {
+        var mime = ""
+        var width = 0
+        var height = 0
+        val bitmap = try {
+            ImageDecoder.decodeBitmap(ImageDecoder.createSource(file)) { decoder, info, _ ->
+                mime = info.mimeType
+                width = info.size.width
+                height = info.size.height
+                val scale = minOf(1.0, 2560.0 / maxOf(width, height))
+                decoder.setTargetSize(
+                    (width * scale).roundToInt().coerceAtLeast(1),
+                    (height * scale).roundToInt().coerceAtLeast(1)
+                )
+                decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+            }
+        } catch (_: IOException) {
+            throw PictureFailure("图片解码失败，请刷新后重试")
+        }
+        val actual = when {
+            bitmap.width > bitmap.height -> PictureDirection.Horizontal
+            bitmap.height > bitmap.width -> PictureDirection.Vertical
+            else -> null
+        }
+        if (direction != null && actual != direction) {
+            bitmap.recycle()
+            val expected = if (direction == PictureDirection.Horizontal) "横图" else "竖图"
+            throw PictureFailure("图片方向不匹配：当前请求$expected，图源返回了其他方向的图片")
+        }
+        return Picture(
+            id = metadata.id,
+            distributionRef = metadata.distributionRef,
+            original = file,
+            bitmap = bitmap,
+            mimeType = mime,
+            details = PictureDetails(
+                source = metadata.source,
+                categories = metadata.categories,
+                width = width,
+                height = height,
+                bytes = file.length(),
+                requestPath = url.encodedPath,
+                responseCode = metadata.code,
+                elapsedMillis = SystemClock.elapsedRealtime() - started
+            )
+        )
+    }
 
     suspend fun checkKey(connection: PicHubConnection, key: String) = withContext(Dispatchers.IO) {
         val url = connection.api("auth", "check")
@@ -235,12 +274,12 @@ internal class PicHubClient {
                 throw PicHubException("服务器返回的图片地址无效")
             }
             val request = Request.Builder().url(url).header("Accept", "image/*").build()
-            val redirect = client(connection, url).newCall(request).withResponse { response ->
+            val redirect = pictureCall(connection, request) { response ->
                 if (response.code in setOf(301, 302, 303, 307, 308)) {
                     response.header("Location")?.let { url.resolve(it) }
                         ?: throw PicHubException("图片重定向地址无效")
                 } else {
-                    if (!response.isSuccessful) throw requestError(response.code)
+                    if (!response.isSuccessful) throw pictureHttpFailure(response, metadata = false)
                     val body = response.body ?: throw PicHubException("服务器没有返回图片")
                     copyPicture(body, file)
                     null
@@ -285,12 +324,51 @@ internal class PicHubClient {
         }
     }
 
-    private fun requestError(code: Int): PicHubException = PicHubException(when (code) {
-        404 -> "找不到取图端点或图片，请检查链接后重试"
-        429 -> "请求太频繁，请稍后刷新"
-        503 -> "服务暂时没有符合当前方向的图片"
-        else -> "取图失败（HTTP $code）"
-    })
+    private suspend fun <T> pictureCall(
+        connection: PicHubConnection,
+        request: Request,
+        consume: suspend (Response) -> T
+    ): T {
+        val origin = "${request.url.scheme}://${request.url.host}:${request.url.port}"
+        val now = SystemClock.elapsedRealtime()
+        rateLimits.entries.removeIf { it.value <= now }
+        val remaining = rateLimits[origin]?.minus(now) ?: 0L
+        if (remaining > 0) throw PictureFailure(rateLimitMessage(remaining))
+        return client(connection, request.url).newCall(request).withResponse { response ->
+            if (response.code == 429) {
+                val wait = retryAfterMillis(response.header("Retry-After")) ?: 1_000L
+                if (wait > 0) rateLimits.merge(origin, SystemClock.elapsedRealtime() + wait, ::maxOf)
+            }
+            consume(response)
+        }
+    }
+
+    private fun pictureHttpFailure(response: Response, metadata: Boolean): PictureFailure {
+        val code = response.code
+        val stage = if (metadata) "图片信息获取失败" else "图片下载失败"
+        val errorBody = if (metadata && code == 503) response.peekBody(1024).string() else ""
+        val noSources = errorBody.contains("no available sources", ignoreCase = true)
+        val errorCode = runCatching { JSONObject(errorBody).optString("code") }.getOrNull()
+        val serverTimedOut = errorCode == "distribution_timeout"
+        val debugFailed = errorCode == "debug_distribution_failed"
+        val wait = retryAfterMillis(response.header("Retry-After"))
+        val message = when {
+            code == 429 -> "$stage，${rateLimitMessage(wait ?: 1_000L)}"
+            noSources -> "服务暂时没有符合当前标签和方向的图源"
+            serverTimedOut -> "服务等待上游图源超时，请稍后刷新"
+            debugFailed -> "调试图源本次取图失败，请检查图源和分支"
+            errorCode == "distribution_mode_changed" -> "图源调试状态正在切换"
+            metadata && code == 503 -> "服务暂时无法取图（HTTP 503）"
+            else -> "$stage（HTTP $code）"
+        }
+        val retryDelay = when {
+            noSources || serverTimedOut || debugFailed -> null
+            code == 429 -> wait ?: 1_000L
+            code in setOf(408, 500, 502, 503, 504) -> wait ?: 350L
+            else -> null
+        }
+        return PictureFailure(message, retryDelay)
+    }
 
     private fun feedbackError(code: Int): PicHubException = PicHubException(when (code) {
         401 -> "App 密钥无效或已撤销"
@@ -302,17 +380,61 @@ internal class PicHubClient {
     })
 }
 
+private class PictureFailure(message: String, val retryDelay: Long? = null) : Exception(message)
+
+private class PictureRetry {
+    private var used = false
+
+    suspend fun <T> run(fetch: suspend () -> T): T {
+        try {
+            return fetch()
+        } catch (error: PictureFailure) {
+            val wait = error.retryDelay ?: throw error
+            if (used || wait > 3_000L) throw error
+            used = true
+            delay(wait)
+            return fetch()
+        }
+    }
+}
+
+private suspend fun <T> pictureStage(stage: String, fetch: suspend () -> T): T {
+    try {
+        return fetch()
+    } catch (error: PicHubException) {
+        throw PictureFailure("${stage}失败，${error.message}")
+    } catch (error: IOException) {
+        coroutineContext.ensureActive()
+        val reason = error.userMessage("连接中断或读取失败")
+        val retry = error is SocketTimeoutException || error is SocketException || error is EOFException || error.cause is EOFException
+        throw PictureFailure("${stage}失败，$reason", if (retry) 350L else null)
+    }
+}
+
+internal fun retryAfterMillis(header: String?, nowMillis: Long = System.currentTimeMillis()): Long? {
+    val value = header?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+    value.toLongOrNull()?.let { return it.coerceIn(0L, 31_536_000L) * 1_000L }
+    return runCatching {
+        val deadline = ZonedDateTime.parse(value, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant().toEpochMilli()
+        (deadline - nowMillis).coerceIn(0L, 31_536_000_000L)
+    }.getOrNull()
+}
+
+private fun rateLimitMessage(wait: Long) = "请求太频繁，请在 ${(wait + 999L) / 1_000L} 秒后重试"
+
 private suspend fun <T> Call.withResponse(consume: suspend (Response) -> T): T = coroutineScope {
+    val finished = AtomicBoolean(false)
     val cancelCall = launch(start = CoroutineStart.UNDISPATCHED) {
         try {
             awaitCancellation()
         } finally {
-            this@withResponse.cancel()
+            if (!finished.get()) this@withResponse.cancel()
         }
     }
     try {
         execute().use { consume(it) }
     } finally {
+        finished.set(true)
         cancelCall.cancel()
     }
 }
@@ -326,7 +448,7 @@ private fun okio.BufferedSource.readUtf8AtMost(limit: Long): String {
 }
 
 internal fun Throwable.userMessage(fallback: String): String = when (this) {
-    is PicHubException -> message ?: fallback
+    is PicHubException, is PictureFailure -> message ?: fallback
     is SocketTimeoutException -> "连接超时，请稍后重试"
     is UnknownHostException -> "找不到服务器，请检查地址和局域网连接"
     is SSLException -> "HTTPS 证书验证失败，请检查服务器证书"

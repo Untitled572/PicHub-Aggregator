@@ -9,9 +9,12 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
+import okhttp3.HttpUrl
 import java.io.File
 import java.util.UUID
 
@@ -82,7 +85,9 @@ internal class ViewerModel(application: Application) : AndroidViewModel(applicat
     private var direction: PictureDirection? = null
     private var loadJob: Job? = null
     private var loadGeneration = 0
-    private var loadingDirection: PictureDirection? = null
+    private var displayedScope: HttpUrl? = null
+    private var activeLoad: PictureLoad? = null
+    private var prefetched: PictureLoad? = null
     private var testJob: Job? = null
     private var voteJob: Job? = null
     private var savingFile: File? = null
@@ -98,8 +103,12 @@ internal class ViewerModel(application: Application) : AndroidViewModel(applicat
 
     fun setDirection(newDirection: PictureDirection) {
         if (direction == newDirection) return
+        val before = pictureRequest()?.url
         direction = newDirection
-        if (!showSettings) refresh()
+        if (!showSettings && before != pictureRequest()?.url) {
+            cancelLoads()
+            refresh()
+        }
     }
 
     fun nextPicture() {
@@ -112,24 +121,30 @@ internal class ViewerModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun refresh() {
-        val server = connection ?: return
-        val requestedDirection = direction ?: return
+        if (loading || showSettings) return
+        val request = pictureRequest() ?: return
         val generation = ++loadGeneration
-        loadJob?.cancel()
+        val prepared = prefetched
+        prefetched = null
+        val load = if (prepared?.url == request.url) prepared else {
+            prepared?.discard()
+            startLoad(request)
+        }
+        activeLoad = load
         loading = true
-        loadingDirection = requestedDirection
         loadingError = null
         loadJob = viewModelScope.launch {
-            val file = newPictureFile()
             var retained = false
             try {
-                val next = client.getPicture(server, requestedDirection, file)
+                val next = load.result.await().getOrThrow()
                 val staleFiles = listOfNotNull(latest?.picture?.original, previous?.picture?.original)
-                previous = latest?.takeIf { pictureDirection(it.picture) == requestedDirection }
+                previous = latest?.takeIf { displayedScope == request.url }
                 latest = DisplayedPicture(next)
+                displayedScope = request.url
                 showingPrevious = false
                 retained = true
                 staleFiles.forEach(::removeUnusedPicture)
+                prefetchNext()
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
@@ -138,10 +153,51 @@ internal class ViewerModel(application: Application) : AndroidViewModel(applicat
                     if (picture == null) loadingError = message else notice = message
                 }
             } finally {
-                if (!retained) file.delete()
-                if (generation == loadGeneration) loading = false
+                if (!retained) load.discard()
+                if (generation == loadGeneration) {
+                    loading = false
+                    activeLoad = null
+                }
             }
         }
+    }
+
+    private fun pictureRequest(): PictureRequest? {
+        val server = connection ?: return null
+        val screen = direction ?: return null
+        return PictureRequest(server, server.pictureDirection(screen))
+    }
+
+    private fun prefetchNext() {
+        if (showSettings || prefetched != null) return
+        val request = pictureRequest() ?: return
+        prefetched = startLoad(request)
+    }
+
+    private fun startLoad(request: PictureRequest): PictureLoad {
+        val file = newPictureFile()
+        val result = viewModelScope.async {
+            try {
+                Result.success(client.getPicture(request.server, request.direction, file))
+            } catch (error: CancellationException) {
+                file.delete()
+                throw error
+            } catch (error: Exception) {
+                file.delete()
+                Result.failure(error)
+            }
+        }
+        return PictureLoad(request.url, file, result)
+    }
+
+    private fun cancelLoads() {
+        loadGeneration++
+        loadJob?.cancel()
+        activeLoad?.discard()
+        prefetched?.discard()
+        activeLoad = null
+        prefetched = null
+        loading = false
     }
 
     fun save() {
@@ -176,7 +232,7 @@ internal class ViewerModel(application: Application) : AndroidViewModel(applicat
 
     fun canVote(vote: Vote): Boolean {
         val shown = picture ?: return false
-        if (!feedbackEnabled || voting || shown.picture.id == null) return false
+        if (!feedbackEnabled || voting || shown.picture.id == null || displayedScope != pictureRequest()?.url) return false
         if (shown.picture.distributionRef == null && shown.acceptedVote != null) return false
         return shown.pendingVote == null || shown.pendingVote.button == vote
     }
@@ -213,13 +269,14 @@ internal class ViewerModel(application: Application) : AndroidViewModel(applicat
         draftKey = key
         connectionResult = emptyList()
         showSettings = true
+        cancelLoads()
     }
 
-    fun closeSettings() {
+    private fun finishSettings() {
         clearTest()
         showSettings = false
-        val currentDirection = if (loading) loadingDirection else picture?.picture?.let(::pictureDirection)
-        if (connection != null && currentDirection != direction) refresh()
+        val request = pictureRequest() ?: return
+        if (displayedScope != request.url) refresh() else prefetchNext()
     }
 
     fun updateAddress(address: String) {
@@ -275,7 +332,7 @@ internal class ViewerModel(application: Application) : AndroidViewModel(applicat
         val server = parseDraft() ?: return
         val testingFeedback = draftFeedbackEnabled
         val checkedKey = if (testingFeedback) draftKey.trim() else ""
-        val testDirection = direction ?: PictureDirection.Vertical
+        val testDirection = server.pictureDirection(direction ?: PictureDirection.Vertical)
         clearTest()
         testing = true
         testJob = viewModelScope.launch {
@@ -314,11 +371,19 @@ internal class ViewerModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun applySettings() {
-        val server = parseDraft() ?: return
+        if (connection == null && draftAddress.isBlank()) {
+            finishSettings()
+            return
+        }
+        val server = parseDraft()
+        if (server == null) {
+            notice = connectionResult.firstOrNull()
+            return
+        }
         val newKey = if (draftFeedbackEnabled) draftKey.trim() else ""
         if (draftFeedbackEnabled && !APP_KEY_PATTERN.matches(newKey)) {
             clearTest()
-            connectionResult = listOf("请填写从 PicHub 控制台生成的 App 密钥")
+            showSettingsError("请填写从 PicHub 控制台生成的 App 密钥")
             return
         }
         val previousTree = viewerOptions.saveTree
@@ -332,14 +397,14 @@ internal class ViewerModel(application: Application) : AndroidViewModel(applicat
                 }
             }
         } catch (_: SecurityException) {
-            connectionResult = listOf("无法授权所选目录，请重新选择")
+            showSettingsError("无法授权所选目录，请重新选择")
             return
         }
         try {
             settings.save(server.enteredUrl.toString(), newKey, draftOptions)
         } catch (_: Exception) {
             if (acquiredPermission) releaseUnusedFolder(nextTree)
-            connectionResult = listOf("无法保存设置，请重试")
+            showSettingsError("无法保存设置，请重试")
             return
         }
         viewerOptions = draftOptions
@@ -354,11 +419,12 @@ internal class ViewerModel(application: Application) : AndroidViewModel(applicat
         connection = server
         key = newKey
         draftKey = newKey
-        if (addressChanged) {
-            clearPictures()
-            refresh()
-        }
-        closeSettings()
+        finishSettings()
+    }
+
+    private fun showSettingsError(message: String) {
+        connectionResult = listOf(message)
+        notice = message
     }
 
     fun dismissNotice(value: String?) {
@@ -407,12 +473,21 @@ internal class ViewerModel(application: Application) : AndroidViewModel(applicat
 
     private fun newPictureFile() = File(pictureFolder, UUID.randomUUID().toString())
 
-    private fun pictureDirection(image: Picture): PictureDirection =
-        if (image.bitmap.width > image.bitmap.height) PictureDirection.Horizontal else PictureDirection.Vertical
-
     override fun onCleared() {
+        cancelLoads()
         clearPictures()
         super.onCleared()
+    }
+
+    private data class PictureRequest(val server: PicHubConnection, val direction: PictureDirection?) {
+        val url: HttpUrl = server.nextImage(direction)
+    }
+
+    private class PictureLoad(val url: HttpUrl, val file: File, val result: Deferred<Result<Picture>>) {
+        fun discard() {
+            result.invokeOnCompletion { file.delete() }
+            result.cancel()
+        }
     }
 
     private companion object {

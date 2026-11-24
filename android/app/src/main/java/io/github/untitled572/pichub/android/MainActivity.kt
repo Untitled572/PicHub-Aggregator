@@ -28,7 +28,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -113,7 +112,7 @@ private fun PicHubScreen(model: ViewerModel) {
             model.dismissNotice(notice)
         }
     }
-    BackHandler(enabled = model.showSettings, onBack = model::closeSettings)
+    BackHandler(enabled = model.showSettings, onBack = model::applySettings)
     val direction = if (LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE) {
         PictureDirection.Horizontal
     } else {
@@ -148,7 +147,7 @@ private fun SettingsScreen(model: ViewerModel, modifier: Modifier) {
             Modifier.widthIn(max = 560.dp).fillMaxWidth().height(52.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = model::closeSettings) {
+            IconButton(onClick = model::applySettings) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
             }
             Text("设置", style = MaterialTheme.typography.titleLarge)
@@ -260,9 +259,6 @@ private fun SettingsScreen(model: ViewerModel, modifier: Modifier) {
                     } else {
                         Text("测试连接")
                     }
-                }
-                Button(onClick = model::applySettings, enabled = model.draftAddress.isNotBlank()) {
-                    Text("保存")
                 }
             }
         }

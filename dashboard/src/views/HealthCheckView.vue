@@ -21,7 +21,7 @@ onMounted(async () => {
         <h2 class="font-bold text-base text-morandi-text flex items-center gap-2">
           <Activity class="w-5 h-5 text-morandi-sage" /> 图源检测
         </h2>
-        <p class="text-xs text-morandi-muted mt-0.5">查看新图片入池的健康反馈；也可手动检测主地址与分支的响应。</p>
+        <p class="text-xs text-morandi-muted mt-0.5">入池反馈来自实际下载和校验。手动检测只检查主地址和分支的响应。</p>
       </div>
 
       <button
@@ -35,7 +35,7 @@ onMounted(async () => {
     </div>
 
     <p class="text-xs text-morandi-muted" v-if="lastRun && !lastRun.startsWith('0001')">
-      最近健康反馈：{{ new Date(lastRun).toLocaleString() }}。入池反馈代表实际预取结果；主动检测只反映接口当时的响应。
+      最近健康反馈：{{ new Date(lastRun).toLocaleString() }}
     </p>
     <div v-if="running" role="status" class="morandi-card p-4 text-xs text-morandi-muted flex items-center gap-2">
       <RefreshCw class="w-4 h-4 animate-spin" /> 正在检查已启用图源，请稍候…

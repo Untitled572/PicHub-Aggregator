@@ -35,32 +35,61 @@ func (e *Engine) DebugSource() DebugSourceState {
 	return state
 }
 
+var ErrDistributionModeChanged = errors.New("图源调试状态已切换，请重试")
+
+// Workers read the current context under modeMu. Mode changes serialize through modeSwitchMu.
+func (e *Engine) modeContext() context.Context {
+	e.modeInit.Do(func() {
+		e.modeCtx, e.modeCancel = context.WithCancelCause(context.Background())
+	})
+	return e.modeCtx
+}
+
+func (e *Engine) lockModeSwitch() func() {
+	e.modeSwitchMu.Lock()
+	e.debugSwitches.Add(1)
+	e.modeContext()
+	// Stop upstream I/O first. The lock still lets active cache writes finish
+	// before clients are told that the mode changed.
+	e.modeCancel(ErrDistributionModeChanged)
+	e.modeMu.Lock()
+	return func() {
+		e.modeCtx, e.modeCancel = context.WithCancelCause(context.Background())
+		e.debugSwitches.Add(-1)
+		e.modeMu.Unlock()
+		e.modeSwitchMu.Unlock()
+	}
+}
+
 func (e *Engine) SetDebugSource(id int64) (DebugSourceState, error) {
 	if id <= 0 {
 		return DebugSourceState{}, fmt.Errorf("请选择有效的图源")
 	}
-	// Status reads use a separate immutable snapshot and never wait for this gate.
-	e.debugSwitches.Add(1)
-	defer e.debugSwitches.Add(-1)
-	// Wait for existing distribution/cache writes before acknowledging the switch.
-	e.modeMu.Lock()
-	defer e.modeMu.Unlock()
 	src, err := e.store.GetSource(id)
 	if err != nil {
 		return DebugSourceState{}, fmt.Errorf("图源不存在")
 	}
+	unlock := e.lockModeSwitch()
+	defer unlock()
 	e.debugSourceID = id
 	state := DebugSourceState{Enabled: true, SourceID: id, SourceName: src.Name}
 	e.debugState.Store(&state)
 	return state, nil
 }
+
 func (e *Engine) ClearDebugSource() {
-	e.debugSwitches.Add(1)
-	defer e.debugSwitches.Add(-1)
-	e.modeMu.Lock()
-	defer e.modeMu.Unlock()
+	unlock := e.lockModeSwitch()
+	defer unlock()
 	e.debugSourceID = 0
 	e.debugState.Store(&DebugSourceState{})
+}
+
+type debugImageResponseKey struct{}
+
+// WithDebugImageResponse opts a client into receiving the exact debug image
+// rather than downloading and potentially re-rolling the upstream URL.
+func WithDebugImageResponse(ctx context.Context) context.Context {
+	return context.WithValue(ctx, debugImageResponseKey{}, true)
 }
 
 func readDebugBody(r io.Reader, limit int64) ([]byte, error) {
@@ -74,17 +103,17 @@ func readDebugBody(r io.Reader, limit int64) ([]byte, error) {
 	return data, nil
 }
 
-func (e *Engine) debugImage(parent context.Context, category, format, orientation, ua string) (result *Result, code int, err error) {
+func (e *Engine) debugImage(parent context.Context, category, format, orientation, ua string) (*Result, int, error) {
 	src, err := e.store.GetSource(e.debugSourceID)
 	if err != nil {
-		return nil, 0, fmt.Errorf("调试图源不存在，请退出调试或重新选择图源")
+		return nil, 0, &DebugFetchError{Phase: "图源选择", SourceID: e.debugSourceID, Err: errors.New("调试图源不存在，请退出调试或重新选择图源")}
 	}
 	settings, err := e.store.GetSettings()
 	if err != nil {
 		return nil, 0, err
 	}
-	explicitOrientation := orientation != ""
 	queryCats := splitCategory(category)
+	orientation, explicitOrientation := resolveRequestOrientation(queryCats, orientation, ua)
 	tags, err := e.store.GetTags()
 	if err != nil {
 		return nil, 0, err
@@ -93,27 +122,63 @@ func (e *Engine) debugImage(parent context.Context, category, format, orientatio
 	debugSource := *src
 	debugSource.Enabled = true
 	debugSource.Status = "normal"
-	if orientation == "" && (len(queryCats) == 0 || hasCategory(queryCats, "adaptive")) {
-		orientation = detectOrientationFromUA(ua)
-	}
-	candidates := filterRequestSources([]model.Source{debugSource}, queryCats, tags, orientation)
-	if len(candidates) == 0 {
-		return nil, 0, fmt.Errorf("调试图源没有匹配分类的主地址或分支")
-	}
-	selected := weightedPick(candidates)
-	orientation = requestOrientation(selected, queryCats, orientation, explicitOrientation)
-
-	defer func() {
-		if err == nil && result != nil {
-			if statErr := e.store.RecordStats(queryCats, selected, result.URL, nil, ""); statErr != nil {
-				logger.Error("record debug stats: %v", statErr)
+	sources := []model.Source{debugSource}
+	candidates := filterRequestSources(sources, queryCats, tags, orientation)
+	if len(candidates) == 0 && len(queryCats) == 1 && queryCats[0] == orientation &&
+		(orientation == "horizontal" || orientation == "vertical") {
+		// A direction-only request can still sample an untagged or adaptive
+		// branch of this source. Decoded dimensions must match below.
+		for _, candidate := range filterSources(sources, nil, tags) {
+			if isUncategorized(candidate.Categories) ||
+				(len(candidate.Categories) == 1 && candidate.Categories[0] == "adaptive" && !isExclusiveTag("adaptive", tags)) {
+				candidates = append(candidates, candidate)
 			}
 		}
-	}()
+	}
+	if len(candidates) == 0 {
+		return nil, 0, &DebugFetchError{Phase: "分支匹配", SourceID: src.ID, Err: errors.New("调试图源没有匹配分类的主地址或分支")}
+	}
+
 	timeout := time.Duration(settings.Timeout) * time.Millisecond
 	if timeout <= 0 {
 		timeout = 3 * time.Second
 	}
+	ctx, cancel := context.WithTimeout(parent, timeout+debugImageDownloadTimeout)
+	defer cancel()
+	wantImage, _ := parent.Value(debugImageResponseKey{}).(bool)
+	singleBranch := len(candidates) == 1
+	var lastErr error
+	for attempt := 0; attempt < 3 && len(candidates) > 0; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return nil, 0, err
+		}
+		index := weightedPickIndex(candidates)
+		selected := candidates[index]
+		candidates = append(candidates[:index], candidates[index+1:]...)
+		direction := requestOrientation(selected, queryCats, orientation, explicitOrientation)
+		result, code, err := e.fetchDebugImage(ctx, selected, settings.ProxyMode, format, direction, ua, timeout, wantImage)
+		if err == nil {
+			if err := ctx.Err(); err != nil {
+				return nil, 0, err
+			}
+			if err := e.store.RecordStats(queryCats, selected, result.URL, nil, ""); err != nil {
+				logger.Error("record debug stats: %v", err)
+			}
+			return result, code, nil
+		}
+		lastErr = err
+		// A mixed-orientation random endpoint can provide the right image on
+		// a fresh draw even when this is the only configured matching branch.
+		if singleBranch && attempt == 0 && errors.Is(err, errDebugOrientationMismatch) {
+			candidates = append(candidates, selected)
+		}
+	}
+	return nil, 0, lastErr
+}
+
+var errDebugOrientationMismatch = errors.New("调试图片方向不匹配")
+
+func (e *Engine) fetchDebugImage(parent context.Context, selected model.Source, proxyMode bool, format, orientation, ua string, timeout time.Duration, wantImage bool) (result *Result, code int, err error) {
 	phase := "图源接口"
 	budget := timeout
 	target := selected.URL
@@ -132,7 +197,7 @@ func (e *Engine) debugImage(parent context.Context, category, format, orientatio
 			if errors.As(err, &urlError) {
 				err = urlError.Err
 			}
-			err = &DebugFetchError{Phase: phase, SourceID: src.ID, Address: debugRequestAddress(target), Budget: budget, Err: err}
+			err = &DebugFetchError{Phase: phase, SourceID: selected.ID, Address: debugRequestAddress(target), Budget: budget, Err: err}
 		}
 	}()
 	client := *e.httpClient
@@ -143,16 +208,16 @@ func (e *Engine) debugImage(parent context.Context, category, format, orientatio
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, 0, fmt.Errorf("调试图源 %s 请求失败：%w", src.Name, err)
+		return nil, 0, fmt.Errorf("调试图源 %s 请求失败：%w", selected.Name, err)
 	}
 	defer resp.Body.Close()
 	if (resp.StatusCode < 200 || resp.StatusCode >= 300) && !isRedirectStatus(resp.StatusCode) {
 		var upstream struct{ Error struct{ Code string } }
 		body, _ := readDebugBody(resp.Body, 64<<10)
 		if resp.StatusCode == http.StatusNotFound && json.Unmarshal(body, &upstream) == nil && upstream.Error.Code == "NO_MATCH" {
-			return nil, 0, fmt.Errorf("调试图源 #%d（%s）没有符合当前筛选条件的图片（上游 HTTP 404 / NO_MATCH），请求地址：%s", src.ID, src.Name, debugRequestAddress(selected.URL))
+			return nil, 0, fmt.Errorf("调试图源 #%d（%s）没有符合当前筛选条件的图片（上游 HTTP 404 / NO_MATCH），请求地址：%s", selected.ID, selected.Name, debugRequestAddress(selected.URL))
 		}
-		return nil, 0, fmt.Errorf("调试图源 #%d（%s）返回 HTTP %d，请求地址：%s", src.ID, src.Name, resp.StatusCode, debugRequestAddress(selected.URL))
+		return nil, 0, fmt.Errorf("调试图源 #%d（%s）返回 HTTP %d，请求地址：%s", selected.ID, selected.Name, resp.StatusCode, debugRequestAddress(selected.URL))
 	}
 	direct := strings.HasPrefix(strings.ToLower(resp.Header.Get("Content-Type")), "image/") && !isRedirectStatus(resp.StatusCode)
 	imageURL := selected.URL
@@ -194,12 +259,12 @@ func (e *Engine) debugImage(parent context.Context, category, format, orientatio
 		resp.Body.Close()
 		cancelRequest(context.Canceled)
 	}
-	result = &Result{Debug: true, URL: imageURL, SourceID: src.ID, SourceName: selected.Name, Categories: selected.Categories}
-	if orientation == "" {
+	result = &Result{Debug: true, URL: imageURL, SourceID: selected.ID, SourceName: selected.Name, Categories: selected.Categories}
+	if orientation == "" && !wantImage {
 		if format == "json" {
 			return result, http.StatusOK, nil
 		}
-		if !settings.ProxyMode {
+		if !proxyMode {
 			return result, http.StatusFound, nil
 		}
 	}
@@ -243,15 +308,20 @@ func (e *Engine) debugImage(parent context.Context, category, format, orientatio
 	}
 	result.Orientation = GetOrientation(cfg.Width, cfg.Height)
 	if orientation != "" && result.Orientation != orientation {
-		return nil, 0, fmt.Errorf("调试图片方向不匹配：实际 %s，请求 %s", result.Orientation, orientation)
+		return nil, 0, fmt.Errorf("%w：实际 %s，请求 %s", errDebugOrientationMismatch, result.Orientation, orientation)
 	}
 	result.Width = cfg.Width
 	result.Height = cfg.Height
 	result.Format = kind
+	if wantImage {
+		result.ImageData = data
+		result.ContentType = http.DetectContentType(data)
+		return result, http.StatusOK, nil
+	}
 	if format == "json" {
 		return result, http.StatusOK, nil
 	}
-	if !settings.ProxyMode {
+	if !proxyMode {
 		return result, http.StatusFound, nil
 	}
 	result.ImageData = data
@@ -290,6 +360,9 @@ type DebugFetchError struct {
 }
 
 func (e *DebugFetchError) Error() string {
+	if e.Address == "" {
+		return e.Err.Error()
+	}
 	return fmt.Sprintf("调试取图%s失败（图源 #%d，阶段时限 %s，请求地址：%s）：%v", e.Phase, e.SourceID, e.Budget, e.Address, e.Err)
 }
 func (e *DebugFetchError) Unwrap() error { return e.Err }

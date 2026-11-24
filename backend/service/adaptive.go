@@ -64,6 +64,26 @@ func filterRequestSources(sources []model.Source, cats []string, tags []model.Ta
 	return kept
 }
 
+func resolveRequestOrientation(cats []string, orientation, ua string) (direction string, explicit bool) {
+	if orientation != "" {
+		return orientation, true
+	}
+	horizontal := hasCategory(cats, "horizontal")
+	vertical := hasCategory(cats, "vertical")
+	switch {
+	case horizontal && vertical:
+		return "", false
+	case horizontal:
+		return "horizontal", true
+	case vertical:
+		return "vertical", true
+	case len(cats) == 0 || hasCategory(cats, "adaptive"):
+		return detectOrientationFromUA(ua), false
+	default:
+		return "", false
+	}
+}
+
 func requestOrientation(src model.Source, cats []string, orientation string, explicit bool) string {
 	if !explicit && hasCategory(cats, "adaptive") && hasCategory(src.Categories, "adaptive") {
 		return "" // The source handles the forwarded UA itself.

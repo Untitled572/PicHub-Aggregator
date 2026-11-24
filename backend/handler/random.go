@@ -2,6 +2,8 @@ package handler
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"github.com/pichub/backend/common/ctxkey"
 	"github.com/pichub/backend/logger"
@@ -70,9 +72,22 @@ func (h *Handler) serveRandom(c *gin.Context, category string) {
 	orientation := c.Query("orientation")
 	clientUA := c.GetHeader("User-Agent")
 
-	result, statusCode, err := h.engine.RandomImageContext(c.Request.Context(), category, format, orientation, clientUA)
+	ctx := c.Request.Context()
+	if c.GetHeader("X-PicHub-Debug-Image") == "true" {
+		ctx = service.WithDebugImageResponse(ctx)
+	}
+	result, statusCode, err := h.engine.RandomImageContext(ctx, category, format, orientation, clientUA)
 	if err != nil {
 		logger.Error("[%s] distribution failed: %v", c.GetString(string(ctxkey.RequestID)), err)
+		if errors.Is(err, service.ErrDistributionModeChanged) {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error(), "code": "distribution_mode_changed"})
+			return
+		}
+		var debugErr *service.DebugFetchError
+		if errors.As(err, &debugErr) {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error(), "code": "debug_distribution_failed"})
+			return
+		}
 		if errors.Is(err, context.DeadlineExceeded) {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "上游取图超时", "code": "distribution_timeout"})
 			return
@@ -90,6 +105,12 @@ func (h *Handler) serveRandom(c *gin.Context, category string) {
 		c.Header("Cache-Control", "no-store")
 		c.Header("X-PicHub-Debug", "true")
 		if len(result.ImageData) > 0 {
+			if c.GetHeader("X-PicHub-Debug-Image") == "true" {
+				metadata, err := json.Marshal(gin.H{"source": result.SourceName, "categories": result.Categories})
+				if err == nil && len(metadata) <= 4096 {
+					c.Header("X-PicHub-Debug-Metadata", base64.RawURLEncoding.EncodeToString(metadata))
+				}
+			}
 			c.Data(http.StatusOK, result.ContentType, result.ImageData)
 			return
 		}

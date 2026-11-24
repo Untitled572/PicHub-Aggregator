@@ -207,8 +207,10 @@ func TestPrefetchRateLimitAlsoPausesBranchesOnSameHost(t *testing.T) {
 	first := model.Source{ID: 1, URL: srv.URL + "/one", Weight: 1}
 	other := model.Source{ID: 2, URL: srv.URL + "/two", Weight: 1}
 	e := &Engine{store: st, httpClient: srv.Client()}
-	e.fetchPrefetch([]model.Source{first}, nil, nil, 15)
-	e.fetchPrefetch([]model.Source{other}, nil, nil, 15)
+	e.fetchPrefetch(context.Background(), first, time.Second)
+	if _, ok := e.pickPrefetchSource([]model.Source{other}, nil, nil, 15, time.Now(), func(model.Source) bool { return true }); ok {
+		t.Fatal("same-host source bypassed upstream Retry-After")
+	}
 	if calls != 1 {
 		t.Fatalf("upstream calls=%d, want 1", calls)
 	}
@@ -217,34 +219,186 @@ func TestPrefetchRateLimitAlsoPausesBranchesOnSameHost(t *testing.T) {
 	}
 }
 
-func TestUnlimitedPrefetchSkipsSpacingButRespectsUpstreamRefusal(t *testing.T) {
+func TestUnlimitedPrefetchSkipsNormalPacingButRespectsUpstreamRefusal(t *testing.T) {
 	st := healthTestStore(t)
-	calls := make(chan struct{}, 3)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls <- struct{}{}
-		if len(calls) > 1 {
-			w.Header().Set("Retry-After", "120")
-			w.WriteHeader(http.StatusTooManyRequests)
-			return
-		}
-		w.WriteHeader(http.StatusBadGateway)
+		w.Header().Set("Retry-After", "120")
+		w.WriteHeader(http.StatusTooManyRequests)
 	}))
 	defer upstream.Close()
 	e := &Engine{store: st, httpClient: upstream.Client()}
 	src := model.Source{ID: 1, Name: "self-hosted", URL: upstream.URL, Weight: 1}
-	e.fetchPrefetch([]model.Source{src}, nil, nil, 15)
-	e.fetchPrefetch([]model.Source{src}, nil, nil, 15)
-	if len(calls) != 1 {
+	always := func(model.Source) bool { return true }
+	now := time.Now()
+	e.reservePrefetchSource(src, now)
+	delete(e.prefetchInFlight, src.ID)
+	e.ordinaryPrefetchInFlight = false
+	if _, ok := e.pickPrefetchSource([]model.Source{src}, nil, nil, 15, now, always); ok {
 		t.Fatal("limited source started a second request")
 	}
 	src.PrefetchUnlimited = true
-	e.fetchPrefetch([]model.Source{src}, nil, nil, 15)
-	if len(calls) != 2 {
+	if _, ok := e.pickPrefetchSource([]model.Source{src}, nil, nil, 15, now, always); !ok {
 		t.Fatal("unlimited source was blocked by normal pacing")
 	}
-	e.fetchPrefetch([]model.Source{src}, nil, nil, 15)
-	if len(calls) != 2 {
+	e.fetchPrefetch(context.Background(), src, time.Second)
+	if _, ok := e.pickPrefetchSource([]model.Source{src}, nil, nil, 15, now.Add(time.Second), always); ok {
 		t.Fatal("unlimited source ignored HTTP 429")
+	}
+}
+
+func TestUnlimitedPrefetchRunsParallelWithoutConsumingOrdinaryPacing(t *testing.T) {
+	st, images, _, picture := newTestImageStore(t)
+	settings, err := st.GetSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings.ProxyMode, settings.PoolSize, settings.Timeout = true, 12, 8000
+	if err := st.UpdateSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan string, 8)
+	ordinaryRelease := make(chan struct{})
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		started <- r.URL.Path
+		if r.URL.Path == "/ordinary" {
+			select {
+			case <-ordinaryRelease:
+			case <-r.Context().Done():
+				return
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"url":%q}`, picture.URL)
+	}))
+	defer upstream.Close()
+	for _, name := range []string{"ordinary", "unlimited-a", "unlimited-b"} {
+		addHealthSource(t, st, model.Source{
+			Name: name, URL: upstream.URL + "/" + name, Enabled: true, Weight: 1,
+			RespType: "json", PrefetchUnlimited: name != "ordinary",
+		})
+	}
+	e := &Engine{
+		store: st, imageStore: images, httpClient: upstream.Client(), distPool: NewDistributionPool(),
+		demandTracker: NewDemandTracker(), sourceDemand: NewSourceDemandTracker(),
+	}
+	now := time.Now()
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		e.replenishPoolAt(now)
+	}()
+	defer func() {
+		close(ordinaryRelease)
+		<-finished
+	}()
+	checkRequests := func(want ...string) {
+		t.Helper()
+		set := make(map[string]bool, len(want))
+		for _, path := range want {
+			set["/"+path] = true
+		}
+		for range want {
+			select {
+			case got := <-started:
+				if !set[got] {
+					t.Fatalf("unexpected request %q", got)
+				}
+				delete(set, got)
+			case <-time.After(2 * time.Second):
+				t.Fatalf("still waiting for requests: %v", set)
+			}
+		}
+	}
+	checkRequests("ordinary", "unlimited-a", "unlimited-b")
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		e.replenishMu.Lock()
+		busy := len(e.prefetchInFlight)
+		e.replenishMu.Unlock()
+		if busy == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("fast requests did not finish independently of the slow ordinary lane: %d active", busy)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	e.replenishPoolAt(now.Add(500 * time.Millisecond))
+	if len(started) != 0 {
+		t.Fatal("requests started before their one-second interval")
+	}
+	e.replenishPoolAt(now.Add(time.Second))
+	checkRequests("unlimited-a", "unlimited-b")
+	e.replenishMu.Lock()
+	ordinaryNext := e.nextPrefetch
+	e.replenishMu.Unlock()
+	if !ordinaryNext.Equal(now.Add(prefetchInterval)) {
+		t.Fatalf("unlimited requests changed ordinary deadline to %v", ordinaryNext)
+	}
+	if e.distPool.Size() != 4 {
+		t.Fatalf("got %d cached images while ordinary request remains active, want 4", e.distPool.Size())
+	}
+	select {
+	case <-finished:
+		t.Fatal("ordinary request finished before release")
+	default:
+	}
+}
+
+func TestPrefetchDiscardsImageAfterSourceBranchChanges(t *testing.T) {
+	st, images, _, picture := newTestImageStore(t)
+	settings, err := st.GetSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings.ProxyMode, settings.PoolSize = true, 4
+	if err := st.UpdateSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+	started, release := make(chan struct{}), make(chan struct{})
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(started)
+		select {
+		case <-release:
+		case <-r.Context().Done():
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"url":%q}`, picture.URL)
+	}))
+	defer upstream.Close()
+	src := addHealthSource(t, st, model.Source{
+		Name: "prefetch", URL: upstream.URL, Enabled: true, RespType: "json", Weight: 1,
+	})
+	hc := NewHealthChecker(st)
+	e := &Engine{
+		store: st, imageStore: images, httpClient: upstream.Client(), healthChecker: hc,
+		distPool: NewDistributionPool(), demandTracker: NewDemandTracker(), sourceDemand: NewSourceDemandTracker(),
+	}
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		e.replenishPool()
+	}()
+	updated := func() error {
+		defer close(release)
+		select {
+		case <-started:
+		case <-time.After(time.Second):
+			return errors.New("prefetch did not start")
+		}
+		src.DefaultQuery = "changed=1"
+		return st.UpdateSource(&src)
+	}()
+	<-finished
+	if updated != nil {
+		t.Fatal(updated)
+	}
+	live, err := st.GetPooledFileIDSet()
+	if e.distPool.Size() != 0 || len(hc.GetLastResult()) != 0 || err != nil || len(live) != 0 {
+		t.Fatalf("stale prefetch updated distribution or health: stock=%d live=%+v health=%+v err=%v",
+			e.distPool.Size(), live, hc.GetLastResult(), err)
 	}
 }
 

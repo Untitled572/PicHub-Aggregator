@@ -14,6 +14,23 @@ import (
 	"time"
 )
 
+func TestDirectionTagsOverrideScreenInference(t *testing.T) {
+	for _, tc := range []struct {
+		tags              []string
+		orientation, want string
+		explicit          bool
+	}{
+		{[]string{"horizontal"}, "", "horizontal", true},
+		{[]string{"horizontal", "vertical", "adaptive"}, "", "", false},
+		{[]string{"horizontal", "vertical", "adaptive"}, "vertical", "vertical", true},
+		{[]string{"adaptive"}, "", "vertical", false},
+	} {
+		if direction, explicit := resolveRequestOrientation(tc.tags, tc.orientation, "Android Mobile"); direction != tc.want || explicit != tc.explicit {
+			t.Fatalf("tags=%v orientation=%q: got (%q, %t), want (%q, %t)", tc.tags, tc.orientation, direction, explicit, tc.want, tc.explicit)
+		}
+	}
+}
+
 func TestAdaptiveSelectionAndIsolation(t *testing.T) {
 	tags := []model.Tag{{ID: "r18", Exclusive: true}}
 	sources := []model.Source{

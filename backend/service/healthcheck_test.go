@@ -236,6 +236,14 @@ func TestPrefetchHealthFailureAndNoSampleCases(t *testing.T) {
 		imageStore := NewImageStore(st, filepath.Join(t.TempDir(), "cache"), nil)
 		hc := NewHealthChecker(st)
 		e := setupPrefetch(t, st, imageStore, hc, api.URL+"/api")
+		settings, err := st.GetSettings()
+		if err != nil {
+			t.Fatal(err)
+		}
+		settings.MinResolution = "4x4"
+		if err := st.UpdateSettings(settings); err != nil {
+			t.Fatal(err)
+		}
 		e.replenishPool()
 		results := hc.GetLastResult()
 		if e.distPool.Size() != 0 || len(results) != 1 || results[0].Available || results[0].Origin != "cache" || !strings.Contains(results[0].Error, "校验图片失败") {
@@ -244,6 +252,24 @@ func TestPrefetchHealthFailureAndNoSampleCases(t *testing.T) {
 		saved, _ := st.GetSource(results[0].ID)
 		if saved.FailCount != 1 {
 			t.Fatalf("failed cache validation did not update health fields: %+v", saved)
+		}
+	})
+
+	t.Run("resolution policy is not a source failure", func(t *testing.T) {
+		st, images, _, server := newTestImageStore(t)
+		hc := NewHealthChecker(st)
+		e := setupPrefetch(t, st, images, hc, server.URL)
+		settings, err := st.GetSettings()
+		if err != nil {
+			t.Fatal(err)
+		}
+		settings.MinResolution = "4x4"
+		if err := st.UpdateSettings(settings); err != nil {
+			t.Fatal(err)
+		}
+		e.replenishPool()
+		if e.distPool.Size() != 0 || len(hc.GetLastResult()) != 0 {
+			t.Fatalf("image did not satisfy local policy: pool=%d health=%+v", e.distPool.Size(), hc.GetLastResult())
 		}
 	})
 	t.Run("no candidate", func(t *testing.T) {

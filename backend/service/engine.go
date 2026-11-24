@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"math"
 	"math/rand"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -27,6 +29,7 @@ import (
 
 const (
 	prefetchInterval            = 2 * time.Second
+	unlimitedPrefetchInterval   = time.Second
 	prefetchSourceInterval      = 10 * time.Second
 	prefetchTagReserve          = 15
 	distributionTimeout         = 8 * time.Second
@@ -38,25 +41,33 @@ const (
 )
 
 type Engine struct {
-	modeMu      sync.RWMutex
-	replenishMu sync.Mutex
+	modeMu       sync.RWMutex
+	modeSwitchMu sync.Mutex
+	modeInit     sync.Once
+	modeCtx      context.Context
+	modeCancel   context.CancelCauseFunc
+	replenishMu  sync.Mutex
 	// Only accessed under replenishMu.
-	nextPrefetch     time.Time
-	prefetchCooldown map[string]time.Time
-	prefetchPace     map[string]time.Time
-	debugSourceID    int64
-	debugState       atomic.Pointer[DebugSourceState]
-	debugSwitches    atomic.Int32
-	store            *store.Store
-	proxyCache       *ProxyCache
-	imageStore       *ImageStore
-	proxyConfig      *ProxyConfig
-	distPool         *DistributionPool
-	demandTracker    *DemandTracker
-	sourceDemand     *SourceDemandTracker
-	httpClient       *http.Client
-	monitor          *monitor.SourceMonitor
-	healthChecker    *HealthChecker
+	nextPrefetch             time.Time
+	nextPrefetchTrim         time.Time
+	ordinaryPrefetchInFlight bool
+	prefetchInFlight         map[int64]bool
+	unlimitedPrefetchPace    map[int64]time.Time
+	prefetchCooldown         map[string]time.Time
+	prefetchPace             map[string]time.Time
+	debugSourceID            int64
+	debugState               atomic.Pointer[DebugSourceState]
+	debugSwitches            atomic.Int32
+	store                    *store.Store
+	proxyCache               *ProxyCache
+	imageStore               *ImageStore
+	proxyConfig              *ProxyConfig
+	distPool                 *DistributionPool
+	demandTracker            *DemandTracker
+	sourceDemand             *SourceDemandTracker
+	httpClient               *http.Client
+	monitor                  *monitor.SourceMonitor
+	healthChecker            *HealthChecker
 }
 
 func NewEngine(st *store.Store, pc *ProxyCache, imgStore *ImageStore, proxyCfg *ProxyConfig, mon *monitor.SourceMonitor, healthChecker ...*HealthChecker) *Engine {
@@ -92,22 +103,21 @@ func NewEngine(st *store.Store, pc *ProxyCache, imgStore *ImageStore, proxyCfg *
 }
 
 type Result struct {
-	Debug           bool          `json:"debug,omitempty"`
-	ImageData       []byte        `json:"-"`
-	ContentType     string        `json:"-"`
-	URL             string        `json:"url"`
-	LocalURL        string        `json:"local_url,omitempty"`
-	SourceName      string        `json:"source"`
-	SourceID        int64         `json:"source_id,omitempty"`
-	Categories      []string      `json:"categories"`
-	Orientation     string        `json:"orientation,omitempty"`
-	FileID          string        `json:"file_id,omitempty"`
-	Width           int           `json:"width,omitempty"`
-	Height          int           `json:"height,omitempty"`
-	Format          string        `json:"format,omitempty"`
-	ImageID         int64         `json:"image_id,omitempty"`
-	DistributionRef string        `json:"distribution_ref,omitempty"`
-	cacheHealth     *HealthResult `json:"-"`
+	Debug           bool     `json:"debug,omitempty"`
+	ImageData       []byte   `json:"-"`
+	ContentType     string   `json:"-"`
+	URL             string   `json:"url"`
+	LocalURL        string   `json:"local_url,omitempty"`
+	SourceName      string   `json:"source"`
+	SourceID        int64    `json:"source_id,omitempty"`
+	Categories      []string `json:"categories"`
+	Orientation     string   `json:"orientation,omitempty"`
+	FileID          string   `json:"file_id,omitempty"`
+	Width           int      `json:"width,omitempty"`
+	Height          int      `json:"height,omitempty"`
+	Format          string   `json:"format,omitempty"`
+	ImageID         int64    `json:"image_id,omitempty"`
+	DistributionRef string   `json:"distribution_ref,omitempty"`
 }
 
 func detectOrientationFromUA(ua string) string {
@@ -142,10 +152,28 @@ func (e *Engine) RandomImage(category string, format string, orientation string,
 func (e *Engine) RandomImageContext(ctx context.Context, category, format, orientation, clientUA string) (*Result, int, error) {
 	e.modeMu.RLock()
 	defer e.modeMu.RUnlock()
-	if e.debugSourceID != 0 {
-		return e.debugImage(ctx, category, format, orientation, clientUA)
+
+	mode := e.modeContext()
+	ctx, cancel := context.WithCancelCause(ctx)
+	stop := context.AfterFunc(mode, func() { cancel(context.Cause(mode)) })
+	defer stop()
+	defer cancel(nil)
+	if cause := context.Cause(mode); cause != nil {
+		return nil, 0, cause
 	}
-	return e.randomImage(ctx, category, format, orientation, clientUA)
+
+	var result *Result
+	var status int
+	var err error
+	if e.debugSourceID != 0 {
+		result, status, err = e.debugImage(ctx, category, format, orientation, clientUA)
+	} else {
+		result, status, err = e.randomImage(ctx, category, format, orientation, clientUA)
+	}
+	if err != nil && errors.Is(context.Cause(mode), ErrDistributionModeChanged) {
+		return nil, 0, ErrDistributionModeChanged
+	}
+	return result, status, err
 }
 
 func (e *Engine) randomImage(parent context.Context, category, format, orientation, clientUA string) (result *Result, code int, err error) {
@@ -165,23 +193,11 @@ func (e *Engine) randomImage(parent context.Context, category, format, orientati
 		return nil, 0, fmt.Errorf("get settings: %w", err)
 	}
 
-	explicitOrientation := orientation != ""
 	queryCats := splitCategory(category)
+	orientation, explicitOrientation := resolveRequestOrientation(queryCats, orientation, clientUA)
 
 	tags, _ := e.store.GetTags()
 	exclSet := exclusiveTagSet(tags)
-
-	if orientation == "" {
-		uaOri := detectOrientationFromUA(clientUA)
-		if uaOri != "" && len(queryCats) == 0 {
-			orientation = uaOri
-		}
-	}
-	if hasCategory(queryCats, "adaptive") && orientation == "" {
-		if uaOri := detectOrientationFromUA(clientUA); uaOri != "" {
-			orientation = uaOri
-		}
-	}
 
 	if settings.ProxyMode && settings.PoolSize > 0 && e.distPool != nil {
 		var poolResult *Result
@@ -838,10 +854,10 @@ func resolveURL(baseURLStr, targetURLStr string) string {
 func (e *Engine) StartDistributionWorker() {
 	time.Sleep(3 * time.Second)
 
-	ticker := time.NewTicker(prefetchInterval)
+	ticker := time.NewTicker(unlimitedPrefetchInterval)
 	defer ticker.Stop()
-	for range ticker.C {
-		e.replenishPool()
+	for tick := range ticker.C {
+		go e.replenishPoolAt(tick)
 	}
 }
 
@@ -850,6 +866,8 @@ func (e *Engine) ReplenishPool() {
 }
 
 func (e *Engine) RemoveSourceFromPool(sourceID int64) {
+	e.replenishMu.Lock()
+	defer e.replenishMu.Unlock()
 	if e.distPool != nil {
 		e.distPool.RemoveBySourceID(sourceID)
 	}
@@ -865,45 +883,73 @@ func (e *Engine) recordCacheHealth(result HealthResult) {
 	}
 }
 
+type prefetchChoice struct {
+	candidates []model.Source
+	tag        string
+}
+
+type prefetchJob struct {
+	source model.Source
+	tag    string
+}
+
+type prefetchBatch struct {
+	mode         context.Context
+	jobs         []prefetchJob
+	timeout      time.Duration
+	tags         []model.Tag
+	reservations map[string]int
+}
+
 func (e *Engine) replenishPool() {
-	if !e.replenishMu.TryLock() {
+	e.replenishPoolAt(time.Now())
+}
+
+func (e *Engine) replenishPoolAt(now time.Time) {
+	batch := e.planPrefetch(now)
+	if batch == nil {
 		return
+	}
+	var inFlight sync.WaitGroup
+	for _, job := range batch.jobs {
+		inFlight.Go(func() { e.runPrefetch(batch, job) })
+	}
+	inFlight.Wait()
+}
+
+func (e *Engine) planPrefetch(now time.Time) *prefetchBatch {
+	// Select and reserve work under one lock. Independent network requests run outside it.
+	e.modeMu.RLock()
+	defer e.modeMu.RUnlock()
+	if e.debugSourceID != 0 || e.debugSwitches.Load() > 0 || !e.replenishMu.TryLock() {
+		return nil
 	}
 	defer e.replenishMu.Unlock()
-	e.modeMu.RLock()
-	if e.debugSourceID != 0 {
-		e.modeMu.RUnlock()
-		return
+
+	if e.distPool == nil || e.imageStore == nil {
+		return nil
 	}
 	settings, err := e.store.GetSettings()
-	if err != nil || !settings.ProxyMode || settings.PoolSize <= 0 || e.distPool == nil {
-		e.modeMu.RUnlock()
-		return
+	if err != nil || !settings.ProxyMode || settings.PoolSize <= 0 {
+		return nil
 	}
 
-	// 淘汰超轮次项
-	maxRounds := int(30 * time.Minute / prefetchInterval)
-	live, err := e.store.GetPooledFileIDSet()
-	if err != nil {
-		live = nil
-	}
-	for _, entry := range e.distPool.Trim(settings.PoolSize, maxRounds, live) {
-		if err := e.store.SetImagePooled(entry.ImageID, false); err != nil {
-			logger.Error("clear expired pool entry %s: %v", entry.FileID, err)
+	if !now.Before(e.nextPrefetchTrim) {
+		e.nextPrefetchTrim = now.Add(prefetchInterval)
+		maxRounds := int(30 * time.Minute / prefetchInterval)
+		live, _ := e.store.GetPooledFileIDSet()
+		for _, entry := range e.distPool.Trim(settings.PoolSize, maxRounds, live) {
+			if err := e.store.SetImagePooled(entry.ImageID, false); err != nil {
+				logger.Error("clear expired pool entry %s: %v", entry.FileID, err)
+			}
 		}
 	}
-	e.modeMu.RUnlock()
 
-	if time.Now().Before(e.nextPrefetch) {
-		return
-	}
 	sources, err := e.store.ListSources()
 	if err != nil {
-		return
+		return nil
 	}
 	tags, _ := e.store.GetTags()
-	stock := e.distPool.CategorySnapshot(tags)
-	reservations := make(map[string]int)
 	sourceCounts := e.distPool.SourceCounts()
 	caps := e.sourceCaps(settings.PoolSize)
 	activeSources := 0
@@ -918,31 +964,38 @@ func (e *Engine) replenishPool() {
 			caps[source.ID] = max(baseCap, caps[source.ID])
 		}
 	}
-
-	// Each round starts at most one upstream attempt, even when it fails.
-	fetch := func(candidates []model.Source, tag string) bool {
-		e.modeMu.RLock()
-		defer e.modeMu.RUnlock()
-		if e.debugSourceID != 0 || e.debugSwitches.Load() > 0 {
-			return true
+	choices, reservations := e.prefetchChoices(sources, tags, settings)
+	var jobs []prefetchJob
+	addJob := func(eligible func(model.Source) bool) {
+		for _, choice := range choices {
+			selected, ok := e.pickPrefetchSource(choice.candidates, sourceCounts, caps, reservations[choice.tag], now, eligible)
+			if !ok {
+				continue
+			}
+			e.reservePrefetchSource(selected, now)
+			jobs = append(jobs, prefetchJob{source: selected, tag: choice.tag})
+			return
 		}
-		previous := e.nextPrefetch
-		res := e.fetchPrefetch(candidates, sourceCounts, caps, reservations[tag])
-		if res != nil {
-			inserted, retired := e.distPool.putPrefetch(poolEntryFromResult(res), settings.PoolSize, tag, reservations, tags)
-			if !inserted {
-				e.store.SetImagePooled(res.ImageID, false)
-			}
-			if retired != nil {
-				e.store.SetImagePooled(retired.ImageID, false)
-			}
-			if inserted && res.cacheHealth != nil {
-				e.recordCacheHealth(*res.cacheHealth)
-			}
-		}
-		return !e.nextPrefetch.Equal(previous)
 	}
+	if !e.ordinaryPrefetchInFlight && !now.Before(e.nextPrefetch) {
+		addJob(func(src model.Source) bool { return !src.PrefetchUnlimited })
+	}
+	for _, source := range sources {
+		if source.Enabled && source.Status != "error" && source.PrefetchUnlimited && !e.prefetchInFlight[source.ID] && !now.Before(e.unlimitedPrefetchPace[source.ID]) {
+			addJob(func(src model.Source) bool { return src.ID == source.ID })
+		}
+	}
+	if len(jobs) == 0 {
+		return nil
+	}
+	return &prefetchBatch{
+		mode: e.modeContext(), jobs: jobs, timeout: time.Duration(settings.Timeout) * time.Millisecond,
+		tags: tags, reservations: reservations,
+	}
+}
 
+func (e *Engine) prefetchChoices(sources []model.Source, tags []model.Tag, settings *model.Settings) ([]prefetchChoice, map[string]int) {
+	stock := e.distPool.CategorySnapshot(tags)
 	type tagStock struct {
 		id         string
 		count      int
@@ -955,6 +1008,8 @@ func (e *Engine) replenishPool() {
 			shelves = append(shelves, tagStock{tag.ID, stock[tag.ID], candidates})
 		}
 	}
+	var choices []prefetchChoice
+	reservations := make(map[string]int)
 	missing := 0
 	if len(shelves) > 0 {
 		reserve := min(prefetchTagReserve, settings.PoolSize/len(shelves))
@@ -972,21 +1027,85 @@ func (e *Engine) replenishPool() {
 				break
 			}
 			missing += reserve - shelf.count
-			if fetch(shelf.candidates, shelf.id) {
-				return
-			}
+			choices = append(choices, prefetchChoice{shelf.candidates, shelf.id})
 		}
 	}
 	if e.distPool.Size()+missing >= settings.PoolSize {
-		return
+		return choices, reservations
 	}
 	plan := ensureBoundTagCoverage(e.demandTracker.GetAllocationPlan(settings.PoolSize, stock), settings.BoundTags, stock)
 	for _, shelf := range shelves {
-		if plan[shelf.id] > 0 && fetch(shelf.candidates, "") {
-			return
+		if plan[shelf.id] > 0 {
+			choices = append(choices, prefetchChoice{candidates: shelf.candidates})
 		}
 	}
-	fetch(excludeExclusiveSources(filterSources(sources, nil, tags), tags), "")
+	choices = append(choices, prefetchChoice{candidates: excludeExclusiveSources(filterSources(sources, nil, tags), tags)})
+	return choices, reservations
+}
+
+func (e *Engine) runPrefetch(batch *prefetchBatch, job prefetchJob) {
+	defer func() {
+		e.replenishMu.Lock()
+		defer e.replenishMu.Unlock()
+		delete(e.prefetchInFlight, job.source.ID)
+		if !job.source.PrefetchUnlimited {
+			e.ordinaryPrefetchInFlight = false
+		}
+	}()
+
+	e.modeMu.RLock()
+	defer e.modeMu.RUnlock()
+	if batch.mode.Err() != nil || e.debugSourceID != 0 || e.debugSwitches.Load() > 0 {
+		return
+	}
+	res, sample := e.fetchPrefetch(batch.mode, job.source, batch.timeout)
+	if sample == nil {
+		return
+	}
+
+	// Serialize admission when multiple fetches finish together.
+	e.replenishMu.Lock()
+	defer e.replenishMu.Unlock()
+	settings, settingsErr := e.store.GetSettings()
+	source, sourceErr := e.store.GetSource(job.source.ID)
+	if batch.mode.Err() != nil || settingsErr != nil || !settings.ProxyMode || settings.PoolSize <= 0 ||
+		sourceErr != nil || !prefetchSourceMatches(*source, job.source) {
+		if res != nil {
+			e.clearPrefetchFlag(res.ImageID)
+		}
+		return
+	}
+	if res == nil {
+		e.recordCacheHealth(*sample)
+		return
+	}
+	inserted, retired := e.distPool.putPrefetch(poolEntryFromResult(res), settings.PoolSize, job.tag, batch.reservations, batch.tags)
+	if !inserted {
+		e.clearPrefetchFlag(res.ImageID)
+	}
+	if retired != nil {
+		e.clearPrefetchFlag(retired.ImageID)
+	}
+	if inserted {
+		e.recordCacheHealth(*sample)
+	}
+}
+
+func prefetchSourceMatches(current, selected model.Source) bool {
+	for _, choice := range filterSources([]model.Source{current}, nil, nil) {
+		if choice.URL == selected.URL && choice.Name == selected.Name && choice.RespType == selected.RespType &&
+			choice.JsonPath == selected.JsonPath && maps.Equal(choice.Headers, selected.Headers) &&
+			slices.Equal(choice.Categories, selected.Categories) {
+			return true
+		}
+	}
+	return false
+}
+
+func (e *Engine) clearPrefetchFlag(id int64) {
+	if err := e.store.SetImagePooled(id, false); err != nil {
+		logger.Error("clear prefetch flag for image %d: %v", id, err)
+	}
 }
 
 // sourceCaps 按源近期被选中热度分配池额度, 并叠加单源封顶 (防源风控)
@@ -1073,6 +1192,8 @@ func maxTime(a, b time.Time) time.Time {
 }
 
 func (e *Engine) pausePrefetch(src model.Source, until time.Time) {
+	e.replenishMu.Lock()
+	defer e.replenishMu.Unlock()
 	if e.prefetchCooldown == nil {
 		e.prefetchCooldown = make(map[string]time.Time)
 	}
@@ -1081,11 +1202,17 @@ func (e *Engine) pausePrefetch(src model.Source, until time.Time) {
 	}
 }
 
-func (e *Engine) fetchPrefetch(candidates []model.Source, sourceCounts, caps map[int64]int, reserve int) *Result {
-	now := time.Now()
+// pickPrefetchSource and reservePrefetchSource run under replenishMu.
+func (e *Engine) pickPrefetchSource(candidates []model.Source, sourceCounts, caps map[int64]int, reserve int, now time.Time, eligible func(model.Source) bool) (model.Source, bool) {
 	var filtered []model.Source
 	for _, src := range candidates {
+		if !eligible(src) || e.prefetchInFlight[src.ID] {
+			continue
+		}
 		if reserve == 0 && sourceCounts[src.ID] >= max(caps[src.ID], minPoolPerSource) {
+			continue
+		}
+		if src.PrefetchUnlimited && now.Before(e.unlimitedPrefetchPace[src.ID]) {
 			continue
 		}
 		cooling := false
@@ -1097,28 +1224,44 @@ func (e *Engine) fetchPrefetch(candidates []model.Source, sourceCounts, caps map
 		}
 	}
 	if len(filtered) == 0 {
-		return nil
+		return model.Source{}, false
+	}
+	return weightedPick(filtered), true
+}
+
+func (e *Engine) reservePrefetchSource(selected model.Source, now time.Time) {
+	if e.prefetchInFlight == nil {
+		e.prefetchInFlight = make(map[int64]bool)
+	}
+	e.prefetchInFlight[selected.ID] = true
+	if selected.PrefetchUnlimited {
+		if e.unlimitedPrefetchPace == nil {
+			e.unlimitedPrefetchPace = make(map[int64]time.Time)
+		}
+		e.unlimitedPrefetchPace[selected.ID] = now.Add(unlimitedPrefetchInterval)
+		return
 	}
 
-	selected := weightedPick(filtered)
-	started := time.Now()
-	e.nextPrefetch = started.Add(prefetchInterval)
+	e.ordinaryPrefetchInFlight = true
+	e.nextPrefetch = now.Add(prefetchInterval)
 	if e.prefetchPace == nil {
 		e.prefetchPace = make(map[string]time.Time)
 	}
 	for _, key := range prefetchKeys(selected) {
-		e.prefetchPace[key] = started.Add(prefetchSourceInterval)
+		e.prefetchPace[key] = now.Add(prefetchSourceInterval)
 	}
-	failed := func(target string, statusCode int, reason string) *Result {
-		e.recordCacheHealth(HealthResult{ID: selected.ID, Name: selected.Name, URL: target, StatusCode: statusCode, LatencyMs: time.Since(started).Milliseconds(), Available: false, Error: "缓存预取失败：" + reason, Reason: "分发池预取", Origin: "cache", CheckedAt: time.Now()})
-		return nil
+}
+
+func (e *Engine) fetchPrefetch(parent context.Context, selected model.Source, timeout time.Duration) (*Result, *HealthResult) {
+	started := time.Now()
+	failed := func(target string, statusCode int, reason string) (*Result, *HealthResult) {
+		if parent.Err() != nil {
+			return nil, nil
+		}
+		return nil, &HealthResult{ID: selected.ID, Name: selected.Name, URL: target, StatusCode: statusCode, LatencyMs: time.Since(started).Milliseconds(), Available: false, Error: "缓存预取失败：" + reason, Reason: "分发池预取", Origin: "cache", CheckedAt: time.Now()}
 	}
 
-	settings, err := e.store.GetSettings()
-	if err != nil {
-		return failed(selected.URL, 0, "读取设置失败："+err.Error())
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(settings.Timeout)*time.Millisecond)
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	req, err := e.newFetchRequest(ctx, selected, "")
 	if err != nil {
@@ -1152,8 +1295,15 @@ func (e *Engine) fetchPrefetch(candidates []model.Source, sourceCounts, caps map
 			srcCats = []string{}
 		}
 		origURL := imageURL
-		cached, cacheErr := e.imageStore.DownloadAndStore(origURL, selected.URL, selected.ID, selected.Name, srcCats, selected.Headers, true)
+		cached, cacheErr := e.imageStore.downloadAndStore(parent, origURL, selected.URL, selected.ID, selected.Name, srcCats, selected.Headers, true)
 		if cacheErr != nil {
+			if errors.Is(cacheErr, errImageBelowMinimum) || parent.Err() != nil {
+				return nil, nil
+			}
+			if errors.Is(cacheErr, errImageCacheStorage) {
+				logger.Error("cache prefetch could not store image from source %d: %v", selected.ID, cacheErr)
+				return nil, nil
+			}
 			status := resp.StatusCode
 			var upstreamErr *imageHTTPError
 			if errors.As(cacheErr, &upstreamErr) {
@@ -1176,8 +1326,7 @@ func (e *Engine) fetchPrefetch(candidates []model.Source, sourceCounts, caps map
 			Height:      cached.Height,
 			Format:      cached.Format,
 			ImageID:     cached.ID,
-			cacheHealth: &HealthResult{ID: selected.ID, Name: selected.Name, URL: origURL, StatusCode: resp.StatusCode, LatencyMs: time.Since(started).Milliseconds(), Available: true, CheckedAt: time.Now(), Origin: "cache", Reason: "分发池预取成功"},
-		}
+		}, &HealthResult{ID: selected.ID, Name: selected.Name, URL: origURL, StatusCode: resp.StatusCode, LatencyMs: time.Since(started).Milliseconds(), Available: true, CheckedAt: time.Now(), Origin: "cache", Reason: "分发池预取成功"}
 	}
 	return failed(imageURL, resp.StatusCode, "图片缓存服务未启用")
 }

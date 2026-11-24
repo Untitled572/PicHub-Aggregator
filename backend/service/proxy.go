@@ -128,20 +128,17 @@ func checkResolution(data []byte, minRes string) (bool, error) {
 		return true, nil
 	}
 
+	return matchesMinimumResolution(cfg, minRes), nil
+}
+
+func matchesMinimumResolution(cfg image.Config, minRes string) bool {
 	parts := strings.Split(minRes, "x")
 	if len(parts) != 2 {
-		return true, nil
+		return true
 	}
 	minW, _ := strconv.Atoi(strings.TrimSpace(parts[0]))
 	minH, _ := strconv.Atoi(strings.TrimSpace(parts[1]))
-
-	if minW > 0 && cfg.Width < minW {
-		return false, nil
-	}
-	if minH > 0 && cfg.Height < minH {
-		return false, nil
-	}
-	return true, nil
+	return (minW <= 0 || cfg.Width >= minW) && (minH <= 0 || cfg.Height >= minH)
 }
 
 func (pc *ProxyCache) getCacheSize() int64 {

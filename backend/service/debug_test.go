@@ -156,86 +156,97 @@ func TestDebugRecordsHistoryWithoutChangingCacheOrPool(t *testing.T) {
 		t.Fatalf("request stats=%d err=%v", total, err)
 	}
 }
-func TestDebugSwitchWaitsForDistribution(t *testing.T) {
-	st := healthTestStore(t)
-	entered, release := make(chan struct{}), make(chan struct{})
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { close(entered); <-release; w.WriteHeader(500) }))
-	defer server.Close()
-	src := addHealthSource(t, st, model.Source{URL: server.URL, Name: "source", Enabled: true, Status: "normal", Weight: 50})
-	e := &Engine{store: st, httpClient: server.Client()}
-	finished := make(chan struct{})
-	go func() { e.RandomImage("", "json", "", ""); close(finished) }()
-	<-entered
-	switched := make(chan struct{})
-	go func() { e.SetDebugSource(src.ID); close(switched) }()
-	select {
-	case <-switched:
-		t.Fatal("switch did not wait")
-	case <-time.After(30 * time.Millisecond):
-	}
-	close(release)
-	<-finished
-	select {
-	case <-switched:
-	case <-time.After(time.Second):
-		t.Fatal("switch stuck")
+func TestDebugSwitchCancelsOldDistribution(t *testing.T) {
+	for _, fromDebug := range []bool{false, true} {
+		name := "normal"
+		if fromDebug {
+			name = "debug"
+		}
+		t.Run(name, func(t *testing.T) {
+			st := healthTestStore(t)
+			entered := make(chan struct{})
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				close(entered)
+				<-r.Context().Done()
+			}))
+			defer upstream.Close()
+			old := addHealthSource(t, st, model.Source{URL: upstream.URL, Name: "old", Enabled: true, Status: "normal", Weight: 50})
+			next := addHealthSource(t, st, model.Source{URL: "https://example.test/image", Name: "next"})
+			e := &Engine{store: st, httpClient: upstream.Client()}
+			if fromDebug {
+				e.SetDebugSource(old.ID)
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			finished := make(chan error, 1)
+			go func() { _, _, err := e.RandomImageContext(ctx, "", "json", "", ""); finished <- err }()
+			select {
+			case <-entered:
+			case <-time.After(2 * time.Second):
+				t.Fatal("distribution did not start")
+			}
+
+			switched := make(chan error, 1)
+			go func() { _, err := e.SetDebugSource(next.ID); switched <- err }()
+			select {
+			case err := <-switched:
+				if err != nil {
+					t.Fatal(err)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("switch waited for the old upstream")
+			}
+			if err := <-finished; !errors.Is(err, ErrDistributionModeChanged) {
+				t.Fatalf("distribution was not canceled by the switch: %v", err)
+			}
+			if state := e.DebugSource(); !state.Enabled || state.Switching || state.SourceID != next.ID {
+				t.Fatalf("wrong committed mode: %+v", state)
+			}
+		})
 	}
 }
 
-func TestDebugSwitchStopsPrefetchAfterCurrentImage(t *testing.T) {
-	st := healthTestStore(t)
+func TestDebugSwitchCancelsPrefetch(t *testing.T) {
+	st, images, _, _ := newTestImageStore(t)
 	settings, err := st.GetSettings()
 	if err != nil {
 		t.Fatal(err)
 	}
 	settings.ProxyMode = true
 	settings.PoolSize = 2
-	settings.MinResolution = "0"
 	if err := st.UpdateSettings(settings); err != nil {
 		t.Fatal(err)
 	}
-	images := NewImageStore(st, t.TempDir(), nil)
-	entered, release := make(chan struct{}), make(chan struct{})
-	var calls atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Query().Get("image") == "" {
-			if calls.Add(1) == 1 {
-				close(entered)
-				<-release
-			}
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]string{"url": "?image=1"})
-			return
-		}
-		w.Header().Set("Content-Type", "image/png")
-		png.Encode(w, image.NewRGBA(image.Rect(0, 0, 4, 2)))
+	entered := make(chan struct{})
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(entered)
+		<-r.Context().Done()
 	}))
-	defer server.Close()
-	horizontal := addHealthSource(t, st, model.Source{Name: "horizontal", URL: server.URL + "/horizontal", Enabled: true, RespType: "json", Categories: []string{"horizontal"}, Weight: 1})
-	addHealthSource(t, st, model.Source{Name: "vertical", URL: server.URL + "/vertical", Enabled: true, RespType: "json", Categories: []string{"vertical"}, Weight: 1})
-	e := &Engine{store: st, imageStore: images, distPool: NewDistributionPool(), demandTracker: NewDemandTracker(), sourceDemand: NewSourceDemandTracker(), httpClient: server.Client()}
+	defer upstream.Close()
+	src := addHealthSource(t, st, model.Source{Name: "horizontal", URL: upstream.URL, Enabled: true, RespType: "json", Categories: []string{"horizontal"}, Weight: 1})
+	e := &Engine{store: st, imageStore: images, distPool: NewDistributionPool(), demandTracker: NewDemandTracker(), sourceDemand: NewSourceDemandTracker(), httpClient: upstream.Client()}
 	finished := make(chan struct{})
 	go func() { defer close(finished); e.replenishPool() }()
 	select {
 	case <-entered:
-	case <-time.After(time.Second):
-		close(release)
+	case <-time.After(2 * time.Second):
 		t.Fatal("prefetch did not start")
 	}
+
 	switched := make(chan error, 1)
-	go func() { _, err := e.SetDebugSource(horizontal.ID); switched <- err }()
-	deadline := time.Now().Add(time.Second)
-	for !e.DebugSource().Switching && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
-	}
-	pending := e.DebugSource().Switching
-	close(release)
-	if err := <-switched; err != nil {
-		t.Fatal(err)
+	go func() { _, err := e.SetDebugSource(src.ID); switched <- err }()
+	select {
+	case err := <-switched:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		upstream.CloseClientConnections()
+		t.Fatal("switch waited for the old prefetch upstream")
 	}
 	<-finished
-	if !pending || calls.Load() != 1 || e.distPool.Size() != 1 || !e.DebugSource().Enabled {
-		t.Fatalf("pending=%t upstream calls=%d pool=%d debug=%+v", pending, calls.Load(), e.distPool.Size(), e.DebugSource())
+	if e.distPool.Size() != 0 || !e.DebugSource().Enabled {
+		t.Fatalf("canceled prefetch changed stock: pool=%d debug=%+v", e.distPool.Size(), e.DebugSource())
 	}
 }
 
@@ -293,8 +304,84 @@ func TestDebugHonorsCategoryBranchesAndOrientation(t *testing.T) {
 			t.Fatalf("category=%s orientation=%s result=%+v err=%v", tc.category, tc.orientation, result, err)
 		}
 	}
-	if calls.Load() != 4 || otherCalls.Load() != 0 {
+	if calls.Load() != 6 || otherCalls.Load() != 0 {
 		t.Fatalf("wrong selection calls=%d other=%d", calls.Load(), otherCalls.Load())
+	}
+}
+
+func TestDebugMobileHorizontalTagRetriesAndReturnsExactImage(t *testing.T) {
+	st := healthTestStore(t)
+	var horizontal bytes.Buffer
+	if err := png.Encode(&horizontal, image.NewRGBA(image.Rect(0, 0, 4, 2))); err != nil {
+		t.Fatal(err)
+	}
+	var requests atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		if requests.Add(1) == 2 {
+			w.Write(horizontal.Bytes())
+			return
+		}
+		png.Encode(w, image.NewRGBA(image.Rect(0, 0, 2, 4)))
+	}))
+	defer upstream.Close()
+
+	src := addHealthSource(t, st, model.Source{Name: "mixed", URL: upstream.URL, Categories: []string{"horizontal"}})
+	e := &Engine{store: st, httpClient: upstream.Client(), distPool: NewDistributionPool()}
+	if _, err := e.SetDebugSource(src.ID); err != nil {
+		t.Fatal(err)
+	}
+	ctx := WithDebugImageResponse(context.Background())
+	result, code, err := e.RandomImageContext(ctx, "horizontal", "json", "", "Android Mobile")
+	if err != nil || code != 200 || result == nil || result.Orientation != "horizontal" || !bytes.Equal(result.ImageData, horizontal.Bytes()) {
+		t.Fatalf("result=%+v code=%d err=%v", result, code, err)
+	}
+	if requests.Load() != 2 || e.distPool.Size() != 0 {
+		t.Fatalf("upstream requests=%d pool=%d", requests.Load(), e.distPool.Size())
+	}
+}
+
+func TestDebugDirectionOnlyCanUseUntaggedOrAdaptiveSource(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		tags []string
+		want bool
+	}{
+		{name: "untagged", want: true},
+		{name: "adaptive", tags: []string{"adaptive"}, want: true},
+		{name: "vertical", tags: []string{"vertical"}},
+		{name: "unrelated", tags: []string{"scenery"}},
+		{name: "exclusive", tags: []string{"r18"}},
+		{name: "adaptive with exclusive", tags: []string{"adaptive", "r18"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := healthTestStore(t)
+			if err := st.UpdateTags([]model.Tag{{ID: "r18", Name: "r18", Exclusive: true}}); err != nil {
+				t.Fatal(err)
+			}
+			var calls atomic.Int32
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls.Add(1)
+				w.Header().Set("Content-Type", "image/png")
+				png.Encode(w, image.NewRGBA(image.Rect(0, 0, 4, 2)))
+			}))
+			defer upstream.Close()
+			src := addHealthSource(t, st, model.Source{Name: "pinned", URL: upstream.URL, Categories: tc.tags})
+			e := &Engine{store: st, httpClient: upstream.Client()}
+			if _, err := e.SetDebugSource(src.ID); err != nil {
+				t.Fatal(err)
+			}
+			result, _, err := e.RandomImage("horizontal", "json", "", "Android Mobile")
+			if !tc.want {
+				if err == nil || calls.Load() != 0 {
+					t.Fatalf("excluded source was called, result=%+v err=%v", result, err)
+				}
+				return
+			}
+			if err != nil || result == nil || result.Orientation != "horizontal" || result.SourceID != src.ID || calls.Load() != 1 {
+				t.Fatalf("direction-only fallback failed: result=%+v err=%v calls=%d", result, err, calls.Load())
+			}
+		})
 	}
 }
 

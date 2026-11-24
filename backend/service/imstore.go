@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	_ "golang.org/x/image/webp"
 	"image"
@@ -78,6 +79,11 @@ type imageHTTPError struct {
 
 func (err *imageHTTPError) Error() string { return fmt.Sprintf("fetch image: HTTP %d", err.status) }
 
+var (
+	errImageBelowMinimum = errors.New("resolution below minimum")
+	errImageCacheStorage = errors.New("store image in local cache")
+)
+
 func (is *ImageStore) DownloadAndStore(imageURL, sourceURL string, sourceID int64, sourceName string, categories []string, headers map[string]string, pooled bool) (*CachedImageInfo, error) {
 	return is.downloadAndStore(context.Background(), imageURL, sourceURL, sourceID, sourceName, categories, headers, pooled)
 }
@@ -111,14 +117,6 @@ func (is *ImageStore) downloadAndStore(ctx context.Context, imageURL, sourceURL 
 		return nil, fmt.Errorf("empty response body")
 	}
 
-	settings, _ := is.store.GetSettings()
-	if settings != nil && settings.MinResolution != "" && settings.MinResolution != "0" {
-		ok, _ := checkResolution(data, settings.MinResolution)
-		if !ok {
-			return nil, fmt.Errorf("resolution below minimum: %s", settings.MinResolution)
-		}
-	}
-
 	cfg, format, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("invalid image: %w", err)
@@ -130,12 +128,17 @@ func (is *ImageStore) downloadAndStore(ctx context.Context, imageURL, sourceURL 
 		return nil, fmt.Errorf("unknown image format")
 	}
 
+	settings, _ := is.store.GetSettings()
+	if settings != nil && !matchesMinimumResolution(cfg, settings.MinResolution) {
+		return nil, fmt.Errorf("%w: %s", errImageBelowMinimum, settings.MinResolution)
+	}
+
 	fileID := generateFileID()
 	ext := getExtension(format, resp.Header.Get("Content-Type"))
 	filename := fileID + ext
 	subDir := filepath.Join(is.cacheDir, fmt.Sprintf("%d", sourceID))
 	if err := os.MkdirAll(subDir, 0755); err != nil {
-		return nil, fmt.Errorf("create image directory: %w", err)
+		return nil, fmt.Errorf("%w: create image directory: %w", errImageCacheStorage, err)
 	}
 	filePath := filepath.Join(subDir, filename)
 
@@ -146,7 +149,7 @@ func (is *ImageStore) downloadAndStore(ctx context.Context, imageURL, sourceURL 
 	}
 	tmpFile, err := os.CreateTemp(subDir, ".pichub-*.tmp")
 	if err != nil {
-		return nil, fmt.Errorf("create temporary image file: %w", err)
+		return nil, fmt.Errorf("%w: create temporary image file: %w", errImageCacheStorage, err)
 	}
 	tmpPath := tmpFile.Name()
 	defer os.Remove(tmpPath)
@@ -156,18 +159,18 @@ func (is *ImageStore) downloadAndStore(ctx context.Context, imageURL, sourceURL 
 	}
 	if err != nil {
 		tmpFile.Close()
-		return nil, fmt.Errorf("write image file: %w", err)
+		return nil, fmt.Errorf("%w: write image file: %w", errImageCacheStorage, err)
 	}
 	if err := tmpFile.Sync(); err != nil {
 		tmpFile.Close()
-		return nil, fmt.Errorf("sync image file: %w", err)
+		return nil, fmt.Errorf("%w: sync image file: %w", errImageCacheStorage, err)
 	}
 	if err := tmpFile.Close(); err != nil {
-		return nil, fmt.Errorf("close image file: %w", err)
+		return nil, fmt.Errorf("%w: close image file: %w", errImageCacheStorage, err)
 	}
 
 	if err := os.Rename(tmpPath, filePath); err != nil {
-		return nil, fmt.Errorf("publish image file: %w", err)
+		return nil, fmt.Errorf("%w: publish image file: %w", errImageCacheStorage, err)
 	}
 
 	orientation := GetOrientation(cfg.Width, cfg.Height)
@@ -175,9 +178,9 @@ func (is *ImageStore) downloadAndStore(ctx context.Context, imageURL, sourceURL 
 	imgID, err := is.store.InsertImage(fileID, imageURL, sourceID, sourceName, cfg.Width, cfg.Height, format, int64(len(data)), catsJSON, orientation, pooled)
 	if err != nil {
 		if removeErr := os.Remove(filePath); removeErr != nil && !os.IsNotExist(removeErr) {
-			return nil, fmt.Errorf("store metadata: %w (remove image file: %v)", err, removeErr)
+			return nil, fmt.Errorf("%w: store metadata: %w (remove image file: %v)", errImageCacheStorage, err, removeErr)
 		}
-		return nil, fmt.Errorf("store metadata: %w", err)
+		return nil, fmt.Errorf("%w: store metadata: %w", errImageCacheStorage, err)
 	}
 
 	protectedLimit := 60

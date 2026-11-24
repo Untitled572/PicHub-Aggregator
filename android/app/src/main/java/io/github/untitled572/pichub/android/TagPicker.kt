@@ -28,7 +28,8 @@ import kotlinx.coroutines.CancellationException
 @Composable
 internal fun TagPicker(model: ViewerModel, dismiss: () -> Unit) {
     var tags by remember { mutableStateOf<List<AppTag>?>(null) }
-    var selected by remember { mutableStateOf(model.draftTags.toSet()) }
+    val initialTags = remember { model.draftTags.toSet() }
+    var selected by remember { mutableStateOf(initialTags) }
     var error by remember { mutableStateOf<String?>(null) }
     var attempt by remember { mutableStateOf(0) }
     LaunchedEffect(attempt) {
@@ -42,8 +43,16 @@ internal fun TagPicker(model: ViewerModel, dismiss: () -> Unit) {
         }
     }
 
+    val saveAndReturn: () -> Unit = {
+        val ids = tags.orEmpty().map { it.id }
+        if (ids.isNotEmpty() && selected != initialTags) {
+            val active = ids.filter { it in selected }
+            model.selectDraftTags(if (active.size == ids.size) active + "__uncategorized__" else active)
+        }
+        dismiss()
+    }
     AlertDialog(
-        onDismissRequest = dismiss,
+        onDismissRequest = saveAndReturn,
         title = { Text("App 取图标签范围") },
         text = {
             val message = error
@@ -71,22 +80,9 @@ internal fun TagPicker(model: ViewerModel, dismiss: () -> Unit) {
         confirmButton = {
             if (error != null) {
                 TextButton(onClick = { attempt += 1 }) { Text("重试") }
-            } else {
-                TextButton(
-                    enabled = tags != null,
-                    onClick = {
-                        val ids = tags.orEmpty().map { it.id }
-                        val active = ids.filter { it in selected }
-                        val saved = if (active.isNotEmpty() && active.size == ids.size) {
-                            active + "__uncategorized__"
-                        } else active
-                        model.selectDraftTags(saved)
-                        dismiss()
-                    }
-                ) { Text("确定") }
             }
         },
-        dismissButton = { TextButton(onClick = dismiss) { Text("取消") } }
+        dismissButton = { TextButton(onClick = saveAndReturn) { Text("返回") } }
     )
 }
 

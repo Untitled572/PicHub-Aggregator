@@ -128,12 +128,18 @@ jobs:
         run: |
           bash ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleRelease \
             -PpichubVersionName="$GITHUB_REF_NAME" -PpichubVersionCode="$GITHUB_RUN_NUMBER"
-      - name: Verify APK signature
+      - name: Verify release APK
         if: steps.signing.outputs.enabled == 'true'
         run: |
           set -euo pipefail
           apk=android/app/build/outputs/apk/release/app-release.apk
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$apk"
+          size=$(stat -c %s "$apk")
+          echo "Signed APK size: $size bytes"
+          if (( size > 5 * 1024 * 1024 )); then
+            echo "::error::The signed universal APK exceeds 5 MiB. Check R8, resource shrinking and DEX compression."
+            exit 1
+          fi
           mkdir -p release
           cp "$apk" release/pichub-android.apk
       - uses: actions/upload-artifact@v4

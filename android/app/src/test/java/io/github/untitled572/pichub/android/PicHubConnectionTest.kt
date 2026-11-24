@@ -25,8 +25,8 @@ class PicHubConnectionTest {
             "http://pichub.local:5721/gallery/e/wallpaper?category=anime&format=raw&orientation=vertical"
         )
         assertEquals(
-            "http://pichub.local:5721/gallery/e/wallpaper?category=anime&format=json&orientation=horizontal",
-            connection.nextImage(PictureDirection.Horizontal).toString()
+            "http://pichub.local:5721/gallery/e/wallpaper?category=anime&format=json",
+            connection.nextImage(connection.pictureDirection(PictureDirection.Horizontal)).toString()
         )
         assertEquals(
             "http://pichub.local:5721/gallery/images/some-file",
@@ -66,6 +66,44 @@ class PicHubConnectionTest {
         val request = selected.nextImage(PictureDirection.Vertical)
         assertEquals("/pic/random", request.encodedPath)
         assertEquals("vertical", request.queryParameter("category"))
+    }
+
+    @Test
+    fun aSingleDirectionTagOverridesTheScreenForThePictureRequest() {
+        val server = PicHubConnection.parse("https://example.org/pic/e/other")
+        fun requested(tags: List<String>, screen: PictureDirection): String? {
+            val selected = PicHubConnection.parse(server.withTags(tags))
+            return selected.nextImage(selected.pictureDirection(screen)).queryParameter("orientation")
+        }
+        assertEquals("horizontal", requested(listOf("horizontal"), PictureDirection.Vertical))
+        assertEquals("vertical", requested(listOf("vertical", "anime"), PictureDirection.Horizontal))
+        assertEquals("horizontal", requested(listOf("adaptive"), PictureDirection.Horizontal))
+    }
+
+    @Test
+    fun mixedDirectionsAndCustomTagsDoNotForceTheScreenDirection() {
+        val server = PicHubConnection.parse("https://example.org/e/wallpaper?orientation=vertical")
+        val tags = listOf(listOf("horizontal", "vertical"), listOf("anime"), listOf("square"))
+        for (tagSet in tags) {
+            val configured = PicHubConnection.parse(server.withTags(tagSet))
+            for (screen in PictureDirection.entries) {
+                val direction = configured.pictureDirection(screen)
+                assertEquals(null, direction)
+                val request = configured.nextImage(direction)
+                assertEquals(null, request.queryParameter("orientation"))
+                assertEquals(tagSet.joinToString(","), request.queryParameter("category"))
+                assertEquals("/e/wallpaper", request.encodedPath)
+            }
+        }
+    }
+
+    @Test
+    fun retryAfterAcceptsSecondsAndHttpDate() {
+        val now = java.time.Instant.parse("2026-11-20T08:00:00Z").toEpochMilli()
+        assertEquals(3_000L, retryAfterMillis("3", now))
+        assertEquals(8_000L, retryAfterMillis("Fri, 20 Nov 2026 08:00:08 GMT", now))
+        assertEquals(0L, retryAfterMillis("Fri, 20 Nov 2026 07:59:58 GMT", now))
+        assertEquals(null, retryAfterMillis("invalid", now))
     }
 
     @Test

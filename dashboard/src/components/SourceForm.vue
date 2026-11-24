@@ -454,7 +454,7 @@ async function handleSave() {
             <input v-model="form.prefetch_unlimited" type="checkbox" class="mt-0.5" />
             <span>
               <span class="block font-medium text-morandi-text">预取不限速</span>
-              <span class="text-[11px] text-morandi-muted">跳过此图源的 10 秒间隔。全局预取节奏和上游退避仍生效。</span>
+              <span class="text-[11px] text-morandi-muted">此图源独立预取，每秒可发起一次。上游限流时仍会暂停。</span>
             </span>
           </label>
 
