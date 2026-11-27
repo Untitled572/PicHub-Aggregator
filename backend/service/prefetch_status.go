@@ -37,11 +37,18 @@ type PrefetchSourceStock struct {
 	PrefetchStock
 }
 
+type PrefetchRefill struct {
+	ImageID    int64     `json:"image_id"`
+	SourceName string    `json:"source_name"`
+	AddedAt    time.Time `json:"added_at"`
+}
+
 type PrefetchStatus struct {
-	Enabled   bool      `json:"enabled"`
-	Paused    bool      `json:"paused"`
-	Target    int       `json:"target"`
-	CheckedAt time.Time `json:"checked_at"`
+	Enabled    bool            `json:"enabled"`
+	Paused     bool            `json:"paused"`
+	Target     int             `json:"target"`
+	CheckedAt  time.Time       `json:"checked_at"`
+	LastRefill *PrefetchRefill `json:"last_refill,omitempty"`
 	PrefetchStock
 	ByTag    []PrefetchTagStock    `json:"by_tag"`
 	BySource []PrefetchSourceStock `json:"by_source"`
@@ -53,10 +60,11 @@ func (e *Engine) PrefetchStatus() (PrefetchStatus, error) {
 		return PrefetchStatus{}, err
 	}
 	debug := e.DebugSource()
+	lastRefill := e.lastPrefetch.Load()
 	status := PrefetchStatus{
 		Enabled: settings.ProxyMode && settings.PoolSize > 0 && e.distPool != nil,
 		Paused:  debug.Enabled || debug.Switching,
-		Target:  settings.PoolSize, CheckedAt: time.Now(),
+		Target:  settings.PoolSize, CheckedAt: time.Now(), LastRefill: lastRefill,
 		ByTag: []PrefetchTagStock{}, BySource: []PrefetchSourceStock{},
 	}
 	if e.distPool == nil {

@@ -49,6 +49,7 @@ type Engine struct {
 	replenishMu  sync.Mutex
 	// Only accessed under replenishMu.
 	nextPrefetch             time.Time
+	lastPrefetch             atomic.Pointer[PrefetchRefill]
 	ordinaryPrefetchInFlight bool
 	prefetchInFlight         map[int64]bool
 	unlimitedPrefetchPace    map[int64]time.Time
@@ -1067,6 +1068,7 @@ func (e *Engine) runPrefetch(batch *prefetchBatch, source model.Source) {
 		return
 	}
 	e.distPool.Push(poolEntryFromResult(res))
+	e.lastPrefetch.Store(&PrefetchRefill{ImageID: res.ImageID, SourceName: res.SourceName, AddedAt: time.Now()})
 	e.recordCacheHealth(*sample)
 }
 

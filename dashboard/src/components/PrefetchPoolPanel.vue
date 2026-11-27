@@ -1,38 +1,42 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue'
-import { Layers, RefreshCw } from 'lucide-vue-next'
+import { Layers } from 'lucide-vue-next'
 import { useApi } from '../composables/useApi'
-import type { PrefetchStatus } from '../types'
+import type { PrefetchRefill, PrefetchStatus } from '../types'
 
 const { getPrefetchStatus } = useApi()
 const pool = ref<PrefetchStatus>()
-const loading = ref(false)
+const lastRefill = ref<PrefetchRefill>()
+let hideRefill: ReturnType<typeof setTimeout> | undefined
 const error = ref('')
 let timer: ReturnType<typeof setInterval> | undefined
 let request: AbortController | undefined
 
-async function loadPool(manual = false) {
-  if (document.hidden) return
-  if (request) {
-    if (manual) loading.value = true
-    return
+function showLatestRefill(status: PrefetchStatus) {
+  clearTimeout(hideRefill)
+  const refill = status.last_refill
+  const remaining = refill && 20_000 - (Date.parse(status.checked_at) - Date.parse(refill.added_at))
+  lastRefill.value = remaining && remaining > 0 ? refill : undefined
+  if (remaining && remaining > 0) {
+    hideRefill = setTimeout(() => { lastRefill.value = undefined }, remaining)
   }
+}
+
+async function loadPool() {
+  if (document.hidden || request) return
   const controller = new AbortController()
   request = controller
-  if (manual) loading.value = true
   try {
     const status = await getPrefetchStatus(controller.signal)
     if (!controller.signal.aborted) {
       pool.value = status
+      showLatestRefill(status)
       error.value = ''
     }
   } catch (err) {
     if (!controller.signal.aborted) error.value = err instanceof Error ? err.message : '无法读取预取池状态'
   } finally {
-    if (request === controller) {
-      request = undefined
-      loading.value = false
-    }
+    if (request === controller) request = undefined
   }
 }
 
@@ -40,7 +44,6 @@ function stopRefresh() {
   clearInterval(timer)
   request?.abort()
   request = undefined
-  loading.value = false
 }
 
 function updateRefresh() {
@@ -57,6 +60,7 @@ onMounted(() => {
 })
 onUnmounted(() => {
   document.removeEventListener('visibilitychange', updateRefresh)
+  clearTimeout(hideRefill)
   stopRefresh()
 })
 </script>
@@ -73,15 +77,15 @@ onUnmounted(() => {
           <time :datetime="pool.checked_at">{{ new Date(pool.checked_at).toLocaleTimeString() }}</time>
         </p>
       </div>
-      <button
-        type="button"
-        class="flex items-center gap-1.5 px-3 py-2 border border-morandi-borderSoft rounded-lg text-xs hover:bg-morandi-hover disabled:opacity-50"
-        :disabled="loading"
-        @click="loadPool(true)"
-      >
-        <RefreshCw class="w-3.5 h-3.5" :class="{ 'animate-spin': loading }" />
-        {{ loading ? '读取中…' : '刷新库存' }}
-      </button>
+      <div v-if="lastRefill" class="grid min-w-0 overflow-hidden text-xs leading-5 text-morandi-muted" aria-live="polite">
+        <Transition name="pool-refill">
+          <span
+            :key="lastRefill.image_id"
+            class="col-start-1 row-start-1 truncate"
+            :title="lastRefill.source_name"
+          >刚补池：{{ lastRefill.source_name }}</span>
+        </Transition>
+      </div>
     </div>
 
     <p v-if="error" role="alert" class="text-xs text-rose-700">{{ error }}</p>
@@ -132,3 +136,23 @@ onUnmounted(() => {
     </template>
   </section>
 </template>
+
+
+<style scoped>
+.pool-refill-enter-active,
+.pool-refill-leave-active {
+  transition: transform 180ms ease-out;
+}
+.pool-refill-enter-from {
+  transform: translateY(100%);
+}
+.pool-refill-leave-to {
+  transform: translateY(-100%);
+}
+@media (prefers-reduced-motion: reduce) {
+  .pool-refill-enter-active,
+  .pool-refill-leave-active {
+    transition: none;
+  }
+}
+</style>

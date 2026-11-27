@@ -199,7 +199,14 @@ export interface PrefetchStock {
   square: number
 }
 
+export interface PrefetchRefill {
+  image_id: number
+  source_name: string
+  added_at: string
+}
+
 export interface PrefetchStatus extends PrefetchStock {
+  last_refill?: PrefetchRefill
   enabled: boolean
   paused: boolean
   target: number

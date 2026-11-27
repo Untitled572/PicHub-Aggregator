@@ -161,6 +161,10 @@ func TestFullPrefetchPoolKeepsExistingStock(t *testing.T) {
 		e.distPool.Push(&PoolEntry{FileID: img.FileID, ImageID: img.ID, SourceID: hot.ID, Categories: hot.Categories})
 	}
 	e.replenishPool()
+	status, err := e.PrefetchStatus()
+	if err != nil || status.LastRefill != nil {
+		t.Fatalf("a full pool should not report a new refill: %+v, err=%v", status.LastRefill, err)
+	}
 	counts := e.distPool.SourceCounts()
 	if counts[quiet.ID] != 0 || counts[hot.ID] != 120 {
 		t.Fatalf("full pool replaced existing inventory: %v", counts)
@@ -176,6 +180,16 @@ func TestFullPrefetchPoolKeepsExistingStock(t *testing.T) {
 	counts = e.distPool.SourceCounts()
 	if counts[quiet.ID] != 1 || counts[hot.ID] != 119 {
 		t.Fatalf("free slot should go to the underfilled tag: %v", counts)
+	}
+	result, _, err = e.RandomImage("quiet", "json", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, err = e.PrefetchStatus()
+	refill := status.LastRefill
+	if err != nil || refill == nil || refill.SourceName != quiet.Name || refill.ImageID != result.ImageID ||
+		refill.AddedAt.IsZero() || refill.AddedAt.After(status.CheckedAt) {
+		t.Fatalf("last refill should identify the successfully admitted photo after it is served: %+v, err=%v", refill, err)
 	}
 }
 
