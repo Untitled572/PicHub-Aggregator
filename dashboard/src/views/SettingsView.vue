@@ -1,11 +1,12 @@
 <script setup lang="ts">
 declare const __APP_VERSION__: string
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useLocalStorage } from '@vueuse/core'
 import { useApi, setAuthToken } from '../composables/useApi'
 import type { Settings } from '../types'
 import AndroidAppKey from '../components/AndroidAppKey.vue'
+import CuratorFeedbackSettings from '../components/CuratorFeedbackSettings.vue'
 
 const appVersion = __APP_VERSION__
 import {
@@ -66,6 +67,12 @@ const saved = ref(false)
 
 // 标签页: 记忆上次打开的 Tab
 const activeTab = useLocalStorage('settings-active-tab', 'network')
+const curatorSettings = ref<InstanceType<typeof CuratorFeedbackSettings>>()
+const showCuratorSettings = ref(activeTab.value === 'security')
+watch(activeTab, tab => {
+  if (tab === 'security') showCuratorSettings.value = true
+})
+
 const tabs = [
   { id: 'network', label: '网络与代理', icon: Globe },
   { id: 'cache', label: '本地缓存', icon: HardDrive },
@@ -96,10 +103,15 @@ async function handleSave() {
       setAuthToken(updated.admin_token)
     }
     settings.value.admin_password = ''
+    if (await curatorSettings.value?.save() === false) {
+      activeTab.value = 'security'
+      return
+    }
     saved.value = true
     setTimeout(() => saved.value = false, 3000)
-  } catch {}
-  saving.value = false
+  } catch {} finally {
+    saving.value = false
+  }
 }
 </script>
 
@@ -126,7 +138,7 @@ async function handleSave() {
 
         <button
           @click="handleSave"
-          :disabled="saving"
+          :disabled="saving || curatorSettings?.busy"
           class="flex items-center gap-2 px-5 py-2.5 bg-morandi-sage hover:bg-morandi-sage-dark text-white rounded-xl text-xs font-semibold shadow-xs transition-all disabled:opacity-50 cursor-pointer active:scale-95"
         >
           <Save class="w-4 h-4" />
@@ -461,6 +473,7 @@ async function handleSave() {
       </div>
 
       <AndroidAppKey v-if="activeTab === 'security'" />
+      <CuratorFeedbackSettings v-if="showCuratorSettings" ref="curatorSettings" :saving="saving" />
 
       <!-- Admin Token (兼容通道) -->
       <div class="p-4 bg-morandi-bg/60 border border-morandi-borderSoft rounded-2xl">

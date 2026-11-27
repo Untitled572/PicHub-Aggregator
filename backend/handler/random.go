@@ -13,6 +13,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/pichub/backend/service"
+	"github.com/pichub/backend/store"
 )
 
 // RandomImage GET /random 随机分发图片
@@ -117,7 +118,12 @@ func (h *Handler) serveRandom(c *gin.Context, category string) {
 	}
 
 	if format == "json" {
-		c.JSON(http.StatusOK, result)
+		vote, supported := h.feedbackForResult(result)
+		c.JSON(http.StatusOK, struct {
+			*service.Result
+			Feedback          string `json:"feedback"`
+			FeedbackSupported bool   `json:"feedback_supported"`
+		}{result, store.FeedbackValue(vote), supported})
 		return
 	}
 

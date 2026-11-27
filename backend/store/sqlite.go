@@ -80,6 +80,7 @@ func (s *Store) migrate() error {
 			key TEXT PRIMARY KEY,
 			value TEXT NOT NULL
 		)`,
+		curatorFeedbackConfigSchema,
 		`CREATE TABLE IF NOT EXISTS stats_requests (
 			date TEXT PRIMARY KEY,
 			count INTEGER DEFAULT 0
@@ -120,6 +121,12 @@ func (s *Store) migrate() error {
 			saved_at DATETIME DEFAULT NULL,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
+		`CREATE TABLE IF NOT EXISTS curator_image_identities (
+			image_id INTEGER PRIMARY KEY,
+			origin TEXT NOT NULL,
+			illust_id TEXT NOT NULL,
+			page_index INTEGER
+		)`,
 		`CREATE TABLE IF NOT EXISTS app_feedback_receipts (
 			request_id TEXT PRIMARY KEY,
 			image_id INTEGER NOT NULL,
@@ -127,6 +134,10 @@ func (s *Store) migrate() error {
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_app_feedback_created_at ON app_feedback_receipts (created_at)`,
+		`CREATE TABLE IF NOT EXISTS curator_feedback_votes (
+			origin TEXT NOT NULL, illust_id TEXT NOT NULL, page_index INTEGER NOT NULL, vote INTEGER NOT NULL,
+			PRIMARY KEY(origin,illust_id,page_index)
+		)`,
 		`CREATE TABLE IF NOT EXISTS endpoints (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			name TEXT NOT NULL UNIQUE,
@@ -598,18 +609,41 @@ func (s *Store) RecordDistribution(queryCats []string, src model.Source, imageUR
 }
 
 func (s *Store) InsertImage(fileID, originalURL string, sourceID int64, sourceName string, width, height int, format string, fileSize int64, categories string, orientation string, pooled bool) (int64, error) {
+	return s.InsertImageWithCuratorIdentity(fileID, originalURL, sourceID, sourceName, width, height, format, fileSize, categories, orientation, pooled, nil)
+}
+
+func (s *Store) InsertImageWithCuratorIdentity(fileID, originalURL string, sourceID int64, sourceName string, width, height int, format string, fileSize int64, categories string, orientation string, pooled bool, identity *CuratorImageIdentity) (int64, error) {
+	exec := s.db.Exec
+	var tx *sql.Tx
+	if identity != nil {
+		var err error
+		tx, err = s.db.Begin()
+		if err != nil {
+			return 0, err
+		}
+		defer tx.Rollback()
+		exec = tx.Exec
+	}
 	pooledInt := 0
 	if pooled {
 		pooledInt = 1
 	}
-	result, err := s.db.Exec(
+	result, err := exec(
 		"INSERT INTO images (file_id, original_url, source_id, source_name, width, height, format, file_size, categories, orientation, pooled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		fileID, originalURL, sourceID, sourceName, width, height, format, fileSize, categories, orientation, pooledInt,
 	)
 	if err != nil {
 		return 0, err
 	}
-	return result.LastInsertId()
+	imageID, err := result.LastInsertId()
+	if err != nil || tx == nil {
+		return imageID, err
+	}
+	if _, err := tx.Exec("INSERT INTO curator_image_identities (image_id, origin, illust_id, page_index) VALUES (?, ?, ?, ?)",
+		imageID, identity.Origin, identity.IllustID, identity.PageIndex); err != nil {
+		return 0, err
+	}
+	return imageID, tx.Commit()
 }
 
 // SetImagePooled 标记图片是否处于"未分发预取池"状态 (分发命中时置 0)
@@ -935,14 +969,22 @@ func (s *Store) notifyHistoryChanged() {
 }
 
 func (s *Store) GetImageHistory(limit, offset int) ([]model.ImageHistoryRecord, int, error) {
+	config, err := s.GetCuratorFeedbackConfig()
+	if err != nil {
+		return nil, 0, err
+	}
 	var total int
 	s.db.QueryRow("SELECT COUNT(*) FROM image_history").Scan(&total)
 
 	query := `
 		SELECT h.id, h.image_url, h.source_id, h.source_name, h.categories, h.created_at, COALESCE(h.image_id,0), COALESCE(h.file_id,''),
-		       COALESCE(img.is_saved, 0), h.app_feedback, img.id IS NOT NULL
+		       COALESCE(img.is_saved, 0), h.app_feedback, img.id IS NOT NULL,
+		       COALESCE(src.url,''), COALESCE(ci.origin,''), COALESCE(ci.illust_id,''), ci.page_index, COALESCE(cv.vote,0)
 		FROM image_history h
 		LEFT JOIN images img ON (h.file_id != '' AND h.file_id = img.file_id) OR (COALESCE(h.file_id, '') = '' AND h.image_id > 0 AND h.image_id = img.id)
+		LEFT JOIN sources src ON src.id=h.source_id
+		LEFT JOIN curator_image_identities ci ON ci.image_id=h.image_id
+		LEFT JOIN curator_feedback_votes cv ON cv.origin=ci.origin AND cv.illust_id=ci.illust_id AND cv.page_index=ci.page_index
 		ORDER BY h.id DESC LIMIT ? OFFSET ?`
 	rows, err := s.db.Query(query, limit, offset)
 	if err != nil {
@@ -954,11 +996,22 @@ func (s *Store) GetImageHistory(limit, offset int) ([]model.ImageHistoryRecord, 
 	for rows.Next() {
 		var r model.ImageHistoryRecord
 		var createdAt string
-		var isSaved int
-		if err := rows.Scan(&r.ID, &r.ImageURL, &r.SourceID, &r.SourceName, &r.Categories, &createdAt, &r.ImageID, &r.FileID, &isSaved, &r.AppFeedback, &r.ImageAvailable); err != nil {
+		var isSaved, curatorVote int
+		var sourceURL string
+		var identity CuratorImageIdentity
+		if err := rows.Scan(&r.ID, &r.ImageURL, &r.SourceID, &r.SourceName, &r.Categories, &createdAt, &r.ImageID, &r.FileID, &isSaved, &r.AppFeedback, &r.ImageAvailable, &sourceURL, &identity.Origin, &identity.IllustID, &identity.PageIndex, &curatorVote); err != nil {
 			return nil, 0, err
 		}
 		r.IsSaved = isSaved > 0
+		var linked *CuratorImageIdentity
+		if identity.Origin != "" {
+			linked = &identity
+		}
+		r.FeedbackTarget, r.FeedbackSupported = FeedbackSupport(config, sourceURL, linked)
+		if r.FeedbackTarget == "curator" {
+			r.AppFeedback = curatorVote
+		}
+		r.Feedback = FeedbackValue(r.AppFeedback)
 		parsedTime, err := time.Parse("2006-01-02 15:04:05", createdAt)
 		if err != nil {
 			parsedTime, err = time.Parse(time.RFC3339, createdAt)

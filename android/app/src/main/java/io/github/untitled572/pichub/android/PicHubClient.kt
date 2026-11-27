@@ -47,7 +47,9 @@ internal data class Picture(
     val original: File,
     val bitmap: Bitmap,
     val mimeType: String,
-    val details: PictureDetails
+    val details: PictureDetails,
+    val feedback: Vote? = null,
+    val feedbackSupported: Boolean = true
 )
 
 internal data class PictureDetails(
@@ -67,14 +69,20 @@ private data class PictureResponse(
     val id: Long? = null,
     val distributionRef: String? = null,
     val source: String? = null,
-    val categories: List<String> = emptyList()
+    val categories: List<String> = emptyList(),
+    val feedback: Vote? = null,
+    val feedbackSupported: Boolean = true
 )
 
 internal data class AppTag(val id: String, val name: String)
 
 internal enum class Vote(val parameter: String) {
     Like("like"),
-    Dislike("dislike")
+    Dislike("dislike");
+
+    companion object {
+        fun fromWire(value: String?): Vote? = entries.firstOrNull { it.parameter == value }
+    }
 }
 
 internal class PicHubClient {
@@ -156,7 +164,9 @@ internal class PicHubClient {
                 id = json.optLong("image_id").takeIf { it > 0 },
                 distributionRef = json.optString("distribution_ref", "").takeIf { it.isNotBlank() },
                 source = (json.opt("source") as? String)?.trim()?.takeIf { it.isNotEmpty() },
-                categories = json.optJSONArray("categories").strings()
+                categories = json.optJSONArray("categories").strings(),
+                feedback = Vote.fromWire(json.optString("feedback")),
+                feedbackSupported = json.optBoolean("feedback_supported", true)
             )
         } catch (_: org.json.JSONException) {
             throw PicHubException("服务器返回的图片信息无效")
@@ -204,6 +214,8 @@ internal class PicHubClient {
             original = file,
             bitmap = bitmap,
             mimeType = mime,
+            feedback = metadata.feedback,
+            feedbackSupported = metadata.feedbackSupported,
             details = PictureDetails(
                 source = metadata.source,
                 categories = metadata.categories,
@@ -250,7 +262,7 @@ internal class PicHubClient {
         requestId: String,
         distributionRef: String?,
         vote: Vote?
-    ) =
+    ): Vote? =
         withContext(Dispatchers.IO) {
             val url = connection.api("feedback")
             val body = JSONObject()
@@ -260,9 +272,21 @@ internal class PicHubClient {
                 .put("vote", vote?.parameter ?: "none")
                 .toString()
                 .toRequestBody("application/json".toMediaType())
-            val request = Request.Builder().url(url).header("Authorization", "Bearer $key").post(body).build()
+            val request = Request.Builder().url(url)
+                .header("Authorization", "Bearer $key")
+                .header("Accept", "application/json")
+                .post(body).build()
             client(connection, url).newCall(request).withResponse { response ->
-                if (response.code != 204) throw feedbackError(response.code)
+                if (response.code == 204) return@withResponse vote
+                val payload = runCatching {
+                    response.body?.source()?.readUtf8AtMost(4096)?.let(::JSONObject)
+                }.getOrNull()
+                if (response.code != 200) throw feedbackError(response.code, payload?.optString("error"))
+                when (val value = payload?.optString("vote")) {
+                    "none" -> null
+                    "like", "dislike" -> Vote.fromWire(value)
+                    else -> throw PicHubException("服务器没有确认反馈状态，请重试")
+                }
             }
         }
 
@@ -370,14 +394,22 @@ internal class PicHubClient {
         return PictureFailure(message, retryDelay)
     }
 
-    private fun feedbackError(code: Int): PicHubException = PicHubException(when (code) {
-        401 -> "App 密钥无效或已撤销"
-        404 -> "当前服务版本没有安卓赞踩接口"
-        409 -> "这次反馈已提交，请刷新后继续"
-        410 -> "当前图片的服务端缓存已过期，请刷新后再反馈"
-        429 -> "反馈太频繁，请稍后重试"
-        else -> "反馈请求失败（HTTP $code）"
-    })
+    private fun feedbackError(code: Int, error: String? = null): PicHubException {
+        val message = when (error) {
+            "feedback_unavailable" -> "这张图片暂不支持反馈"
+            "curator_page_gone" -> "这张图片已不在 Curator 的目录中"
+            "curator_feedback_failed" -> "未确认 Curator 已保存反馈，请重试"
+            else -> when (code) {
+                401 -> "App 密钥无效或已撤销"
+                404 -> "当前服务版本没有安卓赞踩接口"
+                409 -> "这次反馈已提交，请刷新后继续"
+                410 -> "当前图片的服务端缓存已过期，请刷新后再反馈"
+                429 -> "反馈太频繁，请稍后重试"
+                else -> "反馈请求失败（HTTP $code）"
+            }
+        }
+        return PicHubException(message)
+    }
 }
 
 private class PictureFailure(message: String, val retryDelay: Long? = null) : Exception(message)

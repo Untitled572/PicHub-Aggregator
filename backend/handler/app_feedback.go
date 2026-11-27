@@ -31,6 +31,12 @@ func appFeedbackError(c *gin.Context, err error) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_app_key"})
 	case errors.Is(err, store.ErrFeedbackConflict):
 		c.JSON(http.StatusConflict, gin.H{"error": "request_id_conflict"})
+	case errors.Is(err, store.ErrFeedbackUnavailable):
+		c.JSON(http.StatusConflict, gin.H{"error": "feedback_unavailable"})
+	case errors.Is(err, errCuratorPageGone):
+		c.JSON(http.StatusGone, gin.H{"error": "curator_page_gone"})
+	case errors.Is(err, errCuratorFeedback):
+		c.JSON(http.StatusBadGateway, gin.H{"error": "curator_feedback_failed"})
 	case errors.Is(err, store.ErrFeedbackImageGone):
 		c.JSON(http.StatusGone, gin.H{"error": "feedback_image_expired"})
 	default:
@@ -147,23 +153,23 @@ func (h *Handler) AppFeedback(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_distribution_ref"})
 		return
 	}
-	var delta int
-	switch input.Vote {
-	case "like":
-		delta = 1
-	case "dislike":
-		delta = -1
-	case "none":
-		if input.Ref == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "distribution_ref_required"})
-			return
-		}
-	default:
+	vote, ok := parseFeedbackVote(input.Vote)
+	if !ok {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_vote"})
 		return
 	}
-	if err := h.store.RecordAppFeedback(key, input.RequestID, input.ImageID, delta, input.Ref); err != nil {
+	if vote == 0 && input.Ref == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "distribution_ref_required"})
+		return
+	}
+	current, err := h.applyFeedback(c.Request.Context(), key, input.RequestID, 0, input.ImageID, input.Ref, vote)
+	if err != nil {
 		appFeedbackError(c, err)
+		return
+	}
+	// Published App versions treat any success other than 204 as an error.
+	if input.Ref != "" && c.GetHeader("Accept") == "application/json" {
+		c.JSON(http.StatusOK, gin.H{"vote": store.FeedbackValue(current)})
 		return
 	}
 	c.Status(http.StatusNoContent)

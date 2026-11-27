@@ -136,6 +136,8 @@ export interface StatsResponse {
 }
 
 
+export type FeedbackVote = 'like' | 'dislike' | 'none'
+
 export interface ImageHistoryRecord {
   id: number
   image_url: string
@@ -148,6 +150,9 @@ export interface ImageHistoryRecord {
   is_saved?: boolean
   image_available?: boolean
   app_feedback?: -1 | 1
+  feedback?: FeedbackVote
+  feedback_supported?: boolean
+  feedback_target?: 'curator' | 'source'
 }
 
 
@@ -191,6 +196,12 @@ export interface ImportResult {
   imported: number
 }
 
+
+export interface CuratorFeedbackSettings {
+  enabled: boolean
+  address: string
+  token_configured: boolean
+}
 
 export interface PrefetchStock {
   count: number

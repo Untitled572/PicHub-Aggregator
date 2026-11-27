@@ -22,7 +22,7 @@ internal data class DisplayedPicture(
     val picture: Picture,
     val requestId: String = UUID.randomUUID().toString(),
     val pendingVote: PendingVote? = null,
-    val acceptedVote: Vote? = null,
+    val acceptedVote: Vote? = picture.feedback,
     val saved: Boolean = false
 )
 
@@ -232,7 +232,9 @@ internal class ViewerModel(application: Application) : AndroidViewModel(applicat
 
     fun canVote(vote: Vote): Boolean {
         val shown = picture ?: return false
-        if (!feedbackEnabled || voting || shown.picture.id == null || displayedScope != pictureRequest()?.url) return false
+        if (!feedbackEnabled || voting || !shown.picture.feedbackSupported || shown.picture.id == null ||
+            displayedScope != pictureRequest()?.url
+        ) return false
         if (shown.picture.distributionRef == null && shown.acceptedVote != null) return false
         return shown.pendingVote == null || shown.pendingVote.button == vote
     }
@@ -249,8 +251,8 @@ internal class ViewerModel(application: Application) : AndroidViewModel(applicat
         voting = true
         voteJob = viewModelScope.launch {
             try {
-                client.submit(server, connectedKey, imageId, pending.requestId, shown.picture.distributionRef, pending.desired)
-                updatePicture(shown.requestId) { it.copy(pendingVote = null, acceptedVote = pending.desired) }
+                val accepted = client.submit(server, connectedKey, imageId, pending.requestId, shown.picture.distributionRef, pending.desired)
+                updatePicture(shown.requestId) { it.copy(pendingVote = null, acceptedVote = accepted) }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {

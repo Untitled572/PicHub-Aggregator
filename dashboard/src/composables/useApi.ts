@@ -1,7 +1,7 @@
-import type { PrefetchStatus } from '../types'
+import type { CuratorFeedbackSettings, PrefetchStatus } from '../types'
 import { ref } from 'vue'
 import CryptoJS from 'crypto-js'
-import type { Source, Settings, DetectResult, ExportData, ImportResult, HealthResult, Tag, StatsResponse, ImageHistoryRecord, SavedImage, Endpoint, SourceDebugState } from '../types'
+import type { Source, Settings, DetectResult, ExportData, ImportResult, HealthResult, Tag, StatsResponse, ImageHistoryRecord, SavedImage, Endpoint, SourceDebugState, FeedbackVote } from '../types'
 
 
 const API_BASE = ''
@@ -155,6 +155,18 @@ export function useApi() {
     return request<Settings>('/api/settings', { method: 'PUT', body: JSON.stringify(payload) })
   }
 
+  function getCuratorFeedbackSettings() {
+    return request<CuratorFeedbackSettings>('/api/settings/curator-feedback')
+  }
+
+  function updateCuratorFeedbackSettings(data: { enabled: boolean; address: string; token: string }) {
+    return request<CuratorFeedbackSettings>('/api/settings/curator-feedback', { method: 'PUT', body: JSON.stringify(data) })
+  }
+
+  function testCuratorFeedbackConnection(data: { address: string; token?: string }) {
+    return request<{ ok: boolean }>('/api/settings/curator-feedback/test', { method: 'POST', body: JSON.stringify(data) })
+  }
+
   function getTags() {
     return request<Tag[]>('/api/tags')
   }
@@ -249,14 +261,12 @@ export function useApi() {
     return request<void>('/api/app-key', { method: 'DELETE' })
   }
 
-  function likeImage(id: number | string) {
-    return request<{ message: string }>(`/api/images/${id}/like`, { method: 'POST' })
+  function updateHistoryFeedback(id: number, vote: FeedbackVote, requestID: string) {
+    return request<{ vote: FeedbackVote }>(`/api/stats/history/${id}/feedback`, {
+      method: 'PUT',
+      body: JSON.stringify({ vote, request_id: requestID })
+    })
   }
-
-  function dislikeImage(id: number | string) {
-    return request<{ message: string }>(`/api/images/${id}/dislike`, { method: 'POST' })
-  }
-
 
   function listSavedImages(limit = 20, offset = 0) {
     return request<{ images: SavedImage[]; total: number; limit: number; offset: number }>(`/api/images/saved?limit=${limit}&offset=${offset}`)
@@ -290,12 +300,12 @@ export function useApi() {
     login, logout, checkAuth,
     listSources, getSource, createSource, updateSource, deleteSource, toggleSource,
     getSourceDebug, enableSourceDebug, disableSourceDebug,
-    getSettings, updateSettings, getTags, updateTags,
+    getSettings, updateSettings, getCuratorFeedbackSettings, updateCuratorFeedbackSettings, testCuratorFeedbackConnection, getTags, updateTags,
     listEndpoints, createEndpoint, updateEndpoint, deleteEndpoint, toggleEndpoint,
     detectURL, healthCheck, healthCheckSource, getHealthStatus, getPrefetchStatus,
     exportRules, importRules, exportCustomData, importCustomData,
-    getStats, getImageHistory,
-    saveImage, unsaveImage, likeImage, dislikeImage, listSavedImages,
+    getStats, getImageHistory, updateHistoryFeedback,
+    saveImage, unsaveImage, listSavedImages,
     getAppKeyState, generateAppKey, revokeAppKey,
   }
 }

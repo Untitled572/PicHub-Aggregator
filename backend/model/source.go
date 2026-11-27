@@ -69,17 +69,20 @@ type SourceStat struct {
 }
 
 type ImageHistoryRecord struct {
-	ID             int64     `json:"id"`
-	ImageURL       string    `json:"image_url"`
-	SourceID       int64     `json:"source_id"`
-	SourceName     string    `json:"source_name"`
-	Categories     string    `json:"categories"`
-	CreatedAt      time.Time `json:"created_at"`
-	ImageID        int64     `json:"image_id,omitempty"`
-	FileID         string    `json:"file_id,omitempty"`
-	IsSaved        bool      `json:"is_saved"`
-	ImageAvailable bool      `json:"image_available"`
-	AppFeedback    int       `json:"app_feedback,omitempty"`
+	ID                int64     `json:"id"`
+	ImageURL          string    `json:"image_url"`
+	SourceID          int64     `json:"source_id"`
+	SourceName        string    `json:"source_name"`
+	Categories        string    `json:"categories"`
+	CreatedAt         time.Time `json:"created_at"`
+	ImageID           int64     `json:"image_id,omitempty"`
+	FileID            string    `json:"file_id,omitempty"`
+	IsSaved           bool      `json:"is_saved"`
+	ImageAvailable    bool      `json:"image_available"`
+	AppFeedback       int       `json:"app_feedback,omitempty"`
+	Feedback          string    `json:"feedback"`
+	FeedbackSupported bool      `json:"feedback_supported"`
+	FeedbackTarget    string    `json:"feedback_target"`
 }
 
 type CachedImage struct {

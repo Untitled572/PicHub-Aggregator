@@ -6,11 +6,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -21,6 +23,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
@@ -53,7 +56,9 @@ internal fun TagPicker(model: ViewerModel, dismiss: () -> Unit) {
     }
     AlertDialog(
         onDismissRequest = saveAndReturn,
-        title = { Text("App 取图标签范围") },
+        title = { Text("App 取图范围", style = MaterialTheme.typography.titleLarge) },
+        shape = RoundedCornerShape(16.dp),
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         text = {
             val message = error
             val choices = tags
@@ -66,7 +71,7 @@ internal fun TagPicker(model: ViewerModel, dismiss: () -> Unit) {
                 ) {
                     Text("只影响此 App 的取图。未选标签时，沿用当前接口的默认范围。", style = MaterialTheme.typography.bodySmall)
                     val all = choices.isNotEmpty() && choices.all { it.id in selected }
-                    TagChoice("全部 Tags 标签", all) {
+                    TagChoice("全部标签", all) {
                         selected = if (it) choices.mapTo(mutableSetOf()) { tag -> tag.id } else emptySet()
                     }
                     choices.forEach { tag ->
@@ -81,8 +86,7 @@ internal fun TagPicker(model: ViewerModel, dismiss: () -> Unit) {
             if (error != null) {
                 TextButton(onClick = { attempt += 1 }) { Text("重试") }
             }
-        },
-        dismissButton = { TextButton(onClick = saveAndReturn) { Text("返回") } }
+        }
     )
 }
 
@@ -90,6 +94,7 @@ internal fun TagPicker(model: ViewerModel, dismiss: () -> Unit) {
 private fun TagChoice(label: String, checked: Boolean, toggle: (Boolean) -> Unit) {
     ListItem(
         modifier = Modifier.fillMaxWidth().toggleable(value = checked, role = Role.Checkbox, onValueChange = toggle),
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
         headlineContent = { Text(label) },
         leadingContent = { Checkbox(checked = checked, onCheckedChange = null) }
     )

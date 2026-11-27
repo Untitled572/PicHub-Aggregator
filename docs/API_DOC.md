@@ -234,21 +234,23 @@ Returns cached health check results with last run timestamp.
 | GET | `/api/app/auth/check` | App 密钥 | `204`，验证权限。 |
 | GET | `/api/app/endpoints` | App 密钥 | `200`，返回启用的自定义接口及其绑定标签。 |
 | GET | `/api/app/tags` | App 密钥 | `200`，返回可选标签 `tags`。App 将所选标签作为取图请求的 `category` 参数。 |
-| POST | `/api/app/feedback` | App 密钥 | `204`，反馈已提交。 |
+| POST | `/api/app/feedback` | App 密钥 | 带分发引用并声明 `Accept: application/json` 时返回 `200` 和当前状态。其他成功请求返回 `204`。 |
 
-App 请求使用 `Authorization: Bearer <App 密钥>`。反馈请求体为 `{"image_id":42,"request_id":"e8dc6582-04ca-4d60-833b-d2537ed23d9d","vote":"like"}`，`vote` 支持 `like` 或 `dislike`。取图在缓存代理模式下返回 `image_id`。反馈调整图源权重（±1，范围 30–70）。同次反馈重试须复用 `request_id`，服务端保存幂等记录至少 7 天。同一请求 ID 携带不同图片或反馈时返回 `409`，图片或图源已清理时返回 `410`，App 密钥无效时返回 `401`。
+App 使用 `Authorization: Bearer <App 密钥>`。反馈提交 `image_id`、取图返回的 `distribution_ref`、唯一 `request_id` 和 `vote`。赞、踩、撤销分别为 `like`、`dislike`、`none`。重试同一操作时复用 `request_id`，改选时用新 ID。
 
+## 统计和图片反馈
 
-新版缓存代理的取图 JSON 同时返回单次分发的 `distribution_ref`。将该字段与 `image_id` 一起提交后，`vote` 还支持 `none`，用于撤销这条分发记录的反馈和实际权重改动。每次选中、改选或撤销使用新的 `request_id`，只有重试同一次更新时才复用原 ID。
+| 方法 | 路径 | 用途 |
+| --- | --- | --- |
+| GET | `/api/stats` | 统计数据 |
+| GET | `/api/stats/history` | 分发历史，含当前 `feedback`、可否操作的 `feedback_supported` 和反馈对象 `feedback_target` |
+| PUT | `/api/stats/history/:id/feedback` | 用历史记录 ID 提交 `{"vote":"like","request_id":"<UUID>"}`，返回 `{"vote":"like"}` |
+| GET / PUT | `/api/settings/curator-feedback` | 读取或保存联动地址和启用状态。令牌为只写字段，响应只返回 `token_configured`。 |
+| POST | `/api/settings/curator-feedback/test` | 测试地址和令牌，不保存配置或写入评价。 |
 
-## Statistics & Weight Adjustment
+网页和 App 共用赞踩状态。普通图源的赞踩仍调整权重，撤销时恢复该次评分实际产生的变动。已绑定的 Curator 图片按作品 ID 和页码反馈给 Curator，图源权重保持原值。
 
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| GET | `/api/stats` | Admin | 获取统计数据（日请求量、命中图源排行、Tag分布） |
-| GET | `/api/stats/history` | Admin | 获取分发历史流水日志，含 `is_saved` 和 `app_feedback`（`1` 为 App 点赞，`-1` 为 App 点踩，无反馈时省略） |
-| POST | `/api/images/:id/like` | Admin | 喜欢/提升权重 (+1 权重，钳位 30-70) |
-| POST | `/api/images/:id/dislike` | Admin | 不喜欢/降低权重 (-1 权重，钳位 30-70) |
+在「设置 → 安全鉴权 → Pixiv Curator 赞踩联动」填写 Curator 的 HTTPS 地址和管理令牌。取图源需用同一地址的 JSON 接口。联动保存后新取到的图片会记录作品 ID 和页码。缺少身份的历史图片会提示暂不支持联动。Curator 返回的已确认状态用于同步 PicHub 的 App 和网页。
 
 **GET /api/stats Response:**
 ```json

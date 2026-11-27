@@ -67,8 +67,8 @@ onUnmounted(() => {
 
 <template>
   <section class="morandi-card p-4 sm:p-5 space-y-4" aria-label="预取池">
-    <div class="flex items-start justify-between gap-3">
-      <div>
+    <div class="grid grid-cols-[7rem_minmax(0,1fr)] items-start gap-3 sm:grid-cols-[10rem_minmax(0,1fr)]">
+      <div :class="{ 'col-span-2': !lastRefill }">
         <h2 class="flex items-center gap-2 font-bold text-morandi-text">
           <Layers class="w-5 h-5 text-morandi-sage" /> 预取池
         </h2>
@@ -77,14 +77,17 @@ onUnmounted(() => {
           <time :datetime="pool.checked_at">{{ new Date(pool.checked_at).toLocaleTimeString() }}</time>
         </p>
       </div>
-      <div v-if="lastRefill" class="grid min-w-0 overflow-hidden text-xs leading-5 text-morandi-muted" aria-live="polite">
-        <Transition name="pool-refill">
-          <span
-            :key="lastRefill.image_id"
-            class="col-start-1 row-start-1 truncate"
-            :title="lastRefill.source_name"
-          >刚补池：{{ lastRefill.source_name }}</span>
-        </Transition>
+      <div v-if="lastRefill" class="flex min-w-0 gap-1 text-left text-xs leading-5 text-morandi-muted">
+        <span class="shrink-0">刚补池：</span>
+        <div class="grid min-w-0 overflow-hidden" aria-live="polite">
+          <Transition name="pool-refill">
+            <span
+              :key="lastRefill.image_id"
+              class="col-start-1 row-start-1 truncate"
+              :title="lastRefill.source_name"
+            >{{ lastRefill.source_name }}</span>
+          </Transition>
+        </div>
       </div>
     </div>
 

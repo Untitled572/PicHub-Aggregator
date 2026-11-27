@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useApi } from '../composables/useApi'
 import { useTags } from '../composables/useTags'
-import type { StatsResponse, ImageHistoryRecord, Settings } from '../types'
+import type { StatsResponse, ImageHistoryRecord, Settings, FeedbackVote } from '../types'
 import {
   TrendingUp,
   Activity,
@@ -26,7 +26,7 @@ import {
   ThumbsDown
 } from 'lucide-vue-next'
 
-const { getStats, getImageHistory, getSettings, saveImage, unsaveImage, likeImage, dislikeImage, listSavedImages } = useApi()
+const { getStats, getImageHistory, getSettings, saveImage, unsaveImage, updateHistoryFeedback, listSavedImages } = useApi()
 const { getCategoryMap } = useTags()
 const categoryMap = computed(() => getCategoryMap())
 
@@ -39,10 +39,8 @@ const settings = ref<Settings | null>(null)
 const history = ref<ImageHistoryRecord[]>([])
 const savedFileIDs = ref(new Set<string>())
 const savingImageId = ref<string | number | null>(null)
-const likedIds = ref(new Set<number>())
-const likingId = ref<number | null>(null)
-const dislikedIds = ref(new Set<number>())
-const dislikingId = ref<number | null>(null)
+const votingHistoryId = ref<number | null>(null)
+const feedbackError = ref('')
 
 const historyLoadingMore = ref(false)
 const historySearch = ref('')
@@ -354,43 +352,53 @@ async function toggleSaveImage(item: ImageHistoryRecord) {
 
 
 
-function historyVote(item: ImageHistoryRecord): 1 | -1 | undefined {
-  if (item.app_feedback) return item.app_feedback
-  const targetId = item.image_id || item.source_id
-  if (likedIds.value.has(targetId)) return 1
-  if (dislikedIds.value.has(targetId)) return -1
+function historyVote(item: ImageHistoryRecord): FeedbackVote {
+  return item.feedback ?? (item.app_feedback === 1 ? 'like' : item.app_feedback === -1 ? 'dislike' : 'none')
 }
 
-async function handleLike(item: ImageHistoryRecord) {
-  const targetId = item.image_id || item.source_id
-  if (!targetId || likingId.value === targetId) return
-  likingId.value = targetId
+function canVoteHistory(item: ImageHistoryRecord): boolean {
+  return item.feedback_supported ?? Boolean(item.image_id && !isEvictedHistory(item))
+}
+
+function voteTitle(item: ImageHistoryRecord, vote: Exclude<FeedbackVote, 'none'>): string {
+  const action = vote === 'like' ? '点赞' : '点踩'
+  const target = item.feedback_target === 'curator' ? 'Curator 图片' : '图源权重'
+  return `${historyVote(item) === vote ? '撤销' : ''}${action}（${target}）`
+}
+
+function feedbackRequestID(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16))
+  bytes[6] = (bytes[6] & 15) | 64
+  bytes[8] = (bytes[8] & 63) | 128
+  const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('')
+  return [hex.slice(0, 8), hex.slice(8, 12), hex.slice(12, 16), hex.slice(16, 20), hex.slice(20)].join('-')
+}
+
+async function voteHistory(item: ImageHistoryRecord, button: Exclude<FeedbackVote, 'none'>) {
+  if (votingHistoryId.value !== null || !canVoteHistory(item)) return
+  votingHistoryId.value = item.id
+  feedbackError.value = ''
+  const vote = historyVote(item) === button ? 'none' : button
   try {
-    await likeImage(targetId)
-    likedIds.value.add(targetId)
-    likedIds.value = new Set(likedIds.value)
-    dislikedIds.value.delete(targetId)
-    dislikedIds.value = new Set(dislikedIds.value)
-  } catch {}
-  likingId.value = null
+    const result = await updateHistoryFeedback(item.id, vote, feedbackRequestID())
+    const row = history.value.find(current => current.id === item.id)
+    if (row) row.feedback = result.vote
+  } catch (error) {
+    switch (error instanceof Error ? error.message : '') {
+      case 'curator_page_gone':
+        feedbackError.value = '这张图片已不在 Curator 的目录中。'
+        break
+      case 'feedback_unavailable':
+      case 'feedback_image_expired':
+        feedbackError.value = '这张图片暂不支持反馈，可刷新记录后再试。'
+        break
+      default:
+        feedbackError.value = '未确认反馈已保存，请重试。'
+    }
+  } finally {
+    votingHistoryId.value = null
+  }
 }
-
-async function handleDislike(item: ImageHistoryRecord) {
-  const targetId = item.image_id || item.source_id
-  if (!targetId || dislikingId.value === targetId) return
-  dislikingId.value = targetId
-  try {
-    await dislikeImage(targetId)
-    dislikedIds.value.add(targetId)
-    dislikedIds.value = new Set(dislikedIds.value)
-    likedIds.value.delete(targetId)
-    likedIds.value = new Set(likedIds.value)
-  } catch {}
-  dislikingId.value = null
-}
-
-
-
 
 function formatDate(isoStr: string): string {
   if (!isoStr) return '-'
@@ -910,6 +918,8 @@ const sourceTrendLines = computed(() => {
         </div>
       </div>
 
+      <p v-if="feedbackError" class="text-xs text-rose-700" role="alert">{{ feedbackError }}</p>
+
       <!-- History Table / Feed -->
       <div v-if="filteredHistory.length > 0" class="overflow-x-auto">
         <table class="w-full text-left text-xs">
@@ -989,10 +999,10 @@ const sourceTrendLines = computed(() => {
 
               <!-- Actions -->
               <td class="py-2.5 pr-2 text-right whitespace-nowrap">
-                <div v-if="!isEvictedHistory(item)" class="flex items-center justify-end gap-1.5">
+                <div class="flex items-center justify-end gap-1.5">
                   <!-- Save File Button (Only when local cached image exists) -->
                   <button
-                    v-if="item.file_id || (item.image_id && item.image_id > 0)"
+                    v-if="!isEvictedHistory(item) && (item.file_id || (item.image_id && item.image_id > 0))"
                     @click="toggleSaveImage(item)"
                     :disabled="savingImageId !== null && savingImageId === (item.file_id || item.image_id || null)"
                     class="p-1.5 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
@@ -1006,36 +1016,32 @@ const sourceTrendLines = computed(() => {
 
 
 
-                  <!-- Like / Increase Weight Button (+1) -->
-                  <button
-                    v-if="item.source_id || item.image_id"
-                    @click="handleLike(item)"
-                    :aria-pressed="historyVote(item) === 1"
-                    :disabled="likingId === (item.image_id || item.source_id) || historyVote(item) === 1 || likedIds.has(item.image_id || item.source_id)"
-                    class="p-1.5 rounded-lg transition-colors cursor-pointer disabled:cursor-default"
-                    :class="historyVote(item) === 1 ? 'text-emerald-600 bg-emerald-50 font-bold' : 'text-morandi-muted hover:text-emerald-600 hover:bg-emerald-50'"
-                    :title="historyVote(item) === 1 ? '已点赞 (图源权重 +1)' : '喜欢（图源权重 +1）'"
-                  >
-                    <ThumbsUp class="w-3.5 h-3.5" :class="{ 'fill-emerald-600': historyVote(item) === 1 }" />
-                  </button>
-
-                  <!-- Dislike / Decrease Weight Button (-1) -->
-                  <button
-                    v-if="item.source_id || item.image_id"
-                    @click="handleDislike(item)"
-                    :aria-pressed="historyVote(item) === -1"
-                    :disabled="dislikingId === (item.image_id || item.source_id) || historyVote(item) === -1 || dislikedIds.has(item.image_id || item.source_id)"
-                    class="p-1.5 rounded-lg transition-colors cursor-pointer disabled:cursor-default"
-                    :class="historyVote(item) === -1 ? 'text-orange-500 bg-orange-50 font-bold' : 'text-morandi-muted hover:text-orange-500 hover:bg-orange-50'"
-                    :title="historyVote(item) === -1 ? '已点不喜欢 (图源权重 -1)' : '不喜欢（图源权重 -1）'"
-                  >
-                    <ThumbsDown class="w-3.5 h-3.5" :class="{ 'fill-orange-500': historyVote(item) === -1 }" />
-                  </button>
-
-
-
+                  <template v-if="canVoteHistory(item)">
+                    <button
+                      @click="voteHistory(item, 'like')"
+                      :aria-pressed="historyVote(item) === 'like'"
+                      :disabled="votingHistoryId !== null"
+                      class="p-1.5 rounded-lg transition-colors cursor-pointer disabled:cursor-default"
+                      :class="historyVote(item) === 'like' ? 'text-emerald-600 bg-emerald-50 font-bold' : 'text-morandi-muted hover:text-emerald-600 hover:bg-emerald-50'"
+                      :title="voteTitle(item, 'like')"
+                    >
+                      <ThumbsUp class="w-3.5 h-3.5" :class="{ 'fill-emerald-600': historyVote(item) === 'like' }" />
+                    </button>
+                    <button
+                      @click="voteHistory(item, 'dislike')"
+                      :aria-pressed="historyVote(item) === 'dislike'"
+                      :disabled="votingHistoryId !== null"
+                      class="p-1.5 rounded-lg transition-colors cursor-pointer disabled:cursor-default"
+                      :class="historyVote(item) === 'dislike' ? 'text-orange-500 bg-orange-50 font-bold' : 'text-morandi-muted hover:text-orange-500 hover:bg-orange-50'"
+                      :title="voteTitle(item, 'dislike')"
+                    >
+                      <ThumbsDown class="w-3.5 h-3.5" :class="{ 'fill-orange-500': historyVote(item) === 'dislike' }" />
+                    </button>
+                  </template>
+                  <span v-else-if="item.feedback_target === 'curator'" class="text-[11px] text-morandi-muted">暂不支持联动反馈</span>
 
                   <button
+                    v-if="!isEvictedHistory(item)"
                     @click="copyToClipboard(item.image_url)"
                     class="p-1.5 text-morandi-muted hover:text-morandi-sage-dark hover:bg-morandi-sage-light/60 rounded-lg transition-colors cursor-pointer"
                     title="复制图片链接"
@@ -1045,6 +1051,7 @@ const sourceTrendLines = computed(() => {
                   </button>
 
                   <a
+                    v-if="!isEvictedHistory(item)"
                     :href="item.image_url"
                     target="_blank"
                     rel="noopener noreferrer"

@@ -327,7 +327,7 @@ func (e *Engine) randomImage(parent context.Context, category, format, orientati
 			e.monitor.Emit(selected.ID, true)
 		}
 
-		imageURL, err := extractImageURL(resp, selected)
+		imageURL, identity, err := e.extractImageURL(resp, selected)
 		resp.Body.Close()
 		cancel()
 		if err != nil {
@@ -340,7 +340,7 @@ func (e *Engine) randomImage(parent context.Context, category, format, orientati
 
 		if e.imageStore != nil && settings.ProxyMode {
 			downloadCtx, cancelDownload := context.WithTimeout(budget, min(distributionDownloadTimeout, time.Until(attemptDeadline)))
-			cached, cacheErr := e.imageStore.downloadAndStore(downloadCtx, origURL, selected.URL, selected.ID, selected.Name, queryCats, selected.Headers, false)
+			cached, cacheErr := e.imageStore.downloadAndStore(downloadCtx, origURL, selected.URL, selected.ID, selected.Name, queryCats, selected.Headers, false, identity)
 			cancelDownload()
 			if cacheErr != nil {
 				if budget.Err() != nil {
@@ -768,57 +768,79 @@ func weightedPickIndex(sources []model.Source) int {
 	return len(sources) - 1
 }
 
-func extractImageURL(resp *http.Response, src model.Source) (string, error) {
+func (e *Engine) extractImageURL(resp *http.Response, src model.Source) (string, *store.CuratorImageIdentity, error) {
 	reqURL := src.URL
 	if resp.Request != nil && resp.Request.URL != nil {
 		reqURL = resp.Request.URL.String()
+	}
+
+	var identity *store.CuratorImageIdentity
+	origin := store.CuratorFeedbackOrigin(src.URL)
+	if origin != "" && origin == store.CuratorFeedbackOrigin(reqURL) {
+		config, err := e.store.GetCuratorFeedbackConfig()
+		if err != nil {
+			return "", nil, fmt.Errorf("load Curator feedback settings: %w", err)
+		}
+		if origin == config.Address {
+			identity = &store.CuratorImageIdentity{Origin: origin}
+		}
 	}
 
 	if resp.StatusCode == 301 || resp.StatusCode == 302 || resp.StatusCode == 303 || resp.StatusCode == 307 || resp.StatusCode == 308 {
 		loc := resp.Header.Get("Location")
 		if loc != "" {
 			loc = resolveURL(reqURL, loc)
-			return resolveBaiduURL(loc), nil
+			return resolveBaiduURL(loc), identity, nil
 		}
 		body, err := io.ReadAll(resp.Body)
 		if err == nil {
 			text := strings.TrimSpace(string(body))
 			if strings.HasPrefix(text, "http://") || strings.HasPrefix(text, "https://") {
-				return resolveBaiduURL(text), nil
+				return resolveBaiduURL(text), identity, nil
 			}
 		}
 	}
 
 	ct := resp.Header.Get("Content-Type")
 	if strings.HasPrefix(ct, "image/") {
-		return reqURL, nil
+		return reqURL, identity, nil
 	}
 
 	if strings.HasPrefix(ct, "application/json") || src.RespType == "json" {
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
-			return "", fmt.Errorf("read body: %w", err)
+			return "", nil, fmt.Errorf("read body: %w", err)
 		}
 		path := src.JsonPath
 		if path == "" {
 			path = "url"
 		}
-		result := gjson.Get(string(body), path)
-		if result.Exists() {
-			return resolveURL(reqURL, result.String()), nil
+		result := gjson.GetBytes(body, path)
+		if identity != nil && resp.StatusCode >= 200 && resp.StatusCode < 300 && gjson.ValidBytes(body) {
+			illust, page := gjson.GetBytes(body, "illust_id"), gjson.GetBytes(body, "page_index")
+			illustID, illustErr := strconv.ParseInt(illust.String(), 10, 64)
+			pageIndex, pageErr := strconv.Atoi(page.Raw)
+			if illust.Type == gjson.String && illustErr == nil && illustID > 0 &&
+				page.Type == gjson.Number && pageErr == nil && pageIndex >= 0 {
+				identity.IllustID = strconv.FormatInt(illustID, 10)
+				identity.PageIndex = &pageIndex
+			}
 		}
-		return "", fmt.Errorf("json path %s not found", path)
+		if result.Exists() {
+			return resolveURL(reqURL, result.String()), identity, nil
+		}
+		return "", nil, fmt.Errorf("json path %s not found", path)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err == nil {
 		text := strings.TrimSpace(string(body))
 		if strings.HasPrefix(text, "http://") || strings.HasPrefix(text, "https://") {
-			return resolveBaiduURL(text), nil
+			return resolveBaiduURL(text), identity, nil
 		}
 	}
 
-	return reqURL, nil
+	return reqURL, identity, nil
 }
 
 func resolveBaiduURL(rawURL string) string {
@@ -1264,7 +1286,7 @@ func (e *Engine) fetchPrefetch(parent context.Context, selected model.Source, ti
 		return failed(selected.URL, status, fmt.Sprintf("接口返回 HTTP %d", status))
 	}
 
-	imageURL, err := extractImageURL(resp, selected)
+	imageURL, identity, err := e.extractImageURL(resp, selected)
 	resp.Body.Close()
 	if err != nil {
 		return failed(selected.URL, resp.StatusCode, "解析图片地址失败："+err.Error())
@@ -1276,7 +1298,7 @@ func (e *Engine) fetchPrefetch(parent context.Context, selected model.Source, ti
 			srcCats = []string{}
 		}
 		origURL := imageURL
-		cached, cacheErr := e.imageStore.downloadAndStore(parent, origURL, selected.URL, selected.ID, selected.Name, srcCats, selected.Headers, true)
+		cached, cacheErr := e.imageStore.downloadAndStore(parent, origURL, selected.URL, selected.ID, selected.Name, srcCats, selected.Headers, true, identity)
 		if cacheErr != nil {
 			if errors.Is(cacheErr, errImageBelowMinimum) || parent.Err() != nil {
 				return nil, nil

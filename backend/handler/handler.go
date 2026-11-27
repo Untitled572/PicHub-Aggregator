@@ -1,11 +1,14 @@
 package handler
 
 import (
+	"sync"
+
 	"github.com/pichub/backend/service"
 	"github.com/pichub/backend/store"
 )
 
 type Handler struct {
+	feedbackMu    sync.Mutex
 	store         *store.Store
 	engine        *service.Engine
 	healthChecker *service.HealthChecker

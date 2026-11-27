@@ -85,10 +85,10 @@ var (
 )
 
 func (is *ImageStore) DownloadAndStore(imageURL, sourceURL string, sourceID int64, sourceName string, categories []string, headers map[string]string, pooled bool) (*CachedImageInfo, error) {
-	return is.downloadAndStore(context.Background(), imageURL, sourceURL, sourceID, sourceName, categories, headers, pooled)
+	return is.downloadAndStore(context.Background(), imageURL, sourceURL, sourceID, sourceName, categories, headers, pooled, nil)
 }
 
-func (is *ImageStore) downloadAndStore(ctx context.Context, imageURL, sourceURL string, sourceID int64, sourceName string, categories []string, headers map[string]string, pooled bool) (*CachedImageInfo, error) {
+func (is *ImageStore) downloadAndStore(ctx context.Context, imageURL, sourceURL string, sourceID int64, sourceName string, categories []string, headers map[string]string, pooled bool, identity *store.CuratorImageIdentity) (*CachedImageInfo, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, imageURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -175,7 +175,7 @@ func (is *ImageStore) downloadAndStore(ctx context.Context, imageURL, sourceURL 
 
 	orientation := GetOrientation(cfg.Width, cfg.Height)
 	catsJSON := encodeStringSlice(categories)
-	imgID, err := is.store.InsertImage(fileID, imageURL, sourceID, sourceName, cfg.Width, cfg.Height, format, int64(len(data)), catsJSON, orientation, pooled)
+	imgID, err := is.store.InsertImageWithCuratorIdentity(fileID, imageURL, sourceID, sourceName, cfg.Width, cfg.Height, format, int64(len(data)), catsJSON, orientation, pooled, identity)
 	if err != nil {
 		if removeErr := os.Remove(filePath); removeErr != nil && !os.IsNotExist(removeErr) {
 			return nil, fmt.Errorf("%w: store metadata: %w (remove image file: %v)", errImageCacheStorage, err, removeErr)

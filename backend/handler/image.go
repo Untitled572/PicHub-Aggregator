@@ -73,20 +73,7 @@ func (h *Handler) SaveImage(c *gin.Context) {
 // @Failure 404 {object} map[string]interface{}
 // @Router /api/images/{id}/like [post]
 func (h *Handler) LikeImage(c *gin.Context) {
-	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
-		return
-	}
-
-	img, err := h.store.GetImageByID(id)
-	if err != nil || img == nil || img.SourceID <= 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "image not found"})
-		return
-	}
-
-	h.store.IncrementSourceWeight(img.SourceID, 1)
-	c.JSON(http.StatusOK, gin.H{"message": "liked"})
+	h.legacyImageFeedback(c, 1)
 }
 
 // DislikeImage POST /api/images/{id}/dislike 不喜欢图片 (降低来源权重)
@@ -99,20 +86,7 @@ func (h *Handler) LikeImage(c *gin.Context) {
 // @Failure 404 {object} map[string]interface{}
 // @Router /api/images/{id}/dislike [post]
 func (h *Handler) DislikeImage(c *gin.Context) {
-	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
-		return
-	}
-
-	img, err := h.store.GetImageByID(id)
-	if err != nil || img == nil || img.SourceID <= 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "image not found"})
-		return
-	}
-
-	h.store.IncrementSourceWeight(img.SourceID, -1)
-	c.JSON(http.StatusOK, gin.H{"message": "disliked"})
+	h.legacyImageFeedback(c, -1)
 }
 
 // UnsaveImage DELETE /api/images/{id}/save 取消保存图片

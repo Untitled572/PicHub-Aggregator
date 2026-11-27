@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"fmt"
 )
 
 var (
@@ -48,9 +49,19 @@ func (s *Store) CheckAppKey(key string) error {
 }
 
 func (s *Store) RecordAppFeedback(key, requestID string, imageID int64, vote int, ref string) error {
+	return s.recordFeedback(key, requestID, imageID, vote, ref, 0, nil)
+}
+
+func (s *Store) RecordWebFeedback(requestID string, target FeedbackTarget, vote int) error {
+	return s.recordFeedback("", requestID, target.ImageID, vote, target.Ref, target.HistoryID, nil)
+}
+
+func (s *Store) recordFeedback(key, requestID string, imageID int64, vote int, ref string, historyID int64, curator *CuratorImageIdentity) error {
 	if ref != "" && s.batcher != nil {
-		if err := s.CheckAppKey(key); err != nil {
-			return err
+		if key != "" {
+			if err := s.CheckAppKey(key); err != nil {
+				return err
+			}
 		}
 		// The viewer can react before the normal stats flush.
 		if err := s.batcher.flush(); err != nil {
@@ -63,12 +74,16 @@ func (s *Store) RecordAppFeedback(key, requestID string, imageID int64, vote int
 	}
 	defer tx.Rollback()
 
+	receiptRef := ref
+	if ref == "" && historyID > 0 {
+		receiptRef = fmt.Sprintf("history:%d", historyID)
+	}
 	// Acquire the write lock before checking the key so rotation and a vote are serialized.
 	result, err := tx.Exec(`
 		INSERT INTO app_feedback_receipts (request_id, image_id, vote, distribution_ref)
-		SELECT ?, ?, ?, ? FROM settings WHERE key = ? AND value = ?
+		SELECT ?, ?, ?, ? WHERE ? = '' OR EXISTS (SELECT 1 FROM settings WHERE key = ? AND value = ?)
 		ON CONFLICT (request_id) DO NOTHING`,
-		requestID, imageID, vote, ref, appKeySetting, appKeyHash(key))
+		requestID, imageID, vote, receiptRef, key, appKeySetting, appKeyHash(key))
 	if err != nil {
 		return err
 	}
@@ -82,22 +97,28 @@ func (s *Store) RecordAppFeedback(key, requestID string, imageID int64, vote int
 		var previousRef string
 		err := tx.QueryRow(`
 			SELECT image_id, vote, distribution_ref FROM app_feedback_receipts
-			WHERE request_id = ? AND EXISTS (SELECT 1 FROM settings WHERE key = ? AND value = ?)`,
-			requestID, appKeySetting, appKeyHash(key)).Scan(&previousImageID, &previousVote, &previousRef)
+			WHERE request_id = ? AND (? = '' OR EXISTS (SELECT 1 FROM settings WHERE key = ? AND value = ?))`,
+			requestID, key, appKeySetting, appKeyHash(key)).Scan(&previousImageID, &previousVote, &previousRef)
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrInvalidAppKey
 		}
 		if err != nil {
 			return err
 		}
-		if previousImageID != imageID || previousVote != vote || previousRef != ref {
+		if previousImageID != imageID || previousVote != vote || previousRef != receiptRef {
 			return ErrFeedbackConflict
 		}
 		return nil
 	}
 
-	if ref != "" {
-		if err := updateDistributionFeedback(tx, ref, imageID, vote); err != nil {
+	if curator != nil {
+		_, err := tx.Exec(`INSERT INTO curator_feedback_votes(origin,illust_id,page_index,vote) VALUES (?,?,?,?)
+			ON CONFLICT(origin,illust_id,page_index) DO UPDATE SET vote=excluded.vote`, curator.Origin, curator.IllustID, *curator.PageIndex, vote)
+		if err != nil {
+			return err
+		}
+	} else if ref != "" || historyID > 0 {
+		if err := updateDistributionFeedback(tx, ref, imageID, historyID, vote); err != nil {
 			return err
 		}
 	} else {
@@ -121,19 +142,19 @@ func (s *Store) RecordAppFeedback(key, requestID string, imageID int64, vote int
 	if err := tx.Commit(); err != nil {
 		return err
 	}
-	if ref != "" {
+	if ref != "" || historyID > 0 || curator != nil {
 		s.notifyHistoryChanged()
 	}
 	return nil
 }
 
-func updateDistributionFeedback(tx *sql.Tx, ref string, imageID int64, vote int) error {
+func updateDistributionFeedback(tx *sql.Tx, ref string, imageID, id int64, vote int) error {
 	var historyID, sourceID int64
 	var previousVote, previousDelta, weight int
 	err := tx.QueryRow(`
 		SELECT h.id, h.source_id, h.app_feedback, h.app_feedback_delta, s.weight
 		FROM image_history h JOIN sources s ON s.id = h.source_id
-		WHERE h.distribution_ref = ? AND h.image_id = ?`, ref, imageID).
+		WHERE h.id = ? OR (? != '' AND h.distribution_ref = ? AND h.image_id = ?)`, id, ref, ref, imageID).
 		Scan(&historyID, &sourceID, &previousVote, &previousDelta, &weight)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrFeedbackImageGone
