@@ -136,7 +136,7 @@ func TestReplenishUsesPoolStockInsteadOfHistoricalCache(t *testing.T) {
 	}
 }
 
-func TestPrefetchPrioritizesColdTagWithIsolatedInventory(t *testing.T) {
+func TestFullPrefetchPoolKeepsExistingStock(t *testing.T) {
 	st, images, _, upstream := newTestImageStore(t)
 	settings, err := st.GetSettings()
 	if err != nil {
@@ -160,38 +160,22 @@ func TestPrefetchPrioritizesColdTagWithIsolatedInventory(t *testing.T) {
 		}
 		e.distPool.Push(&PoolEntry{FileID: img.FileID, ImageID: img.ID, SourceID: hot.ID, Categories: hot.Categories})
 	}
-	for i := 0; i < 15; i++ {
-		// Move past the request interval without making the test sleep.
-		e.nextPrefetch = time.Time{}
-		e.prefetchCooldown = nil
-		e.prefetchPace = nil
-		e.replenishPool()
-	}
-	status, err := e.PrefetchStatus()
-	if err != nil || status.Count != 120 || status.Target != 120 {
-		t.Fatalf("wrong status: %+v err=%v", status, err)
-	}
-	var quietTag PrefetchTagStock
-	for _, tag := range status.ByTag {
-		if tag.ID == "quiet" {
-			quietTag = tag
-		}
-	}
-	if quietTag.Count != 15 || quietTag.Target != 15 || quietTag.Square != 15 {
-		t.Fatalf("wrong cold tag status: %+v", quietTag)
-	}
+	e.replenishPool()
 	counts := e.distPool.SourceCounts()
-	if counts[quiet.ID] != 15 || counts[hot.ID] != 105 {
-		t.Fatalf("wrong reserved stock: %v", counts)
+	if counts[quiet.ID] != 0 || counts[hot.ID] != 120 {
+		t.Fatalf("full pool replaced existing inventory: %v", counts)
 	}
-	for i := 0; i < 15; i++ {
-		result, _, err := e.RandomImage("quiet", "json", "", "")
-		if err != nil || result.SourceID != quiet.ID || result.FileID == "" {
-			t.Fatalf("quiet request %d: result=%+v err=%v", i, result, err)
-		}
+	result, _, err := e.RandomImage("quiet", "json", "", "")
+	if err != nil || result.SourceID != quiet.ID || result.FileID == "" || e.distPool.Size() != 120 {
+		t.Fatalf("cold request should fetch live from quiet: result=%+v err=%v stock=%d", result, err, e.distPool.Size())
 	}
-	if e.distPool.SourceCounts()[hot.ID] != 105 {
-		t.Fatal("cold tag consumed normal inventory")
+	if _, _, err := e.RandomImage("hot", "json", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	e.replenishPool()
+	counts = e.distPool.SourceCounts()
+	if counts[quiet.ID] != 1 || counts[hot.ID] != 119 {
+		t.Fatalf("free slot should go to the underfilled tag: %v", counts)
 	}
 }
 
@@ -431,6 +415,11 @@ func TestRestorePrefetchAfterReopeningDatabase(t *testing.T) {
 	consumed := cache(normal, false)
 	disabledImage := cache(disabled, true)
 	stoppedImage := cache(stopped, true)
+	deleted := addHealthSource(t, st, model.Source{Name: "deleted", URL: upstream.URL, Enabled: true})
+	deletedImage := cache(deleted, true)
+	if err := st.DeleteSource(deleted.ID); err != nil {
+		t.Fatal(err)
+	}
 	missing := cache(normal, true)
 	missingPath, _, err := images.GetImage(missing.FileID)
 	if err != nil {
@@ -450,22 +439,28 @@ func TestRestorePrefetchAfterReopeningDatabase(t *testing.T) {
 	}
 	defer reopened.Close()
 	e := &Engine{store: reopened, imageStore: NewImageStore(reopened, images.cacheDir, nil), distPool: NewDistributionPool(), demandTracker: NewDemandTracker(), sourceDemand: NewSourceDemandTracker()}
+	e.imageStore.CleanupOrphanPooled()
 	if err = e.restorePrefetchPool(); err != nil {
 		t.Fatal(err)
 	}
-	if got := e.distPool.Size(); got != 2 {
-		t.Fatalf("got %d restored entries, want 2", got)
+	if got := e.distPool.Size(); got != 7 {
+		t.Fatalf("got %d restored entries, want all 7 valid pooled entries", got)
 	}
 	ready, err := reopened.GetPooledFileIDSet()
-	if err != nil || len(ready) != 2 || !ready[first.FileID] || !ready[second.FileID] {
+	if err != nil || len(ready) != 7 {
 		t.Fatalf("ready=%v err=%v", ready, err)
 	}
-	for _, id := range []string{older.FileID, consumed.FileID, disabledImage.FileID, stoppedImage.FileID, saved.FileID} {
+	for _, id := range []string{older.FileID, first.FileID, second.FileID, disabledImage.FileID, stoppedImage.FileID, deletedImage.FileID, saved.FileID} {
+		if !ready[id] {
+			t.Fatalf("valid pooled file %q missing from inventory: %v", id, ready)
+		}
+	}
+	for _, id := range []string{consumed.FileID} {
 		if _, _, err := e.imageStore.GetImage(id); err != nil {
 			t.Fatalf("existing cached file %q removed: %v", id, err)
 		}
 	}
-	for _, want := range []string{first.FileID, second.FileID} {
+	for _, want := range []string{older.FileID, first.FileID, second.FileID, disabledImage.FileID, stoppedImage.FileID, deletedImage.FileID, saved.FileID} {
 		actual, _, err := e.RandomImage("sample", "json", "square", "")
 		if err != nil || actual == nil || actual.FileID != want {
 			t.Fatalf("restored request: got %+v, want %s, err=%v", actual, want, err)

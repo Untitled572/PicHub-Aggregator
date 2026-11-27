@@ -181,3 +181,64 @@ func TestCacheEvictionKeepsReadyImagesBeforeOrdinaryCache(t *testing.T) {
 		})
 	}
 }
+
+func TestCacheEvictionNeverRemovesPooledImages(t *testing.T) {
+	for _, byCount := range []bool{true, false} {
+		name := "disk limit"
+		if byCount {
+			name = "count limit"
+		}
+		t.Run(name, func(t *testing.T) {
+			st, images, _, server := newTestImageStore(t)
+			first, err := images.DownloadAndStore(server.URL, server.URL, 1, "ready-1", nil, nil, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			second, err := images.DownloadAndStore(server.URL, server.URL, 2, "ready-2", nil, nil, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if byCount {
+				images.evictByCount(0, nil)
+			} else {
+				for evictLRU(images.cacheDir, st, nil) {
+				}
+			}
+
+			for _, ready := range []*CachedImageInfo{first, second} {
+				if _, _, err := images.GetImage(ready.FileID); err != nil {
+					t.Fatalf("pooled image %s was evicted: %v", ready.FileID, err)
+				}
+			}
+		})
+	}
+}
+
+func TestCleanupOrphanPooledKeepsImagesInSavedDirectory(t *testing.T) {
+	st, images, _, server := newTestImageStore(t)
+	ready, err := images.DownloadAndStore(server.URL, server.URL, 1, "ready", nil, nil, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	settings, err := st.GetSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings.SavedImagesDir = filepath.Join(t.TempDir(), "saved")
+	if err := st.UpdateSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+	if err := images.SaveImage(ready.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(images.cacheDir, "1", ready.FileID+".png")); err != nil {
+		t.Fatal(err)
+	}
+
+	images.CleanupOrphanPooled()
+	if _, _, err := images.GetImage(ready.FileID); err != nil {
+		t.Fatalf("saved pooled image was treated as orphan: %v", err)
+	}
+}

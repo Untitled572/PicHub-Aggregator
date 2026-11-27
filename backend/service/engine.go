@@ -49,7 +49,6 @@ type Engine struct {
 	replenishMu  sync.Mutex
 	// Only accessed under replenishMu.
 	nextPrefetch             time.Time
-	nextPrefetchTrim         time.Time
 	ordinaryPrefetchInFlight bool
 	prefetchInFlight         map[int64]bool
 	unlimitedPrefetchPace    map[int64]time.Time
@@ -199,7 +198,7 @@ func (e *Engine) randomImage(parent context.Context, category, format, orientati
 	tags, _ := e.store.GetTags()
 	exclSet := exclusiveTagSet(tags)
 
-	if settings.ProxyMode && settings.PoolSize > 0 && e.distPool != nil {
+	if settings.ProxyMode && e.distPool != nil {
 		var poolResult *Result
 		single := len(queryCats) == 1
 		hasExcl := hasExclusiveTag(tags, queryCats)
@@ -240,7 +239,10 @@ func (e *Engine) randomImage(parent context.Context, category, format, orientati
 				Name: poolResult.SourceName,
 			}
 			imgID := poolResult.ImageID
-			e.store.SetImagePooled(imgID, false)
+			if err := e.store.SetImagePooled(imgID, false); err != nil {
+				e.distPool.Push(poolEntryFromResult(poolResult))
+				return nil, 0, fmt.Errorf("mark prefetched image distributed: %w", err)
+			}
 			poolResult.DistributionRef = e.recordDistribution(queryCats, src, poolResult.LocalURL, &imgID, poolResult.FileID, format)
 			logger.System("pool hit for category %q, instant response", category)
 
@@ -865,14 +867,6 @@ func (e *Engine) ReplenishPool() {
 	e.replenishPool()
 }
 
-func (e *Engine) RemoveSourceFromPool(sourceID int64) {
-	e.replenishMu.Lock()
-	defer e.replenishMu.Unlock()
-	if e.distPool != nil {
-		e.distPool.RemoveBySourceID(sourceID)
-	}
-}
-
 func (e *Engine) recordCacheHealth(result HealthResult) {
 	if e.healthChecker != nil {
 		e.healthChecker.RecordCacheResult(result)
@@ -888,17 +882,10 @@ type prefetchChoice struct {
 	tag        string
 }
 
-type prefetchJob struct {
-	source model.Source
-	tag    string
-}
-
 type prefetchBatch struct {
-	mode         context.Context
-	jobs         []prefetchJob
-	timeout      time.Duration
-	tags         []model.Tag
-	reservations map[string]int
+	mode    context.Context
+	jobs    []model.Source
+	timeout time.Duration
 }
 
 func (e *Engine) replenishPool() {
@@ -934,15 +921,9 @@ func (e *Engine) planPrefetch(now time.Time) *prefetchBatch {
 		return nil
 	}
 
-	if !now.Before(e.nextPrefetchTrim) {
-		e.nextPrefetchTrim = now.Add(prefetchInterval)
-		maxRounds := int(30 * time.Minute / prefetchInterval)
-		live, _ := e.store.GetPooledFileIDSet()
-		for _, entry := range e.distPool.Trim(settings.PoolSize, maxRounds, live) {
-			if err := e.store.SetImagePooled(entry.ImageID, false); err != nil {
-				logger.Error("clear expired pool entry %s: %v", entry.FileID, err)
-			}
-		}
+	slots := settings.PoolSize - e.distPool.Size() - len(e.prefetchInFlight)
+	if slots <= 0 {
+		return nil
 	}
 
 	sources, err := e.store.ListSources()
@@ -965,15 +946,18 @@ func (e *Engine) planPrefetch(now time.Time) *prefetchBatch {
 		}
 	}
 	choices, reservations := e.prefetchChoices(sources, tags, settings)
-	var jobs []prefetchJob
+	var jobs []model.Source
 	addJob := func(eligible func(model.Source) bool) {
+		if len(jobs) >= slots {
+			return
+		}
 		for _, choice := range choices {
 			selected, ok := e.pickPrefetchSource(choice.candidates, sourceCounts, caps, reservations[choice.tag], now, eligible)
 			if !ok {
 				continue
 			}
 			e.reservePrefetchSource(selected, now)
-			jobs = append(jobs, prefetchJob{source: selected, tag: choice.tag})
+			jobs = append(jobs, selected)
 			return
 		}
 	}
@@ -990,7 +974,6 @@ func (e *Engine) planPrefetch(now time.Time) *prefetchBatch {
 	}
 	return &prefetchBatch{
 		mode: e.modeContext(), jobs: jobs, timeout: time.Duration(settings.Timeout) * time.Millisecond,
-		tags: tags, reservations: reservations,
 	}
 }
 
@@ -1043,12 +1026,12 @@ func (e *Engine) prefetchChoices(sources []model.Source, tags []model.Tag, setti
 	return choices, reservations
 }
 
-func (e *Engine) runPrefetch(batch *prefetchBatch, job prefetchJob) {
+func (e *Engine) runPrefetch(batch *prefetchBatch, source model.Source) {
 	defer func() {
 		e.replenishMu.Lock()
 		defer e.replenishMu.Unlock()
-		delete(e.prefetchInFlight, job.source.ID)
-		if !job.source.PrefetchUnlimited {
+		delete(e.prefetchInFlight, source.ID)
+		if !source.PrefetchUnlimited {
 			e.ordinaryPrefetchInFlight = false
 		}
 	}()
@@ -1058,7 +1041,7 @@ func (e *Engine) runPrefetch(batch *prefetchBatch, job prefetchJob) {
 	if batch.mode.Err() != nil || e.debugSourceID != 0 || e.debugSwitches.Load() > 0 {
 		return
 	}
-	res, sample := e.fetchPrefetch(batch.mode, job.source, batch.timeout)
+	res, sample := e.fetchPrefetch(batch.mode, source, batch.timeout)
 	if sample == nil {
 		return
 	}
@@ -1067,9 +1050,9 @@ func (e *Engine) runPrefetch(batch *prefetchBatch, job prefetchJob) {
 	e.replenishMu.Lock()
 	defer e.replenishMu.Unlock()
 	settings, settingsErr := e.store.GetSettings()
-	source, sourceErr := e.store.GetSource(job.source.ID)
+	current, sourceErr := e.store.GetSource(source.ID)
 	if batch.mode.Err() != nil || settingsErr != nil || !settings.ProxyMode || settings.PoolSize <= 0 ||
-		sourceErr != nil || !prefetchSourceMatches(*source, job.source) {
+		sourceErr != nil || !prefetchSourceMatches(*current, source) {
 		if res != nil {
 			e.clearPrefetchFlag(res.ImageID)
 		}
@@ -1079,16 +1062,12 @@ func (e *Engine) runPrefetch(batch *prefetchBatch, job prefetchJob) {
 		e.recordCacheHealth(*sample)
 		return
 	}
-	inserted, retired := e.distPool.putPrefetch(poolEntryFromResult(res), settings.PoolSize, job.tag, batch.reservations, batch.tags)
-	if !inserted {
+	if e.distPool.Size() >= settings.PoolSize {
 		e.clearPrefetchFlag(res.ImageID)
+		return
 	}
-	if retired != nil {
-		e.clearPrefetchFlag(retired.ImageID)
-	}
-	if inserted {
-		e.recordCacheHealth(*sample)
-	}
+	e.distPool.Push(poolEntryFromResult(res))
+	e.recordCacheHealth(*sample)
 }
 
 func prefetchSourceMatches(current, selected model.Source) bool {
@@ -1345,6 +1324,5 @@ func poolEntryFromResult(res *Result) *PoolEntry {
 		Height:      res.Height,
 		Format:      res.Format,
 		ImageID:     res.ImageID,
-		RoundCount:  0,
 	}
 }

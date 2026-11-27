@@ -759,34 +759,8 @@ func (s *Store) GetImageFileIDsBySourceID(sourceID int64) ([]string, error) {
 	return ids, nil
 }
 
-func (s *Store) GetImageFileIDsBySourceIDAll(sourceID int64) ([]string, error) {
-	rows, err := s.db.Query("SELECT file_id FROM images WHERE source_id=?", sourceID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err == nil {
-			ids = append(ids, id)
-		}
-	}
-	return ids, nil
-}
-
-func (s *Store) DeleteImagesBySourceID(sourceID int64) error {
-	_, err := s.db.Exec("DELETE FROM images WHERE source_id=? AND is_saved=0", sourceID)
-	return err
-}
-
-func (s *Store) DeleteImagesBySourceIDAll(sourceID int64) error {
-	_, err := s.db.Exec("DELETE FROM images WHERE source_id=?", sourceID)
-	return err
-}
-
 func (s *Store) CleanupInvalidImages() ([]string, int64, error) {
-	rows, err := s.db.Query("SELECT file_id FROM images WHERE width < 1 OR height < 1 OR format = 'unknown' OR format = ''")
+	rows, err := s.db.Query("SELECT file_id FROM images WHERE pooled=0 AND (width < 1 OR height < 1 OR format = 'unknown' OR format = '')")
 	if err != nil {
 		return nil, 0, err
 	}
@@ -801,7 +775,7 @@ func (s *Store) CleanupInvalidImages() ([]string, int64, error) {
 	if len(fileIDs) == 0 {
 		return nil, 0, nil
 	}
-	result, err := s.db.Exec("DELETE FROM images WHERE width < 1 OR height < 1 OR format = 'unknown' OR format = ''")
+	result, err := s.db.Exec("DELETE FROM images WHERE pooled=0 AND (width < 1 OR height < 1 OR format = 'unknown' OR format = '')")
 	if err != nil {
 		return nil, 0, err
 	}

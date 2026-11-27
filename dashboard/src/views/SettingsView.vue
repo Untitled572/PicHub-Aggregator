@@ -321,7 +321,7 @@ async function handleSave() {
             <HardDrive class="w-3.5 h-3.5 text-morandi-light" /> 最大磁盘缓存容量 (MB)
           </label>
           <input v-model.number="settings.cache_max_mb" type="number" class="morandi-input w-full px-3 py-2 font-mono text-xs" />
-          <p class="text-[10px] text-morandi-muted mt-1">超出限制时，优先清理普通缓存中的旧图</p>
+          <p class="text-[10px] text-morandi-muted mt-1">超出限制时，只清理普通缓存中的旧图</p>
         </div>
 
         <div>
@@ -329,13 +329,13 @@ async function handleSave() {
             <Cpu class="w-3.5 h-3.5 text-morandi-light" /> 缓存图片数量上限 (张)
           </label>
           <input v-model.number="settings.cache_max_images" type="number" class="morandi-input w-full px-3 py-2 font-mono text-xs" />
-          <p class="text-[10px] text-morandi-muted mt-1">超出限制时，优先清理普通缓存中的旧图 (0 不限制)</p>
+          <p class="text-[10px] text-morandi-muted mt-1">超出限制时，只清理普通缓存中的旧图 (0 不限制)</p>
         </div>
 
         <div>
           <label for="pool-size" class="font-medium text-morandi-text block mb-1.5">预取池目标 (张)</label>
           <input id="pool-size" v-model.number="settings.pool_size" type="number" min="1" step="1" class="morandi-input w-full px-3 py-2 font-mono text-xs" />
-          <p class="text-[10px] text-morandi-muted mt-1">代理模式会提前准备这些图片。预取池与近期图片共用磁盘缓存额度。</p>
+          <p class="text-[10px] text-morandi-muted mt-1">代理模式会提前备图。已入池的图片保留到分发，达到目标后暂停补充。</p>
         </div>
 
         <div>

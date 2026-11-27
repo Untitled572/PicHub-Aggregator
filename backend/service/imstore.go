@@ -404,13 +404,17 @@ func fileIDFromPath(path string) string {
 }
 
 func evictLRU(dir string, st *store.Store, protected map[string]bool) bool {
-	var pooledSet map[string]bool
-	if st != nil {
-		pooledSet, _ = st.GetPooledFileIDSet()
+	if st == nil {
+		return false
+	}
+	pooledSet, err := st.GetPooledFileIDSet()
+	if err != nil {
+		return false
 	}
 	var candidates []string
 	for _, e := range listCacheFiles(dir) {
-		if protected != nil && protected[fileIDFromPath(e)] {
+		fileID := fileIDFromPath(e)
+		if (protected != nil && protected[fileID]) || (pooledSet != nil && pooledSet[fileID]) {
 			continue
 		}
 		candidates = append(candidates, e)
@@ -418,21 +422,7 @@ func evictLRU(dir string, st *store.Store, protected map[string]bool) bool {
 	if len(candidates) == 0 {
 		return false
 	}
-	// 优先淘汰未保护的普通缓存，最后淘汰待分发图片
 	oldest := oldestFile(candidates)
-	if pooledSet != nil {
-		var ordinary []string
-		for _, e := range candidates {
-			if !pooledSet[fileIDFromPath(e)] {
-				ordinary = append(ordinary, e)
-			}
-		}
-		if len(ordinary) > 0 {
-			if p := oldestFile(ordinary); p != "" {
-				oldest = p
-			}
-		}
-	}
 	if oldest == "" {
 		return false
 	}
@@ -444,13 +434,19 @@ func evictLRU(dir string, st *store.Store, protected map[string]bool) bool {
 }
 
 func (is *ImageStore) evictByCount(maxImages int, protected map[string]bool) {
+	if is.store == nil {
+		return
+	}
 	entries := listCacheFiles(is.cacheDir)
 	if len(entries) <= maxImages {
 		return
 	}
 	over := len(entries) - maxImages
 
-	pooledSet, _ := is.store.GetPooledFileIDSet()
+	pooledSet, err := is.store.GetPooledFileIDSet()
+	if err != nil {
+		return
+	}
 
 	type entryInfo struct {
 		path string
@@ -462,18 +458,14 @@ func (is *ImageStore) evictByCount(maxImages int, protected map[string]bool) {
 		if err != nil {
 			continue
 		}
-		if protected != nil && protected[fileIDFromPath(e)] {
+		fileID := fileIDFromPath(e)
+		if (protected != nil && protected[fileID]) || (pooledSet != nil && pooledSet[fileID]) {
 			continue
 		}
 		infos = append(infos, entryInfo{e, info.ModTime()})
 	}
 
 	sort.Slice(infos, func(i, j int) bool {
-		iPooled := pooledSet != nil && pooledSet[fileIDFromPath(infos[i].path)]
-		jPooled := pooledSet != nil && pooledSet[fileIDFromPath(infos[j].path)]
-		if iPooled != jPooled {
-			return !iPooled
-		}
 		return infos[i].mod.Before(infos[j].mod)
 	})
 
@@ -491,17 +483,7 @@ func (is *ImageStore) CleanupOrphanPooled() {
 		return
 	}
 	for _, fid := range ids {
-		found := false
-		for _, pattern := range []string{
-			filepath.Join(is.cacheDir, "*", fid+".*"),
-			filepath.Join(is.cacheDir, fid+".*"),
-		} {
-			if matches, _ := filepath.Glob(pattern); len(matches) > 0 {
-				found = true
-				break
-			}
-		}
-		if !found {
+		if _, _, err := is.GetImage(fid); err != nil {
 			is.store.DeleteImageByFileID(fid)
 		}
 	}
@@ -513,44 +495,6 @@ func encodeStringSlice(s []string) string {
 	}
 	b, _ := json.Marshal(s)
 	return string(b)
-}
-
-func (is *ImageStore) ClearSourceImages(sourceID int64) error {
-	dir := filepath.Join(is.cacheDir, fmt.Sprintf("%d", sourceID))
-	fileIDs, err := is.store.GetImageFileIDsBySourceID(sourceID)
-	if err != nil {
-		return err
-	}
-	for _, fileID := range fileIDs {
-		pattern := filepath.Join(dir, fileID+".*")
-		matches, _ := filepath.Glob(pattern)
-		for _, m := range matches {
-			os.Remove(m)
-		}
-		// 已被 MoveToRoot 移到根目录的文件一并清理
-		rootPattern := filepath.Join(is.cacheDir, fileID+".*")
-		rootMatches, _ := filepath.Glob(rootPattern)
-		for _, m := range rootMatches {
-			os.Remove(m)
-		}
-	}
-	return is.store.DeleteImagesBySourceID(sourceID)
-}
-
-func (is *ImageStore) DeleteSourceFolder(sourceID int64) error {
-	dir := filepath.Join(is.cacheDir, fmt.Sprintf("%d", sourceID))
-	os.RemoveAll(dir)
-	fileIDs, err := is.store.GetImageFileIDsBySourceIDAll(sourceID)
-	if err != nil {
-		return err
-	}
-	for _, fileID := range fileIDs {
-		rootMatches, _ := filepath.Glob(filepath.Join(is.cacheDir, fileID+".*"))
-		for _, m := range rootMatches {
-			os.Remove(m)
-		}
-	}
-	return is.store.DeleteImagesBySourceIDAll(sourceID)
 }
 
 func (is *ImageStore) MoveToRoot(fileID string, sourceID int64) error {

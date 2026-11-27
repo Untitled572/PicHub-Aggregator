@@ -32,7 +32,6 @@ type PoolEntry struct {
 	Height      int
 	Format      string
 	ImageID     int64
-	RoundCount  int
 }
 
 type DistributionPool struct {
@@ -127,54 +126,10 @@ func (p *DistributionPool) Remove(fileID string) {
 	}
 }
 
-func (p *DistributionPool) RemoveBySourceID(sourceID int64) int {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	kept := p.items[:0]
-	removed := 0
-	for _, entry := range p.items {
-		if entry.SourceID == sourceID {
-			removed++
-			continue
-		}
-		kept = append(kept, entry)
-	}
-	p.items = kept
-	return removed
-}
-
 func (p *DistributionPool) Size() int {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return len(p.items)
-}
-
-// Trim returns expired entries so their disk records can become ordinary cache.
-func (p *DistributionPool) Trim(target, maxRounds int, live map[string]bool) []*PoolEntry {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	keep := make([]*PoolEntry, 0, len(p.items))
-	var expired []*PoolEntry
-	for _, entry := range p.items {
-		if live != nil && !live[entry.FileID] {
-			continue
-		}
-		entry.RoundCount++
-		if entry.RoundCount >= maxRounds {
-			expired = append(expired, entry)
-			continue
-		}
-		keep = append(keep, entry)
-	}
-
-	for len(keep) > target {
-		expired = append(expired, keep[0])
-		keep = keep[1:]
-	}
-
-	p.items = keep
-	return expired
 }
 
 func (p *DistributionPool) snapshot() []PoolEntry {
@@ -223,38 +178,6 @@ func (p *DistributionPool) CategorySnapshot(tags []model.Tag) map[string]int {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.categoryStock(tags)
-}
-
-// putPrefetch may replace surplus stock when a reserved tag is underfilled.
-// Choose a victim only after a usable picture is ready.
-func (p *DistributionPool) putPrefetch(entry *PoolEntry, target int, tag string, reserve map[string]int, tags []model.Tag) (bool, *PoolEntry) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if len(p.items) < target {
-		p.items = append(p.items, entry)
-		return true, nil
-	}
-	if tag == "" || !matchesReserve(entry, tag, tags) {
-		return false, nil
-	}
-	stock := p.categoryStock(tags)
-	if stock[tag] >= reserve[tag] {
-		return false, nil
-	}
-	for i, old := range p.items {
-		spare := true
-		for _, cat := range old.Categories {
-			if reserve[cat] > 0 && stock[cat] <= reserve[cat] && matchesReserve(old, cat, tags) {
-				spare = false
-				break
-			}
-		}
-		if spare {
-			p.items = append(append(p.items[:i], p.items[i+1:]...), entry)
-			return true, old
-		}
-	}
-	return false, nil
 }
 
 func entryToResult(entry *PoolEntry) *Result {

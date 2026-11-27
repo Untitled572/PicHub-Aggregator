@@ -173,12 +173,6 @@ func (h *Handler) DeleteSource(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	if h.engine != nil {
-		h.engine.RemoveSourceFromPool(id)
-	}
-	if h.imageStore != nil {
-		go h.imageStore.DeleteSourceFolder(id)
-	}
 	c.JSON(http.StatusNoContent, nil)
 }
 
@@ -206,14 +200,6 @@ func (h *Handler) ToggleSource(c *gin.Context) {
 	if err := h.store.UpdateSource(src); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
-	}
-	if !src.Enabled {
-		if h.engine != nil {
-			h.engine.RemoveSourceFromPool(src.ID)
-		}
-		if h.imageStore != nil {
-			go h.imageStore.ClearSourceImages(src.ID)
-		}
 	}
 	c.JSON(http.StatusOK, src)
 }
